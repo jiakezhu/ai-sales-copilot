@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import ReportBuilder from "../report.js";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const readBinary = path => readFileSync(new URL(`../${path}`, import.meta.url));
@@ -59,7 +60,7 @@ test("Tencent shell uses the supplied QQ penguin and TDesign tokens", () => {
   assert.match(css, /--blue-strong:\s*var\(--td-brand-color-active\)/i);
   assert.match(css, /--blue-soft:\s*var\(--td-brand-color-light\)/i);
   assert.match(css, /\.mobile-capture\{[^}]*background:linear-gradient\(145deg,var\(--td-brand-color-hover\),var\(--td-brand-color\)\)/i);
-  assert.doesNotMatch(html, /<script\s+src="report\.js"/i);
+  assert.match(html, /<script\s+src="report\.js"/i);
 });
 
 test("QQ penguin asset is byte-for-byte the approved reference", () => {
@@ -414,4 +415,116 @@ test("business workspace controls expose a visible keyboard focus ring", () => {
 test("the final customer menu stays visible inside the clipped worktable", () => {
   const css = read("style.css");
   assert.match(css, /\.customer-row:last-child\s+\.row-more-actions\s*>\s*button\s*\{[^}]*top:\s*auto[^}]*bottom:\s*34px/i);
+});
+
+const reportContext = {
+  fieldDefs: [
+    { key: "industry", label: "行业", public: true },
+    { key: "relation", label: "客户关系", public: false },
+  ],
+  stages: [{ key: "proposal", label: "方案中" }],
+  methods: [{ key: "phone", label: "电话" }],
+  assetTypes: [{ key: "file", label: "文件" }],
+  formatDateTime: value => value,
+  formatShortDate: value => value,
+  reportDate: "2026年7月16日",
+};
+
+test("report omits empty sections and all product-generation copy", () => {
+  const customer = {
+    name: "星澜互娱", grade: "A", stage: "proposal",
+    fields: { industry: { v: "游戏" }, relation: { v: "技术负责人支持" } },
+    painPoints: [{ v: "海外延迟" }], solution: [], orgChain: [], assets: [],
+    notes: [{ method: "phone", date: "2026-07-16 10:00", contact: "王工", content: "确认海外延迟是核心顾虑", next: "发送对比方案", nextDate: "2026-07-18", taskDone: false }],
+    stageHistory: [], raidFile: {},
+  };
+
+  const html = ReportBuilder.build(customer, reportContext);
+
+  assert.match(html, /星澜互娱/);
+  assert.match(html, /执行摘要/);
+  assert.match(html, /全流程客户推进记录/);
+  assert.match(html, /当前未完成行动/);
+  assert.doesNotMatch(html, /云销副驾|AI\s*生成|实时汇总|未填写|暂无|待补充|企鹅|营销话术/);
+  assert.doesNotMatch(html, /关键关系与组织架构|材料与证据索引/);
+});
+
+test("report covers populated customer intelligence without mutating source data", () => {
+  const customer = {
+    name: "远帆科技", grade: "S", stage: "proposal",
+    fields: {
+      industry: { value: "企业服务" },
+      relation: "采购负责人已建联",
+    },
+    orgChain: [{ name: "李总", role: "采购负责人", phone: "13800000000", note: "预算关键人" }],
+    painPoints: ["成本压力"],
+    solution: [{ name: "迁移方案", description: "分阶段降低成本" }],
+    notes: [
+      { method: "phone", date: "2026-07-15 09:00", content: "确认预算范围", next: "提交报价", nextDate: "2026-07-20", taskDone: false },
+      { method: "phone", date: "2026-07-14 09:00", content: "完成首次沟通", next: "发送资料", taskDone: true },
+    ],
+    stageHistory: [{ stage: "proposal", date: "2026-07-15", note: "进入方案评估" }],
+    assets: [{ fileName: "会议纪要.pdf", description: "预算会议记录", type: "file", date: "2026-07-15" }],
+    raidFile: {
+      basic: { scope: "为制造企业提供协同软件" },
+      scenes: [{ title: "海外协同", scene: "跨区域访问" }],
+      org: { orgDesc: "采购向 CFO 汇报", roles: [{ role: "CFO", position: "决策人", demand: "控制预算" }] },
+      dm: { reachLevel: "采购负责人", coreDemand: "年度降本", concern: "迁移风险" },
+      competitors: [{ name: "现有供应商", coverage: "核心系统", pros: "稳定", cons: "成本高" }],
+      solution: { biz: "分阶段商务方案", tech: "双轨迁移" },
+      goals: { g1: "完成测试", g2: "核心系统迁移", g3: "建立长期合作" },
+      plan: { action: "组织技术评审", support: "安排架构师" },
+    },
+  };
+  const before = JSON.stringify(customer);
+
+  const html = ReportBuilder.build(customer, reportContext);
+
+  for (const expected of [
+    "执行摘要", "客户基本信息与情报", "组织与关键关系", "痛点、竞品与匹配方案",
+    "全流程客户推进记录", "当前未完成行动", "阶段历史、目标与攻坚计划", "材料与证据索引",
+    "远帆科技", "企业服务", "李总", "成本压力", "迁移方案", "确认预算范围", "提交报价",
+    "采购向 CFO 汇报", "进入方案评估", "完成测试", "组织技术评审", "会议纪要.pdf",
+  ]) assert.match(html, new RegExp(expected));
+  assert.equal((html.match(/成本压力/g) || []).length, 1);
+  assert.equal((html.match(/迁移风险/g) || []).length, 1);
+  assert.equal(JSON.stringify(customer), before);
+});
+
+test("report escapes customer data, suppresses empty values, and avoids cross-section fact repetition", () => {
+  const repeatedFact = "唯一关系事实";
+  const html = ReportBuilder.build({
+    name: "<客户&公司>", stage: "", grade: "",
+    fields: { industry: { v: "  " }, relation: { v: repeatedFact } },
+    notes: [{ method: "", date: "", content: "" }],
+    orgChain: [{ name: "", role: "", phone: "", note: "" }],
+    painPoints: [], solution: [], assets: [], stageHistory: [], raidFile: {},
+  }, reportContext);
+
+  assert.match(html, /&lt;客户&amp;公司&gt;/);
+  assert.equal((html.match(new RegExp(repeatedFact, "g")) || []).length, 1);
+  assert.doesNotMatch(html, />\s*undefined\s*</);
+  assert.doesNotMatch(html, /<p><\/p>|<li><\/li>|<td><\/td>/);
+  assert.doesNotMatch(html, /全流程客户推进记录|组织与关键关系/);
+});
+
+test("report builder is the single source for preview and Word export", () => {
+  const html = read("index.html");
+  const js = read("app.js");
+  const reportScript = html.indexOf('<script src="report.js"></script>');
+  const appScript = html.indexOf('<script src="app.js"></script>');
+
+  assert.ok(reportScript > 0 && appScript > reportScript);
+  assert.match(js, /return ReportBuilder\.build\(customer,\s*\{/);
+  assert.match(js, /ReportBuilder\.wrapWord\(\$\("#reportDocument"\)\.innerHTML\)/);
+  assert.doesNotMatch(js, /function reportList|function reportEmpty|const reportRow/);
+  assert.doesNotMatch(read("report.js"), /云销副驾|企鹅|AI\s*生成|实时汇总|未填写|暂无|待补充|report-footer/);
+});
+
+test("Word wrapper contains exactly the supplied report body", () => {
+  const body = '<section class="report-section"><h2>客户事实</h2></section>';
+  const word = ReportBuilder.wrapWord(body);
+  assert.match(word, /^<!DOCTYPE html>/i);
+  assert.equal((word.match(/客户事实/g) || []).length, 1);
+  assert.doesNotMatch(word, /云销副驾|企鹅|AI\s*生成|实时汇总|report-footer/);
 });

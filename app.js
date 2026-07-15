@@ -788,7 +788,7 @@ function openReport(customerId) {
   if (!customer) return;
   reportCustomer = customer;
   $("#reportDocument").innerHTML = buildReport(customer);
-  $("#reportStatus").textContent = `生成于 ${formatDateTime(nowDateTime())} · 可继续返回档案修改`;
+  $("#reportStatus").textContent = `${customer.name} · ${formatLongDate(new Date())}`;
   $("#reportLayer").classList.remove("hidden");
   document.body.classList.add("report-open");
   refreshIcons();
@@ -802,32 +802,20 @@ function closeReport() {
 }
 
 function buildReport(customer) {
-  const notes=[...customer.notes].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
-  const tasks=getTasks(customer).filter(t=>!t.done);
-  const publicFields=FIELD_DEFS.filter(d=>d.public);
-  const privateFields=FIELD_DEFS.filter(d=>!d.public);
-  const raid=customer.raidFile || {};
-  const reportRow=(label,value)=>`<div class="report-field"><span>${safe(label)}</span><p>${safe(value || "未填写")}</p></div>`;
-  return `<header class="report-cover"><div class="report-brand"><span>Y</span> 云销副驾</div><p class="report-type">客户全景报告 / ACCOUNT 360</p><h1>${safe(customer.name)}</h1><div class="report-cover-meta"><span>${customer.grade} 级客户</span><span>${stageLabel(customer.stage)}</span><span>${safe(customer.fields.industry?.v || "行业未填写")}</span></div><p class="report-date">报告生成日期：${formatLongDate(new Date())}</p></header>
-  <section class="report-section report-executive"><div class="report-section-title"><span>01</span><h2>执行摘要</h2></div><div class="report-summary-grid">${reportRow("下一步行动",tasks[0]?.text || raid.plan?.action)}${reportRow("核心机会",customer.painPoints[0]?.v)}${reportRow("关系进展",customer.fields.relation?.v)}${reportRow("推荐切入",customer.solution[0]?.product)}</div></section>
-  <section class="report-section"><div class="report-section-title"><span>02</span><h2>客户基本面</h2></div><div class="report-data-grid">${publicFields.map(d=>reportRow(d.label,customer.fields[d.key]?.v)).join("")}</div></section>
-  <section class="report-section"><div class="report-section-title"><span>03</span><h2>一线私有情报</h2></div><div class="report-data-grid single">${privateFields.map(d=>reportRow(d.label,customer.fields[d.key]?.v)).join("")}</div></section>
-  <section class="report-section"><div class="report-section-title"><span>04</span><h2>关键关系与组织架构</h2></div>${customer.orgChain.length?`<table class="report-table"><thead><tr><th>姓名</th><th>职位 / 层级</th><th>联系方式</th><th>关系备注</th></tr></thead><tbody>${customer.orgChain.map(p=>`<tr><td><b>${safe(p.name)}</b></td><td>${safe(p.role)} / ${p.level===1?"决策层":p.level===2?"影响层":"执行层"}</td><td>${safe([p.phone,p.wechat,p.email].filter(Boolean).join(" · ") || "未填写")}</td><td>${safe(p.note || "未填写")}</td></tr>`).join("")}</tbody></table>`:reportEmpty("尚未建立关键关系")}</section>
-  <section class="report-section"><div class="report-section-title"><span>05</span><h2>痛点、竞对与方案</h2></div><div class="report-two-col"><div><h3>核心痛点</h3>${reportList(customer.painPoints.map(p=>p.v))}<h3>外部竞对</h3>${reportList((raid.competitors||[]).map(c=>`${c.name}：${c.coverage}；优势 ${c.pros}；劣势 ${c.cons}`))}</div><div><h3>匹配方案</h3>${customer.solution.length?customer.solution.map(s=>`<article class="report-solution"><b>${safe(s.product)}</b><p>${safe(s.reason)}</p></article>`).join(""):reportEmpty("尚未匹配方案")}<h3>商务 / 技术策略</h3><p class="report-paragraph">${safe(raid.solution?.biz || "未填写")}</p><p class="report-paragraph">${safe(raid.solution?.tech || "未填写")}</p></div></div></section>
-  <section class="report-section page-break"><div class="report-section-title"><span>06</span><h2>全流程客户推进记录</h2></div>${notes.length?`<div class="report-timeline">${notes.map(note=>`<article><time>${formatDateTime(note.date)}</time><div><b>${safe(methodMeta(note.method).label)}${note.contact?` · ${safe(note.contact)}`:""}</b><p>${safe(note.content)}</p>${note.next?`<small>${note.taskDone?"已完成":"下一步"}：${safe(note.next)} · ${formatShortDate(note.nextDate)}</small>`:""}</div></article>`).join("")}</div>`:reportEmpty("尚无推进记录")}</section>
-  <section class="report-section"><div class="report-section-title"><span>07</span><h2>阶段历史与当前待办</h2></div><div class="report-two-col"><div><h3>阶段历史</h3>${reportList((customer.stageHistory||[]).map(h=>`${formatDateTime(h.date)} · ${stageLabel(h.stage)} · ${h.note||""}`))}</div><div><h3>当前待办</h3>${reportList(tasks.map(t=>`${formatShortDate(t.date)} · ${t.text}${t.note.contact?` · ${t.note.contact}`:""}`))}</div></div></section>
-  <section class="report-section"><div class="report-section-title"><span>08</span><h2>阶段目标与攻坚计划</h2></div><div class="report-data-grid single">${reportRow("3 个月目标",raid.goals?.g1)}${reportRow("6 个月目标",raid.goals?.g2)}${reportRow("长期布局",raid.goals?.g3)}${reportRow("下一步攻坚动作",raid.plan?.action)}${reportRow("需要支持事项",raid.plan?.support)}</div></section>
-  <section class="report-section"><div class="report-section-title"><span>09</span><h2>材料与证据索引</h2></div>${customer.assets.length?`<table class="report-table"><thead><tr><th>材料名称</th><th>类型</th><th>关联说明</th><th>录入时间</th></tr></thead><tbody>${customer.assets.map(a=>`<tr><td>${safe(a.name)}</td><td>${safe(assetTypeLabel(a.type))}</td><td>${safe(a.caption||"未填写")}</td><td>${formatDateTime(a.createdAt)}</td></tr>`).join("")}</tbody></table>`:reportEmpty("尚无材料附件")}</section>
-  <footer class="report-footer"><b>云销副驾 · 客户全景报告</b><p>本报告由客户档案实时汇总生成。AI 提取内容均经销售确认；未填写项明确保留，不进行虚构补全。</p></footer>`;
+  return ReportBuilder.build(customer, {
+    fieldDefs: FIELD_DEFS,
+    stages: CRM_STAGES,
+    methods: CONTACT_METHODS,
+    assetTypes: ASSET_TYPES,
+    formatDateTime,
+    formatShortDate,
+    reportDate: formatLongDate(new Date()),
+  });
 }
-
-function reportList(items) { return items.filter(Boolean).length ? `<ul class="report-list">${items.filter(Boolean).map(item=>`<li>${safe(item)}</li>`).join("")}</ul>` : reportEmpty("暂无内容"); }
-function reportEmpty(text) { return `<p class="report-empty">${safe(text)}</p>`; }
 
 function exportWordReport() {
   if (!reportCustomer) return;
-  const styles = `body{font-family:Arial,'Microsoft YaHei',sans-serif;color:#162033;line-height:1.6;margin:36px}.report-cover{padding:40px 0;border-bottom:3px solid #2864dc}.report-cover h1{font-size:34px}.report-section{margin:32px 0}.report-section-title{display:flex;gap:12px;align-items:center;border-bottom:1px solid #ccd5e3}.report-section-title span{color:#2864dc;font-weight:bold}.report-data-grid,.report-summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.report-field{border:1px solid #dce2ea;padding:12px}.report-field span{color:#69758a;font-size:12px}.report-table{width:100%;border-collapse:collapse}.report-table th,.report-table td{border:1px solid #dce2ea;padding:8px;text-align:left}.report-two-col{display:grid;grid-template-columns:1fr 1fr;gap:24px}.report-footer{margin-top:50px;border-top:1px solid #dce2ea;padding-top:16px;color:#69758a}`;
-  const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${styles}</style></head><body>${$("#reportDocument").innerHTML}</body></html>`;
+  const doc = ReportBuilder.wrapWord($("#reportDocument").innerHTML);
   const blob = new Blob(["\ufeff", doc], { type: "application/msword" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a"); link.href=url; link.download=`${reportCustomer.name}_客户全景报告_${todayStr()}.doc`; link.click();
