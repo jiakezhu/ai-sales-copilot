@@ -299,6 +299,7 @@ function renderWorkspace() {
   renderProfile();
   renderScript();
   renderFunnel();
+  renderRaidFile();
 }
 
 function renderAvatar() {
@@ -1403,6 +1404,231 @@ function showScript(scripts, key) {
 function copyText(btn) {
   const text = btn.parentElement.childNodes[0].textContent;
   navigator.clipboard?.writeText(text).then(() => { btn.textContent = "已复制 ✓"; setTimeout(() => btn.textContent = "复制", 1500); }).catch(() => { btn.textContent = "已复制 ✓"; });
+}
+
+// ===================================================================
+// 模块⑥ 攻坚档案（重点攻坚客户档案）
+// ===================================================================
+
+// 确保 current.raidFile 结构完整（按 RAID_SECTIONS 补齐空字段）
+function ensureRaidFile(c) {
+  if (!c.raidFile) c.raidFile = {};
+  const rf = c.raidFile;
+  if (!Array.isArray(rf.demands)) rf.demands = [];
+  if (!rf.raidStage) rf.raidStage = "";
+  RAID_SECTIONS.forEach(sec => {
+    if (sec.fields) {
+      if (!rf[sec.key]) rf[sec.key] = {};
+      sec.fields.forEach(f => { if (rf[sec.key][f.key] == null) rf[sec.key][f.key] = ""; });
+    }
+  });
+  if (!Array.isArray(rf.scenes)) rf.scenes = [];
+  if (!Array.isArray(rf.roles)) rf.roles = [];
+  if (!Array.isArray(rf.competitors)) rf.competitors = [];
+  if (!rf.goals) rf.goals = { g1: "", g2: "", g3: "" };
+  return rf;
+}
+
+function raidHasContent(rf) {
+  const flat = JSON.stringify(rf.basic) + JSON.stringify(rf.scenes) + JSON.stringify(rf.roles) +
+    JSON.stringify(rf.dm) + JSON.stringify(rf.competitors) + JSON.stringify(rf.goals) +
+    JSON.stringify(rf.solution) + JSON.stringify(rf.plan) + JSON.stringify(rf.org);
+  return /[\u4e00-\u9fa5A-Za-z0-9]/.test(flat.replace(/[\{\}\[\]":,]/g, ""));
+}
+
+// 可编辑多行文本块
+function raidTextCell(secKey, fieldKey, val, ph) {
+  return `<div class="raid-editable" contenteditable="true" data-sec="${secKey}" data-f="${fieldKey}" data-ph="${esc(ph||"点击填写…")}">${esc(val||"")}</div>`;
+}
+
+function renderRaidFile() {
+  const c = current;
+  const rf = ensureRaidFile(c);
+  const box = $("#raidFile");
+  if (!box) return;
+
+  // —— 头部：客户名 / 沟通时间 / 阶段 / 诉求 快标 ——
+  const demandChips = RAID_DEMANDS.map(d =>
+    `<button class="raid-chip ${rf.demands.includes(d.key)?'on':''}" data-demand="${d.key}">${d.label}</button>`
+  ).join("");
+  const stageChips = RAID_STAGES.map(s =>
+    `<button class="raid-stage-chip ${rf.raidStage===s.key?'on':''}" data-rstage="${s.key}">${s.label}</button>`
+  ).join("");
+
+  const head = `
+    <div class="raid-topbar glass-card no-print-shadow">
+      <div class="raid-top-row">
+        <div class="raid-title-wrap">
+          <div class="raid-doc-title">重点攻坚客户档案</div>
+          <div class="raid-doc-sub">客户：${esc(c.name)}　·　更新时间：${esc(rf.updatedAt||todayStr())}</div>
+        </div>
+        <div class="raid-top-actions">
+          <button class="btn-ghost sm" id="raidPrintBtn">🖨 打印 / 导出 PDF</button>
+        </div>
+      </div>
+      <div class="raid-quick">
+        <div class="raid-quick-block">
+          <div class="raid-quick-lbl">当前阶段（单选）</div>
+          <div class="raid-stage-chips">${stageChips}</div>
+        </div>
+        <div class="raid-quick-block">
+          <div class="raid-quick-lbl">本次沟通诉求（可多选）</div>
+          <div class="raid-chips">${demandChips}</div>
+        </div>
+      </div>
+    </div>`;
+
+  // —— 8 大模块 ——
+  const body = RAID_SECTIONS.map(sec => renderRaidSection(sec, rf, c)).join("");
+
+  box.innerHTML = head + `<div class="raid-body">${body}</div>`;
+
+  bindRaidHead(rf);
+  bindRaidEditables(rf);
+  bindRaidLists(rf, c);
+  $("#raidPrintBtn").onclick = () => window.print();
+}
+
+function renderRaidSection(sec, rf, c) {
+  const hint = sec.hint ? `<span class="raid-sec-hint">${esc(sec.hint)}</span>` : "";
+  const req = sec.required ? `<span class="raid-req">必填</span>` : "";
+  let inner = "";
+
+  // 普通字段
+  if (sec.fields) {
+    inner += sec.fields.map(f => {
+      if (f.type === "attitude") {
+        const cur = (rf[sec.key] && rf[sec.key][f.key]) || "";
+        const opts = RAID_ATTITUDES.map(a =>
+          `<button class="raid-att ${cur===a.key?'on':''}" data-sec="${sec.key}" data-f="${f.key}" data-att="${a.key}" style="--ac:${a.color}">${a.label}</button>`
+        ).join("");
+        return `<div class="raid-field"><div class="raid-field-lbl">${esc(f.label)}</div><div class="raid-att-group">${opts}</div></div>`;
+      }
+      const val = (rf[sec.key] && rf[sec.key][f.key]) || "";
+      return `<div class="raid-field"><div class="raid-field-lbl">${esc(f.label)}</div>${raidTextCell(sec.key, f.key, val, "点击填写…")}</div>`;
+    }).join("");
+  }
+
+  // 业务场景列表
+  if (sec.type === "scenes") {
+    inner += `<div class="raid-list" data-list="scenes">` + rf.scenes.map((s, i) => `
+      <div class="raid-list-item" data-i="${i}">
+        <div class="raid-li-head"><span class="raid-li-idx">场景 ${i+1}</span><button class="raid-li-del" data-list="scenes" data-i="${i}">删除</button></div>
+        <div class="raid-field"><div class="raid-field-lbl">业务名称</div><div class="raid-editable" contenteditable="true" data-list="scenes" data-i="${i}" data-lf="title" data-ph="如：海外发行">${esc(s.title||"")}</div></div>
+        <div class="raid-field"><div class="raid-field-lbl">场景描述</div><div class="raid-editable" contenteditable="true" data-list="scenes" data-i="${i}" data-lf="scene" data-ph="这块业务的具体场景与痛点…">${esc(s.scene||"")}</div></div>
+        <div class="raid-field"><div class="raid-field-lbl">相关链接</div><div class="raid-editable" contenteditable="true" data-list="scenes" data-i="${i}" data-lf="link" data-ph="选填：官网/产品页/资料链接">${esc(s.link||"")}</div></div>
+      </div>`).join("") + `</div>
+      <button class="raid-add" data-add="scenes">＋ 增加业务场景</button>`;
+  }
+
+  // 关键角色列表（决策链模块）
+  if (sec.type === "roles") {
+    inner += `<div class="raid-sub-lbl">关键角色及诉求</div><div class="raid-list" data-list="roles">` + rf.roles.map((r, i) => `
+      <div class="raid-list-item" data-i="${i}">
+        <div class="raid-li-head">
+          <span class="raid-role-name" contenteditable="true" data-list="roles" data-i="${i}" data-lf="name" data-ph="姓名">${esc(r.name||"")}</span>
+          <span class="raid-role-role" contenteditable="true" data-list="roles" data-i="${i}" data-lf="role" data-ph="职位">${esc(r.role||"")}</span>
+          <button class="raid-li-del" data-list="roles" data-i="${i}">删除</button>
+        </div>
+        <div class="raid-field"><div class="raid-field-lbl">诉求 / 痛点</div><div class="raid-editable" contenteditable="true" data-list="roles" data-i="${i}" data-lf="demand" data-ph="他最在意什么？痛点是什么？">${esc(r.demand||"")}</div></div>
+      </div>`).join("") + `</div>
+      <button class="raid-add" data-add="roles">＋ 增加关键角色</button>`;
+  }
+
+  // 外部竞对列表
+  if (sec.type === "competitors") {
+    inner += `<div class="raid-sub-lbl">外部竞对</div><div class="raid-list" data-list="competitors">` + rf.competitors.map((cp, i) => `
+      <div class="raid-list-item" data-i="${i}">
+        <div class="raid-li-head"><span class="raid-role-name" contenteditable="true" data-list="competitors" data-i="${i}" data-lf="name" data-ph="友商名称">${esc(cp.name||"")}</span><button class="raid-li-del" data-list="competitors" data-i="${i}">删除</button></div>
+        <div class="raid-field"><div class="raid-field-lbl">覆盖业务</div><div class="raid-editable" contenteditable="true" data-list="competitors" data-i="${i}" data-lf="coverage" data-ph="它覆盖了客户哪块业务？">${esc(cp.coverage||"")}</div></div>
+        <div class="raid-two">
+          <div class="raid-field"><div class="raid-field-lbl">优势</div><div class="raid-editable" contenteditable="true" data-list="competitors" data-i="${i}" data-lf="pros" data-ph="对方强在哪">${esc(cp.pros||"")}</div></div>
+          <div class="raid-field"><div class="raid-field-lbl">劣势</div><div class="raid-editable" contenteditable="true" data-list="competitors" data-i="${i}" data-lf="cons" data-ph="可攻击的短板">${esc(cp.cons||"")}</div></div>
+        </div>
+      </div>`).join("") + `</div>
+      <button class="raid-add" data-add="competitors">＋ 增加竞对</button>`;
+  }
+
+  // 三段目标
+  if (sec.type === "goals") {
+    const g = rf.goals;
+    inner += `
+      <div class="raid-field"><div class="raid-field-lbl">第一目标（3 个月内）</div>${raidTextCell("goals","g1",g.g1,"3 个月内要拿下什么？")}</div>
+      <div class="raid-field"><div class="raid-field-lbl">第二目标（6 个月）</div>${raidTextCell("goals","g2",g.g2,"6 个月内的推进目标")}</div>
+      <div class="raid-field"><div class="raid-field-lbl">第三目标（长期布局）</div>${raidTextCell("goals","g3",g.g3,"长期战略布局")}</div>`;
+  }
+
+  return `
+    <div class="raid-section glass-card">
+      <div class="raid-sec-head">
+        <span class="raid-sec-no">${sec.no}</span>
+        <span class="raid-sec-title">${esc(sec.title)}</span>${req}${hint}
+      </div>
+      <div class="raid-sec-body">${inner}</div>
+    </div>`;
+}
+
+// 头部诉求/阶段快标交互
+function bindRaidHead(rf) {
+  $$("#raidFile .raid-chip").forEach(btn => btn.onclick = () => {
+    const k = btn.dataset.demand;
+    const idx = rf.demands.indexOf(k);
+    if (idx >= 0) rf.demands.splice(idx, 1); else rf.demands.push(k);
+    btn.classList.toggle("on");
+    touchRaid(rf);
+  });
+  $$("#raidFile .raid-stage-chip").forEach(btn => btn.onclick = () => {
+    rf.raidStage = (rf.raidStage === btn.dataset.rstage) ? "" : btn.dataset.rstage;
+    $$("#raidFile .raid-stage-chip").forEach(b => b.classList.toggle("on", b.dataset.rstage === rf.raidStage));
+    touchRaid(rf);
+  });
+  // 合作态度按钮
+  $$("#raidFile .raid-att").forEach(btn => btn.onclick = () => {
+    const sec = btn.dataset.sec, f = btn.dataset.f, v = btn.dataset.att;
+    if (!rf[sec]) rf[sec] = {};
+    rf[sec][f] = (rf[sec][f] === v) ? "" : v;
+    btn.parentElement.querySelectorAll(".raid-att").forEach(b => b.classList.toggle("on", b.dataset.att === rf[sec][f]));
+    touchRaid(rf);
+  });
+}
+
+// 普通字段可编辑绑定
+function bindRaidEditables(rf) {
+  $$("#raidFile .raid-editable[data-sec]").forEach(el => {
+    el.addEventListener("blur", () => {
+      const sec = el.dataset.sec, f = el.dataset.f;
+      if (!rf[sec]) rf[sec] = {};
+      rf[sec][f] = el.textContent.trim();
+      touchRaid(rf);
+    });
+  });
+}
+
+// 列表项（scenes/roles/competitors）编辑、增、删
+function bindRaidLists(rf, c) {
+  $$("#raidFile [data-list][data-lf]").forEach(el => {
+    el.addEventListener("blur", () => {
+      const list = el.dataset.list, i = +el.dataset.i, lf = el.dataset.lf;
+      if (rf[list] && rf[list][i]) { rf[list][i][lf] = el.textContent.trim(); touchRaid(rf); }
+    });
+  });
+  $$("#raidFile .raid-li-del").forEach(btn => btn.onclick = () => {
+    const list = btn.dataset.list, i = +btn.dataset.i;
+    rf[list].splice(i, 1); touchRaid(rf); renderRaidFile();
+  });
+  $$("#raidFile .raid-add").forEach(btn => btn.onclick = () => {
+    const list = btn.dataset.add;
+    if (list === "scenes") rf.scenes.push({ title: "", scene: "", link: "" });
+    else if (list === "roles") rf.roles.push({ name: "", role: "", demand: "" });
+    else if (list === "competitors") rf.competitors.push({ name: "", coverage: "", pros: "", cons: "" });
+    touchRaid(rf); renderRaidFile();
+  });
+}
+
+// 保存并刷新更新时间显示
+function touchRaid(rf) {
+  rf.updatedAt = todayStr();
+  persist();
 }
 
 // ===================================================================

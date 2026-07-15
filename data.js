@@ -71,6 +71,103 @@ const CONTACT_METHODS = [
   { key: "other",   label: "其他",   icon: "•", color: "#8a94a6" },
 ];
 
+// ===================================================================
+// 攻坚档案（重点攻坚客户档案）——单客户维度的结构化作战地图
+// 对应线下《重点攻坚客户档案》模板：头部快标 + 8 大模块
+// 数据存在 customer.raidFile 里，可编辑、可打印导出
+// ===================================================================
+
+// 头部：本次沟通诉求（可多选）
+const RAID_DEMANDS = [
+  { key: "align",    label: "对齐信息" },
+  { key: "strategy", label: "确定打法" },
+  { key: "resource", label: "申请资源" },
+  { key: "blocker",  label: "解决卡点" },
+  { key: "close",    label: "临门促单" },
+];
+
+// 头部：当前攻坚阶段（单选，区别于 CRM_STAGES，更贴合攻坚话术）
+const RAID_STAGES = [
+  { key: "no_dm",     label: "决策人未建联" },
+  { key: "dm_linked", label: "决策人已建联" },
+  { key: "research",  label: "需求调研/方案交流" },
+  { key: "nego",      label: "商务谈判" },
+  { key: "won",       label: "关单" },
+];
+
+// 合作态度（决策人建联进展用）
+const RAID_ATTITUDES = [
+  { key: "positive", label: "积极", color: "#00a870" },
+  { key: "neutral",  label: "观望", color: "#ed7b2f" },
+  { key: "negative", label: "抵触", color: "#e34d59" },
+];
+
+// 攻坚档案 8 大模块的结构定义（用于渲染表单骨架 + 空档案初始化）
+// type: text(多行) / list(可增删的条目列表) / scenes(业务场景:标题+场景+链接) /
+//       roles(关键角色:角色+职位+诉求) / competitors(竞对:名称+覆盖+优劣势) /
+//       goals(三段目标) / plan(攻坚动作+需支持)
+const RAID_SECTIONS = [
+  {
+    key: "basic", no: "1", title: "客户基本面", required: true,
+    hint: "基于一线沟通理解撰写，禁止直接复制网络简介",
+    fields: [
+      { key: "scope",   label: "经营范围（用自己的话概括）", type: "text" },
+      { key: "model",   label: "商业模式（核心赚钱逻辑）",   type: "text" },
+      { key: "market",  label: "市场分布（重点区域/客户群）", type: "text" },
+    ],
+  },
+  {
+    key: "scenes", no: "2", title: "业务场景拆解", required: true,
+    hint: "围绕客户实际业务，梳理相关业务场景（可增减）",
+    type: "scenes",
+  },
+  {
+    key: "org", no: "3", title: "决策链与组织架构", required: true,
+    hint: "组织架构图见「组织架构」Tab；此处补充汇报关系简述与关键角色诉求",
+    fields: [
+      { key: "orgDesc", label: "组织架构简述（汇报关系）", type: "text" },
+    ],
+    type: "roles", // 额外渲染关键角色列表
+  },
+  {
+    key: "dm", no: "4", title: "决策人建联进展", required: true,
+    fields: [
+      { key: "reachLevel", label: "当前触达层级",        type: "text" },
+      { key: "attitude",   label: "合作态度",            type: "attitude" },
+      { key: "coreDemand", label: "核心诉求 / 关注点",   type: "text" },
+      { key: "concern",    label: "主要顾虑",            type: "text" },
+    ],
+  },
+  {
+    key: "competitor", no: "5", title: "竞对分析",
+    fields: [
+      { key: "internal", label: "内部协同/冲突（是否有其他销售同时跟进？）", type: "text" },
+    ],
+    type: "competitors", // 额外渲染外部竞对列表
+  },
+  {
+    key: "goals", no: "6", title: "阶段性拓展目标",
+    hint: "销售及架构师预沟通，待策略会对齐",
+    type: "goals",
+  },
+  {
+    key: "solution", no: "7", title: "方案设计",
+    hint: "销售及架构师预沟通，待策略会对齐",
+    fields: [
+      { key: "biz",  label: "商务方案", type: "text" },
+      { key: "tech", label: "技术方案", type: "text" },
+    ],
+  },
+  {
+    key: "plan", no: "8", title: "下一步攻坚计划",
+    hint: "销售及架构师预沟通，待策略会对齐",
+    fields: [
+      { key: "action",  label: "攻坚动作",                          type: "text" },
+      { key: "support", label: "需支持事项（如申请高层拜访、特殊折扣等）", type: "text" },
+    ],
+  },
+];
+
 // 话术场景（辅助功能）
 const SCRIPT_SCENES = [
   { key: "first",     label: "首次建联" },
@@ -127,6 +224,55 @@ const SEED_CUSTOMERS = [
       { id: "n2", method: "phone", date: "2026-06-24 10:00", contact: "王工", place: "", content: "电话沟通，王工同意下周见面详聊，需要准备针对东南亚节点的延迟对比数据。", next: "预约周三上门拜访，准备方案 PPT", nextDate: "2026-07-01" },
     ],
     assets: [],
+    // 攻坚档案示范（对应线下《重点攻坚客户档案》模板）
+    raidFile: {
+      updatedAt: "2026-07-01",
+      demands: ["align", "strategy"],   // 本次沟通诉求
+      raidStage: "dm_linked",           // 当前攻坚阶段：决策人已建联
+      basic: {
+        scope:  "自研 + 发行手游，主攻 MMORPG 品类，同时做海外发行代理；核心收入来自游戏内充值（道具/皮肤/月卡）与海外分成。",
+        model:  "研运一体：自研《九州幻想》等 3 款产品，靠长线运营（版本更新+活动+付费点设计）拉高玩家 LTV，海外市场买量投放放大规模。",
+        market: "国内一二线为基本盘，增量重心在东南亚、中东；海外流水已占 35% 且仍在上升。",
+      },
+      scenes: [
+        { title: "海外发行", scene: "东南亚/中东玩家实时对战，对延迟极敏感；现有节点覆盖不足，跨区访问延迟高、掉线多，直接影响留存与付费。", link: "" },
+        { title: "开服 & 大型活动", scene: "新服开启、周年庆等瞬时在线暴涨 5-8 倍，自建 IDC 扩容不及时导致排队/卡顿，活动当天体验事故频发。", link: "" },
+      ],
+      org: {
+        orgDesc: "周明远(CEO)最终拍板 → 李阔(CTO)负责技术选型 → 王工(运维总监)经办并对稳定性/成本有一票否决权。技术决策实际由 CTO+运维总监共同主导，CEO 关注战略与 ROI。",
+      },
+      roles: [
+        { name: "周明远", role: "CEO / 创始人", demand: "关注出海战略能否成功、整体 ROI；不深入技术细节，认‘能不能帮我把海外做起来’。" },
+        { name: "李阔",   role: "CTO",          demand: "认技术硬指标（延迟数据、SLA、架构合理性）；怕被绑定单一厂商，重视方案的先进性与可迁移性。" },
+        { name: "王工",   role: "运维总监",      demand: "最痛稳定性与成本；活动保障压力大，希望弹性能力强、迁移风险低、有专人兜底支持。" },
+      ],
+      dm: {
+        reachLevel: "已触达执行层（运维总监王工）+ 管理层（CTO 李阔），尚未直接与 CEO 对话。",
+        attitude:   "positive",
+        coreDemand: "先解决出海延迟这一最痛的点，用一个可量化的效果证明能力，再谈整体上云降本。",
+        concern:    "担心迁移过程影响线上稳定性；担心被单一云厂商锁定；对报价与长期成本敏感。",
+      },
+      competitor: {
+        internal: "暂无其他同事同时跟进该客户，销售归属清晰，无内部撞单风险。",
+      },
+      competitors: [
+        { name: "友商 A（现有主力云）", coverage: "承载客户现有大部分自建 IDC 之外的云上业务", pros: "已有存量、迁移惯性大", cons: "出海节点覆盖弱、游戏专项加速能力不足、大促弹性响应慢" },
+        { name: "友商 B", coverage: "海外 CDN / 加速部分场景", pros: "海外节点多", cons: "游戏场景优化不深，缺乏一体化游戏云与数据库多活方案" },
+      ],
+      goals: {
+        g1: "3 个月内：以「全球加速 GAAP + 海外节点」切入，做一次东南亚延迟对比 PoC，用实测数据打动 CTO，拿下第一笔出海加速订单。",
+        g2: "6 个月：延伸到 GAME-TECH 游戏云 + GSE，承接开服/活动弹性场景，替换部分自建 IDC 峰值算力。",
+        g3: "长期：推动核心数据库迁移至 TDSQL + 异地多活，形成‘加速+算力+数据’整体上云，成为其出海基础设施主力供应商。",
+      },
+      solution: {
+        biz:  "分阶段签约降低客户决策门槛：先签出海加速小单验证效果，PoC 达标后再谈游戏云与数据库整体框架；提供出海带宽阶梯折扣 + 活动保障专项支持包。",
+        tech: "全球加速 GAAP + 海外边缘节点降低东南亚/中东延迟；GAME-TECH 游戏云 + GSE 做开服弹性伸缩；云数据库 TDSQL + 异地多活满足数据合规与高可用。",
+      },
+      plan: {
+        action:  "本周三上门拜访，带东南亚 3 城市延迟实测对比数据 + 出海加速方案 PPT；现场敲定一次小范围 PoC 的范围与时间表。",
+        support: "申请解决方案架构师随访一次；申请出海加速 PoC 的资源额度与阶梯折扣审批；争取一次面向 CEO 的高层拜访窗口。",
+      },
+    },
   },
   {
     id: "quickbuy", name: "闪购优选", logo: "闪", color: "#0ea5a4",

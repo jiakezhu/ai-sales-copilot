@@ -884,3 +884,98 @@ input, textarea, select, button { font-family: inherit; }
 @media (max-width: 720px) {
   .mn-form-row.two { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   模块⑥ 攻坚档案（重点攻坚客户档案）
+   ============================================================ */
+.raid-file { display: flex; flex-direction: column; gap: 14px; }
+
+/* 顶部：文档标题 + 阶段/诉求快标 */
+.raid-topbar { padding: 18px 20px; }
+.raid-top-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.raid-doc-title { font-size: 17px; font-weight: 720; color: var(--ink); letter-spacing: .3px; }
+.raid-doc-sub { font-size: 12.5px; color: var(--ink-3); margin-top: 3px; }
+.raid-quick { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--brd-2); }
+.raid-quick-lbl { font-size: 11.5px; font-weight: 600; color: var(--ink-3); margin-bottom: 9px; }
+.raid-chips, .raid-stage-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.raid-chip, .raid-stage-chip {
+  font-size: 12.5px; padding: 6px 13px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--brd); background: var(--surface); color: var(--ink-2); transition: .15s;
+}
+.raid-chip:hover, .raid-stage-chip:hover { border-color: var(--accent); color: var(--accent); }
+.raid-chip.on { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.raid-stage-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+/* 模块区块 */
+.raid-body { display: flex; flex-direction: column; gap: 14px; }
+.raid-section { padding: 18px 20px; }
+.raid-sec-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--brd-2); }
+.raid-sec-no {
+  width: 24px; height: 24px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: #fff; border-radius: 7px; font-size: 13px; font-weight: 700; font-family: var(--font-num);
+}
+.raid-sec-title { font-size: 15px; font-weight: 680; color: var(--ink); }
+.raid-req { font-size: 10.5px; font-weight: 600; color: #fff; background: var(--danger); padding: 2px 7px; border-radius: 5px; }
+.raid-sec-hint { font-size: 11.5px; color: var(--ink-3); font-weight: 400; }
+.raid-sec-body { display: flex; flex-direction: column; gap: 13px; }
+.raid-sub-lbl { font-size: 12.5px; font-weight: 620; color: var(--ink-2); margin: 4px 0 -2px; }
+
+.raid-field { display: flex; flex-direction: column; gap: 6px; }
+.raid-field-lbl { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.raid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* 可编辑块 */
+.raid-editable {
+  min-height: 22px; font-size: 13px; line-height: 1.7; color: var(--ink);
+  padding: 9px 12px; border: 1px solid var(--brd); border-radius: var(--radius-sm);
+  background: var(--surface-2); transition: .15s; white-space: pre-wrap; word-break: break-word; outline: none;
+}
+.raid-editable:hover { border-color: var(--brd); background: var(--surface-3); }
+.raid-editable:focus { border-color: var(--accent); background: var(--surface); box-shadow: var(--glow); }
+.raid-editable:empty::before { content: attr(data-ph); color: var(--ink-3); }
+
+/* 列表项（场景/角色/竞对） */
+.raid-list { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.raid-list-item { padding: 13px 14px; border: 1px solid var(--brd-2); border-radius: var(--radius); background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
+.raid-li-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.raid-li-idx { font-size: 12px; font-weight: 680; color: var(--accent); }
+.raid-role-name { font-size: 13.5px; font-weight: 680; color: var(--ink); padding: 3px 8px; border-radius: 6px; outline: none; min-width: 40px; }
+.raid-role-role { font-size: 12px; color: var(--ink-2); padding: 3px 8px; border-radius: 6px; background: var(--surface-3); outline: none; min-width: 40px; }
+.raid-role-name:focus, .raid-role-role:focus { box-shadow: var(--glow); background: var(--surface); }
+.raid-role-name:empty::before, .raid-role-role:empty::before { content: attr(data-ph); color: var(--ink-3); font-weight: 400; }
+.raid-li-del { margin-left: auto; font-size: 11.5px; color: var(--ink-3); background: none; border: 1px solid var(--brd); border-radius: 6px; padding: 3px 10px; cursor: pointer; transition: .15s; }
+.raid-li-del:hover { color: var(--danger); border-color: var(--danger); }
+.raid-add { align-self: flex-start; margin-top: 4px; font-size: 12.5px; color: var(--accent); background: var(--accent-weak); border: 1px dashed var(--accent); border-radius: var(--radius-sm); padding: 7px 14px; cursor: pointer; transition: .15s; }
+.raid-add:hover { background: var(--accent); color: #fff; border-style: solid; }
+
+/* 合作态度按钮 */
+.raid-att-group { display: flex; gap: 8px; }
+.raid-att { font-size: 12.5px; padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; border: 1px solid var(--brd); background: var(--surface); color: var(--ink-2); transition: .15s; }
+.raid-att:hover { border-color: var(--ac); color: var(--ac); }
+.raid-att.on { background: color-mix(in srgb, var(--ac) 14%, transparent); border-color: var(--ac); color: var(--ac); font-weight: 620; }
+
+@media (max-width: 720px) {
+  .raid-quick, .raid-two { grid-template-columns: 1fr; }
+}
+
+/* ---------- 打印 / 导出 PDF ---------- */
+@media print {
+  /* 只保留攻坚档案，其余全隐藏 */
+  body * { visibility: hidden; }
+  #raidFile, #raidFile * { visibility: visible; }
+  #raidFile { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+  .raid-top-actions, .raid-add, .raid-li-del { display: none !important; }
+
+  /* 打印用浅底黑字，节省墨水、清晰 */
+  .raid-topbar, .raid-section, .raid-list-item {
+    box-shadow: none !important; border: 1px solid #ccc !important; background: #fff !important;
+    break-inside: avoid; page-break-inside: avoid; margin-bottom: 10px;
+  }
+  .raid-editable { background: #fff !important; border: 1px solid #ddd !important; color: #000 !important; box-shadow: none !important; }
+  .raid-doc-title, .raid-sec-title, .raid-field-lbl, .raid-role-name { color: #000 !important; }
+  .raid-doc-sub, .raid-sec-hint, .raid-quick-lbl, .raid-role-role { color: #444 !important; }
+  .raid-sec-no { background: #000 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .raid-chip, .raid-stage-chip, .raid-att { border: 1px solid #999 !important; color: #333 !important; background: #fff !important; }
+  .raid-chip.on, .raid-stage-chip.on, .raid-att.on { border: 2px solid #000 !important; color: #000 !important; font-weight: 700; }
+  @page { margin: 14mm; }
+}
