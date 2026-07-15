@@ -64,6 +64,8 @@ function loadReportIntegrationTestApi(reportBuilder) {
   };
   const reportLayerClasses = makeClasses(["hidden"]);
   const toastClasses = makeClasses(["hidden"]);
+  let focused = false;
+  const returnFocus = { focus() { focused = true; } };
   const elements = {
     "#reportDocument": { innerHTML: "" },
     "#reportStatus": { textContent: "" },
@@ -76,7 +78,7 @@ function loadReportIntegrationTestApi(reportBuilder) {
     FIELD_DEFS: [], CRM_STAGES: [], CONTACT_METHODS: [], ASSET_TYPES: [],
     THEME_KEY: "theme",
     document: {
-      activeElement: null,
+      activeElement: returnFocus,
       documentElement: { dataset: { theme: "light" } },
       body: { classList: makeClasses([]).api },
       addEventListener() {},
@@ -87,8 +89,25 @@ function loadReportIntegrationTestApi(reportBuilder) {
     localStorage: { setItem() {} },
     setTimeout() { return 1; }, clearTimeout() {}, requestAnimationFrame() {},
   };
-  vm.runInNewContext(`${read("app.js")}\n;globalThis.__reportIntegrationTestApi = { openReport, buildReport, exportWordReport, setCustomers(value) { customers = value; }, setReportCustomer(value) { reportCustomer = value; } };`, sandbox);
-  return { api: sandbox.__reportIntegrationTestApi, elements, reportLayerClasses, toastClasses };
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__reportIntegrationTestApi = { openReport, buildReport, exportWordReport, setCustomers(value) { customers = value; }, setReportCustomer(value) { reportCustomer = value; }, setReportReturnFocus(value) { reportReturnFocus = value; } };`, sandbox);
+  return { api: sandbox.__reportIntegrationTestApi, elements, reportLayerClasses, toastClasses, returnFocus, wasFocused: () => focused };
+}
+
+function loadFinalFixApi() {
+  const saved = [];
+  const sandbox = {
+    console,
+    document: { addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; } },
+    window: {},
+    localStorage: { setItem() {} },
+    THEME_KEY: "theme",
+    FIELD_DEFS: [],
+    CONTACT_METHODS: [{ key: "phone", label: "电话", color: "#000" }],
+    GRADES: [], CRM_STAGES: [], ASSET_TYPES: [],
+    CRM: { save(value) { saved.push(JSON.parse(JSON.stringify(value))); } },
+  };
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__finalFixApi = { parseNaturalDate, extractNextAction, applyAIDraftSelection, upsertProgressNote, removeProgressNote, upsertContact, removeEvidenceAsset, evidenceOpenTarget };`, sandbox);
+  return { api: sandbox.__finalFixApi, saved };
 }
 
 function reportSection(html, title) {
@@ -877,4 +896,143 @@ test("390px report toolbar keeps close in the title row and exports together", (
   assert.match(compact, /\.report-toolbar\s*\{[^}]*position:\s*relative/i);
   assert.match(compact, /\.report-actions\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(2,minmax\(0,1fr\)\)/i);
   assert.match(compact, /\.report-actions \.icon-button\s*\{[^}]*position:\s*absolute[^}]*top:\s*10px[^}]*right:\s*12px[^}]*width:\s*44px[^}]*height:\s*44px/i);
+});
+
+test("natural Chinese dates and date-prefixed actions resolve against a fixed base date", () => {
+  const { api } = loadFinalFixApi();
+  const base = new Date(2026, 6, 16, 9, 0, 0);
+  const expected = new Map([
+    ["今天", "2026-07-16"], ["明天", "2026-07-17"], ["后天", "2026-07-18"],
+    ["本周一", "2026-07-13"], ["本周日", "2026-07-19"],
+    ["下周三", "2026-07-22"], ["下下周五", "2026-07-31"],
+    ["2026/8/2", "2026-08-02"], ["8月3日", "2026-08-03"],
+  ]);
+  for (const [text, date] of expected) assert.equal(api.parseNaturalDate(text, base), date, text);
+
+  const parsed = api.extractNextAction("下周三发 GAAP 对比方案，并提醒我跟进。", base);
+  assert.equal(parsed.next, "发 GAAP 对比方案");
+  assert.equal(parsed.nextDate, "2026-07-22");
+});
+
+test("AI candidate selections persist independently and expose a task through getTasks semantics", () => {
+  const { api } = loadFinalFixApi();
+  const baseCustomer = () => ({ id: "c1", fields: {}, notes: [], assets: [], raidFile: { plan: { action: "保留" } }, funnel: { reached: 9 } });
+  const draft = { raw: "原始沟通", method: "phone", contact: "王工", found: { industry: "游戏" }, next: "发方案", nextDate: "2026-07-22", attachments: [{ id: "a1", name: "证据.png" }] };
+
+  const taskOnly = baseCustomer();
+  const result = api.applyAIDraftSelection(taskOnly, draft, { note: false, task: true, fields: [] }, "2026-07-16 09:00", "n-task");
+  assert.equal(result.persisted, true);
+  assert.equal(taskOnly.notes.length, 1);
+  assert.equal(taskOnly.notes[0].content, "");
+  assert.equal(taskOnly.notes[0].source, "ai-action-only");
+  assert.equal(taskOnly.notes[0].next, "发方案");
+  assert.equal(taskOnly.notes.filter(note => note.next && note.nextDate).length, 1);
+  assert.deepEqual(Array.from(taskOnly.assets, x => x.id), ["a1"]);
+
+  const noteOnly = baseCustomer();
+  api.applyAIDraftSelection(noteOnly, draft, { note: true, task: false, fields: [] }, "2026-07-16 09:00", "n-note");
+  assert.equal(noteOnly.notes[0].content, "原始沟通");
+  assert.equal(noteOnly.notes[0].next, "");
+
+  const fieldOnly = baseCustomer();
+  api.applyAIDraftSelection(fieldOnly, draft, { note: false, task: false, fields: ["industry"] }, "2026-07-16 09:00", "unused");
+  assert.equal(fieldOnly.fields.industry.v, "游戏");
+  assert.equal(fieldOnly.notes.length, 0);
+  assert.equal(fieldOnly.assets.length, 0);
+
+  const none = baseCustomer();
+  const noneResult = api.applyAIDraftSelection(none, draft, { note: false, task: false, fields: [] }, "2026-07-16 09:00", "unused");
+  assert.equal(noneResult.persisted, false);
+  assert.equal(JSON.stringify(none), JSON.stringify(baseCustomer()));
+  assert.deepEqual(none.raidFile, { plan: { action: "保留" } });
+  assert.deepEqual(none.funnel, { reached: 9 });
+});
+
+test("manual entry validates meaningful content before reading or attaching files", () => {
+  const js = read("app.js");
+  const submit = js.slice(js.indexOf("async function submitManualEntry"), js.indexOf("function openContactForm"));
+  const validation = submit.indexOf('toast("请填写沟通内容或下一步行动")');
+  const fileRead = submit.indexOf("AssetEngine.readFile(file)");
+  assert.ok(validation > 0 && fileRead > validation);
+});
+
+test("progress and contact upserts preserve identity, attachments, and hierarchy", () => {
+  const { api } = loadFinalFixApi();
+  const customer = {
+    notes: [{ id: "n1", content: "旧", attachments: [{ id: "a1" }], next: "旧任务", taskDone: true }],
+    assets: [{ id: "a1" }],
+    orgChain: [{ id: "p1", pid: null, name: "旧名" }, { id: "child", pid: "p1", name: "下属" }],
+  };
+  api.upsertProgressNote(customer, { id: "n1", method: "meeting", date: "2026-07-16 10:00", contact: "李总", content: "新", next: "新任务", nextDate: "2026-07-20" });
+  assert.equal(customer.notes[0].id, "n1");
+  assert.deepEqual(Array.from(customer.notes[0].attachments, x => x.id), ["a1"]);
+  assert.equal(customer.notes[0].taskDone, false);
+  api.removeProgressNote(customer, "n1");
+  assert.equal(customer.notes.length, 0);
+
+  api.upsertContact(customer, { id: "p1", pid: null, name: "新名", role: "CTO", level: 1 });
+  assert.equal(customer.orgChain.find(x => x.id === "p1").name, "新名");
+  assert.equal(customer.orgChain.find(x => x.id === "child").pid, "p1");
+});
+
+test("evidence actions expose real content, identify metadata-only files, and remove ghost references", () => {
+  const { api } = loadFinalFixApi();
+  assert.deepEqual({ ...api.evidenceOpenTarget({ dataUrl: "data:image/png;base64,AA", isImage: true }) }, { kind: "preview", url: "data:image/png;base64,AA" });
+  assert.deepEqual({ ...api.evidenceOpenTarget({ fileUrl: "https://example.com/a.pdf" }) }, { kind: "open", url: "https://example.com/a.pdf" });
+  assert.deepEqual({ ...api.evidenceOpenTarget({ cloudPath: "cloud://bucket/a.pdf" }) }, { kind: "open", url: "cloud://bucket/a.pdf" });
+  assert.deepEqual({ ...api.evidenceOpenTarget({ name: "本地.pdf", size: 100 }) }, { kind: "unavailable", url: "" });
+
+  const customer = { assets: [{ id: "a1" }, { id: "a2" }], notes: [{ attachments: [{ id: "a1" }, { id: "a2" }] }] };
+  api.removeEvidenceAsset(customer, "a1");
+  assert.deepEqual(Array.from(customer.assets, x => x.id), ["a2"]);
+  assert.deepEqual(Array.from(customer.notes[0].attachments, x => x.id), ["a2"]);
+});
+
+test("final UI contract restores linear CRUD actions, complete evidence, and pinned Lucide SRI", () => {
+  const js = read("app.js");
+  const html = read("index.html");
+  assert.match(js, /data-action="edit-note"/);
+  assert.match(js, /data-action="remove-note"/);
+  assert.match(js, /data-action="edit-contact"/);
+  assert.match(js, /data-action="open-asset"/);
+  assert.match(js, /data-action="remove-asset"/);
+  assert.doesNotMatch(js, /customer\.assets\.slice\(0,5\)/);
+  assert.doesNotMatch(js, /function metricCard/);
+  assert.doesNotMatch(read("style.css"), /\.metric-card|\.metric-strip|\.metric-top/);
+  assert.match(html, /https:\/\/unpkg\.com\/lucide@1\.24\.0\/dist\/umd\/lucide\.min\.js/);
+  assert.match(html, /integrity="sha384-mooE85Luwgx\+AyykX7e90VcN8\/QCFTSIwPuHLmvcsLVoA0en7lKYb9XlOzn5G2co"/);
+  assert.match(html, /crossorigin="anonymous"/);
+  assert.match(html, /referrerpolicy="no-referrer"/);
+  assert.doesNotMatch(html, /lucide@latest/);
+});
+
+test("report failures close the dialog, restore focus, and then toast", () => {
+  const harness = loadReportIntegrationTestApi({ build() { throw new Error("broken"); }, wrapWord() { throw new Error("broken"); } });
+  harness.api.setCustomers([{ id: "c1", name: "客户" }]);
+  harness.reportLayerClasses.values.delete("hidden");
+  harness.api.setReportReturnFocus(harness.returnFocus);
+  harness.api.openReport("c1");
+  assert.equal(harness.reportLayerClasses.values.has("hidden"), true);
+  assert.equal(harness.wasFocused(), true);
+  assert.match(harness.elements["#toast"].textContent, /报告组件/);
+});
+
+test("Word export failures use the same close, focus restoration, and toast recovery", () => {
+  const harness = loadReportIntegrationTestApi({ build() { return "<p>报告</p>"; }, wrapWord() { throw new Error("broken export"); } });
+  harness.api.setCustomers([{ id: "c1", name: "客户" }]);
+  harness.api.openReport("c1");
+  harness.api.exportWordReport();
+  assert.equal(harness.reportLayerClasses.values.has("hidden"), true);
+  assert.equal(harness.wasFocused(), true);
+  assert.match(harness.elements["#toast"].textContent, /报告组件/);
+});
+
+test("four-zone UI adjudication preserves RAID and funnel source data without adding duplicate pages", () => {
+  const js = read("app.js");
+  const before = { raidFile: { plan: { action: "技术评审" } }, funnel: { reached: 100, won: 6 } };
+  const customer = { name: "客户", fields: {}, notes: [], assets: [], orgChain: [], painPoints: [], solution: [], stageHistory: [], ...structuredClone(before) };
+  ReportBuilder.build(customer, reportContext);
+  assert.deepEqual(customer.raidFile, before.raidFile);
+  assert.deepEqual(customer.funnel, before.funnel);
+  assert.doesNotMatch(js, /\["raid"|\["funnel"|customerTab === "raid"|customerTab === "funnel"/);
 });

@@ -109,6 +109,8 @@ async function handleAction(event) {
   if (action === "theme") return toggleTheme();
   if (action === "new-customer") return openNewCustomer();
   if (action === "manual-entry") return openManualEntry(trigger.dataset.customer || state.customerId);
+  if (action === "edit-note") return openManualEntry(trigger.dataset.customer, trigger.dataset.note);
+  if (action === "remove-note") return deleteProgressNote(trigger.dataset.customer, trigger.dataset.note);
   if (action === "focus-copilot") return focusCopilot();
   if (action === "analyze-ai") return analyzeCopilot();
   if (action === "voice") return startVoiceCapture(trigger);
@@ -124,10 +126,13 @@ async function handleAction(event) {
   if (action === "export-word") return exportWordReport();
   if (action === "close-modal") return closeModal();
   if (action === "add-contact") return openContactForm(trigger.dataset.customer || state.customerId);
+  if (action === "edit-contact") return openContactForm(trigger.dataset.customer, trigger.dataset.contact);
   if (action === "add-pain") return openPainForm(trigger.dataset.customer || state.customerId);
   if (action === "add-solution") return openSolutionForm(trigger.dataset.customer || state.customerId);
   if (action === "remove-pain") return removePain(trigger.dataset.customer, Number(trigger.dataset.index));
   if (action === "remove-contact") return removeContact(trigger.dataset.customer, trigger.dataset.contact);
+  if (action === "open-asset") return openEvidenceAsset(trigger.dataset.customer, trigger.dataset.asset);
+  if (action === "remove-asset") return deleteEvidenceAsset(trigger.dataset.customer, trigger.dataset.asset);
   if (action === "toggle-choice") return toggleChoiceMenu(trigger);
   if (action === "toggle-row-menu") return;
   if (action === "set-stage") { closeChoiceMenus(); return updateCustomerStage(trigger.dataset.customer, trigger.dataset.value); }
@@ -254,10 +259,6 @@ function renderTodayActions(priority, overdue) {
 function renderCustomerSignals(stale) {
   return `<div class="section-heading"><div><p class="eyebrow">ACCOUNT PULSE</p><h2>客户脉搏</h2></div><button class="text-button" data-action="nav" data-page="customers">全部客户 →</button></div>
     ${renderAccountPulse(stale)}`;
-}
-
-function metricCard(label, value, hint, tone) {
-  return `<article class="metric-card ${tone}"><div class="metric-top"><span>${label}</span><i></i></div><strong>${value}</strong><small>${hint}</small></article>`;
 }
 
 function renderPriorityTask(task) {
@@ -442,7 +443,7 @@ function renderTimelineItem(customer, note) {
   const method = methodMeta(note.method);
   return `<article class="timeline-item">
     <span class="timeline-marker" style="--dot:${method.color}">${icon(methodIconName(note.method))}</span>
-    <div class="timeline-card"><div class="timeline-head"><span><b>${safe(method.label)}</b>${note.contact ? ` · ${safe(note.contact)}` : ""}</span><time>${formatDateTime(note.date)}</time></div><p>${safe(note.content)}</p>
+    <div class="timeline-card"><div class="timeline-head"><span><b>${safe(method.label)}</b>${note.contact ? ` · ${safe(note.contact)}` : ""}</span><span class="timeline-head-side"><time>${formatDateTime(note.date)}</time><span class="timeline-actions"><button data-action="edit-note" data-customer="${customer.id}" data-note="${note.id}" aria-label="编辑推进记录">${icon("pencil")}</button><button data-action="remove-note" data-customer="${customer.id}" data-note="${note.id}" aria-label="删除推进记录">${icon("trash-2")}</button></span></span></div>${note.content ? `<p>${safe(note.content)}</p>` : ""}
       ${note.next ? `<div class="timeline-next ${note.taskDone ? "done" : ""}"><span>${icon(note.taskDone ? "check" : "arrow-right")} ${note.taskDone ? "已完成" : "下一步"}</span><b>${safe(note.next)}</b><time>${formatShortDate(note.nextDate)}</time></div>` : ""}
       ${note.attachments?.length ? `<div class="attachment-row">${note.attachments.map(a => `<span>${icon("paperclip")} ${safe(a.name)}</span>`).join("")}</div>` : ""}
     </div>
@@ -463,7 +464,7 @@ function renderOrgBranch(customer, person, visited) {
   const nextVisited = new Set(visited); nextVisited.add(person.id);
   const children = customer.orgChain.filter(p => p.pid === person.id);
   const built = Boolean(person.phone || person.wechat || person.email || person.note);
-  return `<div class="org-branch"><article class="person-card ${built ? "connected" : ""}"><div class="person-main"><span class="person-avatar large">${safe(person.name?.[0] || "人")}</span><div><b>${safe(person.name)}</b><small>${safe(person.role || "职位未填写")}</small></div><span class="influence-pill">${person.level === 1 ? "决策" : person.level === 2 ? "影响" : "执行"}</span></div><div class="person-contact">${person.phone ? `<span>${icon("phone")} ${safe(person.phone)}</span>` : ""}${person.wechat ? `<span>${icon("message-circle")} ${safe(person.wechat)}</span>` : ""}${person.email ? `<span>${icon("mail")} ${safe(person.email)}</span>` : ""}</div><p>${safe(person.note || "尚未补充关系备注")}</p><button class="remove-link" data-action="remove-contact" data-customer="${customer.id}" data-contact="${person.id}">删除</button></article>${children.length ? `<div class="org-children">${children.map(child => renderOrgBranch(customer, child, nextVisited)).join("")}</div>` : ""}</div>`;
+  return `<div class="org-branch"><article class="person-card ${built ? "connected" : ""}"><div class="person-main"><span class="person-avatar large">${safe(person.name?.[0] || "人")}</span><div><b>${safe(person.name)}</b><small>${safe(person.role || "职位未填写")}</small></div><span class="influence-pill">${person.level === 1 ? "决策" : person.level === 2 ? "影响" : "执行"}</span></div><div class="person-contact">${person.phone ? `<span>${icon("phone")} ${safe(person.phone)}</span>` : ""}${person.wechat ? `<span>${icon("message-circle")} ${safe(person.wechat)}</span>` : ""}${person.email ? `<span>${icon("mail")} ${safe(person.email)}</span>` : ""}</div><p>${safe(person.note || "尚未补充关系备注")}</p><div class="person-actions"><button data-action="edit-contact" data-customer="${customer.id}" data-contact="${person.id}">${icon("pencil")} 编辑</button><button data-action="remove-contact" data-customer="${customer.id}" data-contact="${person.id}">${icon("trash-2")} 删除</button></div></article>${children.length ? `<div class="org-children">${children.map(child => renderOrgBranch(customer, child, nextVisited)).join("")}</div>` : ""}</div>`;
 }
 
 function renderIntelligence(customer) {
@@ -478,9 +479,22 @@ function renderIntelligence(customer) {
     <aside class="intel-side">
       <section class="panel"><div class="section-heading"><h2>核心痛点</h2><button class="text-button" data-action="add-pain" data-customer="${customer.id}">${icon("plus")} 添加</button></div><div class="editable-list">${customer.painPoints.length ? customer.painPoints.map((p,i) => `<article><span>${safe(p.v)}</span><button data-action="remove-pain" data-customer="${customer.id}" data-index="${i}" aria-label="删除痛点">${icon("x")}</button></article>`).join("") : emptyState("尚未记录痛点", "从沟通中持续补充。")}</div></section>
       <section class="panel"><div class="section-heading"><h2>匹配方案</h2><button class="text-button" data-action="add-solution" data-customer="${customer.id}">${icon("plus")} 添加</button></div><div class="solution-list">${customer.solution.length ? customer.solution.map(s => `<article><b>${safe(s.product)}</b><p>${safe(s.reason)}</p></article>`).join("") : emptyState("尚未匹配方案", "基于明确痛点再提供方案。")}</div></section>
-      <section class="panel"><div class="section-heading"><h2>证据材料</h2><span>${customer.assets.length}</span></div>${customer.assets.length ? `<div class="asset-list">${customer.assets.slice(0,5).map(a => `<article><span>${icon("file-check-2")}</span><div><b>${safe(a.name)}</b><small>${safe(assetTypeLabel(a.type))} · ${formatRelative(a.createdAt)}</small></div></article>`).join("")}</div>` : emptyState("还没有证据材料", "可在记录推进时上传文件。")}</section>
+      <section class="panel"><div class="section-heading"><h2>证据材料</h2><span>${customer.assets.length}</span></div>${customer.assets.length ? `<div class="asset-list">${customer.assets.map(a => renderEvidenceItem(customer, a)).join("")}</div>` : emptyState("还没有证据材料", "可在记录推进时上传文件。")}</section>
     </aside>
   </div>`;
+}
+
+function evidenceOpenTarget(asset) {
+  const url = String(asset?.dataUrl || asset?.fileUrl || asset?.url || asset?.cloudPath || asset?.fileID || "").trim();
+  if (!url) return { kind: "unavailable", url: "" };
+  const image = Boolean(asset?.isImage) || /^data:image\//i.test(url) || /\.(?:png|jpe?g|gif|webp|svg)(?:[?#]|$)/i.test(url);
+  return { kind: image ? "preview" : "open", url };
+}
+
+function renderEvidenceItem(customer, asset) {
+  const target = evidenceOpenTarget(asset);
+  const availability = target.kind === "unavailable" ? "仅保存了本地元数据，无法预览" : target.kind === "preview" ? "可预览" : "可打开或下载";
+  return `<article><span>${icon(target.kind === "preview" ? "image" : "file-check-2")}</span><div><b>${safe(asset.name || "未命名材料")}</b><small>${safe(assetTypeLabel(asset.type))} · ${formatRelative(asset.createdAt)} · ${availability}</small></div><span class="asset-actions"><button data-action="open-asset" data-customer="${customer.id}" data-asset="${asset.id}" ${target.kind === "unavailable" ? "disabled" : ""} aria-label="${target.kind === "unavailable" ? "此材料不可预览" : "打开材料"}">${icon(target.kind === "preview" ? "eye" : "external-link")}</button><button data-action="remove-asset" data-customer="${customer.id}" data-asset="${asset.id}" aria-label="删除材料">${icon("trash-2")}</button></span></article>`;
 }
 
 function intelField(customer, def, multiline = false) {
@@ -608,16 +622,15 @@ function analyzeCopilot() {
   const matched = customers.find(c => raw.includes(c.name)) || customers.find(c => extracted.name && c.name.includes(extracted.name));
   const method = /微信/.test(raw) ? "wechat" : /邮件/.test(raw) ? "email" : /拜访|上门/.test(raw) ? "visit" : /会议|开会/.test(raw) ? "meeting" : "phone";
   const contactMatch = raw.match(/(?:和|跟|联系了?|对接人[：:]?)\s*([\u4e00-\u9fa5A-Za-z]{2,10})(?:沟通|聊|通话|开会|说|，|,)/);
-  const nextMatch = raw.match(/(?:下一步|接下来|后续|提醒我)[：:]?([^。；\n]+)/);
-  const date = extractDate(raw);
+  const action = extractNextAction(raw, new Date());
   state.aiDraft = {
     customerId: matched?.id || "",
     raw,
     found: extracted.found,
     method,
     contact: contactMatch?.[1] || "",
-    next: nextMatch?.[1]?.replace(/(?:并)?提醒我.*$/, "").trim() || "",
-    nextDate: date,
+    next: action.next,
+    nextDate: action.nextDate,
     attachments: [...state.copilotAttachments],
   };
   renderAIDraft();
@@ -648,20 +661,13 @@ function confirmAIDraft() {
   if (!draft?.customerId) return toast("请选择要写入的客户");
   const customer = getCustomer(draft.customerId);
   const checks = $$(".draft-check", $("#aiDraft"));
-  const isChecked = kind => checks.some(box => box.dataset.kind === kind && box.checked);
-  checks.filter(box => box.dataset.kind === "field" && box.checked).forEach(box => {
-    customer.fields[box.dataset.key] = { v: draft.found[box.dataset.key] };
-  });
-  if (isChecked("note")) {
-    const attachments = [...(draft.attachments || [])];
-    customer.assets.push(...attachments);
-    customer.notes.push({
-      id: uid("n"), method: draft.method, date: nowDateTime(), contact: draft.contact,
-      place: "", content: draft.raw, next: isChecked("task") ? draft.next : "",
-      nextDate: isChecked("task") ? draft.nextDate : "", taskDone: false, source: "ai-confirmed",
-      attachments,
-    });
-  }
+  const selection = {
+    note: checks.some(box => box.dataset.kind === "note" && box.checked),
+    task: checks.some(box => box.dataset.kind === "task" && box.checked),
+    fields: checks.filter(box => box.dataset.kind === "field" && box.checked).map(box => box.dataset.key),
+  };
+  const result = applyAIDraftSelection(customer, draft, selection, nowDateTime(), uid("n"));
+  if (!result.persisted) return toast("请至少选择一项要写入的内容");
   persist();
   state.aiDraft = null;
   state.copilotAttachments = [];
@@ -669,6 +675,25 @@ function confirmAIDraft() {
   renderApp();
   setAssistantState("success");
   toast(`已写入「${customer.name}」，可随时手动修改`);
+}
+
+function applyAIDraftSelection(customer, draft, selection, createdAt, noteId) {
+  const fieldKeys = Array.isArray(selection?.fields) ? selection.fields : [];
+  const createNote = Boolean(selection?.note || selection?.task);
+  if (!createNote && !fieldKeys.length) return { persisted: false };
+  fieldKeys.forEach(key => { customer.fields[key] = { v: draft.found[key] }; });
+  if (createNote) {
+    const attachments = [...(draft.attachments || [])];
+    customer.assets.push(...attachments);
+    customer.notes.push({
+      id: noteId, method: draft.method, date: createdAt, contact: draft.contact,
+      place: "", content: selection.note ? draft.raw : "",
+      next: selection.task ? draft.next : "",
+      nextDate: selection.task ? (draft.nextDate || String(createdAt).slice(0, 10)) : "",
+      taskDone: false, source: selection.note ? "ai-confirmed" : "ai-action-only", attachments,
+    });
+  }
+  return { persisted: true };
 }
 
 function discardAIDraft() {
@@ -723,15 +748,24 @@ function submitNewCustomer(form) {
   persist(); closeModal(); openCustomer(customer.id); toast("客户已创建，可手动填写或交给 AI 整理信息");
 }
 
-function openManualEntry(customerId) {
+function openManualEntry(customerId, noteId = "") {
   const selected = customerId || state.customerId || "";
-  showModal(`<div class="modal-head"><div><p class="eyebrow">PROGRESS ENTRY</p><h2 id="modalTitle">手动记录客户推进</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="manual-entry"><label>关联客户<div class="modern-select"><select name="customerId" required><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${selected === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><fieldset class="choice-fieldset"><legend>沟通方式</legend><div class="option-cards method-options">${CONTACT_METHODS.map((m,i) => `<label><input type="radio" name="method" value="${m.key}" ${i===0?"checked":""}/><span>${icon(methodIconName(m.key))}</span><b>${safe(m.label)}</b></label>`).join("")}</div></fieldset><label>沟通时间<input type="datetime-local" name="date" value="${toLocalInput(new Date())}" /></label><label>对接人<input name="contact" placeholder="姓名或职位" /></label><label>沟通内容<textarea name="content" rows="5" required placeholder="记录对方态度、需求、异议和重要事实"></textarea></label><div class="form-row"><label>下一步行动<input name="next" placeholder="例如：发送方案、预约拜访" /></label><label>提醒日期<input type="date" name="nextDate" /></label></div><label class="file-field">${icon("paperclip")} 佐证材料<input type="file" name="files" multiple /><small>支持图片和常见文件；材料会关联到本次推进记录</small></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存推进记录</button></div></form>`);
+  const customer = getCustomer(selected);
+  const note = customer?.notes.find(item => item.id === noteId);
+  const value = (input) => safe(input || "");
+  const dateValue = note?.date ? String(note.date).replace(" ", "T").slice(0, 16) : toLocalInput(new Date());
+  showModal(`<div class="modal-head"><div><p class="eyebrow">PROGRESS ENTRY</p><h2 id="modalTitle">${note ? "编辑客户推进" : "手动记录客户推进"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="manual-entry"><input type="hidden" name="noteId" value="${value(noteId)}" /><label>关联客户<div class="modern-select"><select name="customerId" required ${note ? "disabled" : ""}><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${selected === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${note ? `<input type="hidden" name="customerId" value="${selected}" />` : ""}${icon("chevron-down")}</div></label><fieldset class="choice-fieldset"><legend>沟通方式</legend><div class="option-cards method-options">${CONTACT_METHODS.map((m,i) => `<label><input type="radio" name="method" value="${m.key}" ${note ? note.method === m.key : i===0 ? "checked" : ""}/><span>${icon(methodIconName(m.key))}</span><b>${safe(m.label)}</b></label>`).join("")}</div></fieldset><label>沟通时间<input type="datetime-local" name="date" value="${dateValue}" /></label><label>对接人<input name="contact" value="${value(note?.contact)}" placeholder="姓名或职位" /></label><label>沟通内容<textarea name="content" rows="5" placeholder="记录对方态度、需求、异议和重要事实">${value(note?.content)}</textarea></label><div class="form-row"><label>下一步行动<input name="next" value="${value(note?.next)}" placeholder="例如：发送方案、预约拜访" /></label><label>提醒日期<input type="date" name="nextDate" value="${value(note?.nextDate)}" /></label></div>${note?.attachments?.length ? `<div class="preserved-attachments"><b>已有材料（保存编辑时保留）</b>${note.attachments.map(a => `<span>${icon("paperclip")} ${safe(a.name)}</span>`).join("")}</div>` : ""}<label class="file-field">${icon("paperclip")} 佐证材料<input type="file" name="files" multiple /><small>支持图片和常见文件；材料会关联到本次推进记录</small></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} ${note ? "保存修改" : "保存推进记录"}</button></div></form>`);
 }
 
 async function submitManualEntry(form) {
   const data = new FormData(form);
   const customer = getCustomer(data.get("customerId"));
   if (!customer) return toast("请选择关联客户");
+  const noteId = String(data.get("noteId") || "");
+  const existing = customer.notes.find(note => note.id === noteId);
+  const content = String(data.get("content") || "").trim();
+  const next = String(data.get("next") || "").trim();
+  if (!content && !next) return toast("请填写沟通内容或下一步行动");
   const files = Array.from(form.elements.files.files || []);
   const attachments = [];
   for (const file of files) {
@@ -741,22 +775,26 @@ async function submitManualEntry(form) {
       customer.assets.push(asset); attachments.push(asset);
     } catch (error) { console.warn("Attachment skipped", error); }
   }
-  customer.notes.push({ id: uid("n"), method: data.get("method"), date: normalizeDateInput(data.get("date")), contact: String(data.get("contact") || "").trim(), place: "", content: String(data.get("content") || "").trim(), next: String(data.get("next") || "").trim(), nextDate: String(data.get("nextDate") || ""), taskDone: false, source: "manual", attachments });
+  const patch = { id: noteId || uid("n"), method: data.get("method"), date: normalizeDateInput(data.get("date")), contact: String(data.get("contact") || "").trim(), place: existing?.place || "", content, next, nextDate: String(data.get("nextDate") || ""), source: existing?.source || "manual", attachments: [...(existing?.attachments || []), ...attachments] };
+  upsertProgressNote(customer, patch);
   persist(); closeModal();
   if (state.customerId === customer.id) state.customerTab = "timeline";
-  renderApp(); toast("客户推进记录已保存");
+  renderApp(); toast(existing ? "客户推进记录已更新" : "客户推进记录已保存");
 }
 
-function openContactForm(customerId) {
+function openContactForm(customerId, contactId = "") {
   const customer = getCustomer(customerId);
   if (!customer) return;
-  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">添加关键联系人</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><div class="form-row"><label>姓名<input name="name" required /></label><label>职位<input name="role" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options"><label><input type="radio" name="level" value="1"/><span>${icon("crown")}</span><b>决策层</b></label><label><input type="radio" name="level" value="2" checked/><span>${icon("users")}</span><b>影响层</b></label><label><input type="radio" name="level" value="3"/><span>${icon("wrench")}</span><b>执行层</b></label></div></fieldset><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.map(p => `<option value="${p.id}">${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><div class="form-row"><label>电话<input name="phone" /></label><label>微信<input name="wechat" /></label></div><label>邮箱<input name="email" type="email" /></label><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点、建联情况"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("user-plus")} 保存联系人</button></div></form>`);
+  const person = customer.orgChain.find(item => item.id === contactId);
+  const value = input => safe(input || "");
+  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">${person ? "编辑关键联系人" : "添加关键联系人"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><input type="hidden" name="contactId" value="${value(contactId)}" /><div class="form-row"><label>姓名<input name="name" required value="${value(person?.name)}" /></label><label>职位<input name="role" value="${value(person?.role)}" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options">${[[1,"crown","决策层"],[2,"users","影响层"],[3,"wrench","执行层"]].map(([level,iconName,label]) => `<label><input type="radio" name="level" value="${level}" ${(person?.level || 2) === level ? "checked" : ""}/><span>${icon(iconName)}</span><b>${label}</b></label>`).join("")}</div></fieldset><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.filter(p => p.id !== contactId).map(p => `<option value="${p.id}" ${person?.pid === p.id ? "selected" : ""}>${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><div class="form-row"><label>电话<input name="phone" value="${value(person?.phone)}" /></label><label>微信<input name="wechat" value="${value(person?.wechat)}" /></label></div><label>邮箱<input name="email" type="email" value="${value(person?.email)}" /></label><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点、建联情况">${value(person?.note)}</textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon(person ? "check" : "user-plus")} ${person ? "保存修改" : "保存联系人"}</button></div></form>`);
 }
 
 function submitContact(form) {
   const data = new FormData(form); const customer = getCustomer(data.get("customerId")); if (!customer) return;
-  customer.orgChain.push({ id: uid("o"), pid: data.get("pid") || null, name: String(data.get("name") || "").trim(), role: String(data.get("role") || "").trim(), level: Number(data.get("level") || 2), phone: String(data.get("phone") || "").trim(), wechat: String(data.get("wechat") || "").trim(), email: String(data.get("email") || "").trim(), note: String(data.get("note") || "").trim(), photo: "" });
-  persist(); closeModal(); renderApp(); toast("联系人已加入关系图");
+  const contactId = String(data.get("contactId") || "");
+  upsertContact(customer, { id: contactId || uid("o"), pid: data.get("pid") || null, name: String(data.get("name") || "").trim(), role: String(data.get("role") || "").trim(), level: Number(data.get("level") || 2), phone: String(data.get("phone") || "").trim(), wechat: String(data.get("wechat") || "").trim(), email: String(data.get("email") || "").trim(), note: String(data.get("note") || "").trim(), photo: customer.orgChain.find(p => p.id === contactId)?.photo || "" });
+  persist(); closeModal(); renderApp(); toast(contactId ? "联系人已更新" : "联系人已加入关系图");
 }
 
 function openPainForm(customerId) {
@@ -777,7 +815,57 @@ function submitPain(form) { const data=new FormData(form), customer=getCustomer(
 function submitSolution(form) { const data=new FormData(form), customer=getCustomer(data.get("customerId")); if(!customer)return; customer.solution.push({product:String(data.get("product")||"").trim(),reason:String(data.get("reason")||"").trim()}); persist(); closeModal(); renderApp(); toast("方案已保存"); }
 
 function removePain(customerId, index) { const c=getCustomer(customerId); if(!c?.painPoints[index])return; c.painPoints.splice(index,1); persist(); renderApp(); }
-function removeContact(customerId, contactId) { const c=getCustomer(customerId); if(!c)return; c.orgChain = c.orgChain.filter(p=>p.id!==contactId); c.orgChain.forEach(p=>{if(p.pid===contactId)p.pid=null;}); persist(); renderApp(); toast("联系人已删除，下属已移到顶层"); }
+function removeContact(customerId, contactId) { const c=getCustomer(customerId); if(!c || !window.confirm("确认删除这个联系人？其下属将移到关系图顶层。"))return; c.orgChain = c.orgChain.filter(p=>p.id!==contactId); c.orgChain.forEach(p=>{if(p.pid===contactId)p.pid=null;}); persist(); renderApp(); toast("联系人已删除，下属已移到顶层"); }
+
+function upsertProgressNote(customer, notePatch) {
+  const index = customer.notes.findIndex(note => note.id === notePatch.id);
+  if (index < 0) { customer.notes.push({ taskDone: false, ...notePatch }); return customer.notes.at(-1); }
+  const current = customer.notes[index];
+  const taskChanged = current.next !== notePatch.next || current.nextDate !== notePatch.nextDate;
+  customer.notes[index] = { ...current, ...notePatch, id: current.id, attachments: notePatch.attachments || current.attachments || [], taskDone: taskChanged ? false : Boolean(current.taskDone) };
+  if (taskChanged) delete customer.notes[index].completedAt;
+  return customer.notes[index];
+}
+
+function removeProgressNote(customer, noteId) {
+  const before = customer.notes.length;
+  customer.notes = customer.notes.filter(note => note.id !== noteId);
+  return customer.notes.length !== before;
+}
+
+function deleteProgressNote(customerId, noteId) {
+  const customer = getCustomer(customerId);
+  if (!customer || !window.confirm("确认删除这条推进记录？关联待办也会同步删除。")) return;
+  if (!removeProgressNote(customer, noteId)) return;
+  persist(); renderApp(); toast("推进记录和关联待办已删除");
+}
+
+function upsertContact(customer, contactPatch) {
+  const index = customer.orgChain.findIndex(person => person.id === contactPatch.id);
+  if (index < 0) { customer.orgChain.push(contactPatch); return customer.orgChain.at(-1); }
+  const current = customer.orgChain[index];
+  customer.orgChain[index] = { ...current, ...contactPatch, id: current.id };
+  return customer.orgChain[index];
+}
+
+function removeEvidenceAsset(customer, assetId) {
+  customer.assets = customer.assets.filter(asset => asset.id !== assetId);
+  customer.notes.forEach(note => { note.attachments = (note.attachments || []).filter(asset => asset.id !== assetId); });
+}
+
+function openEvidenceAsset(customerId, assetId) {
+  const asset = getCustomer(customerId)?.assets.find(item => item.id === assetId);
+  const target = evidenceOpenTarget(asset);
+  if (target.kind === "unavailable") return toast("该本地文件仅保存了名称和大小，无法预览");
+  window.open(target.url, "_blank", "noopener,noreferrer");
+}
+
+function deleteEvidenceAsset(customerId, assetId) {
+  const customer = getCustomer(customerId);
+  if (!customer || !window.confirm("确认删除这份材料？报告中的证据索引也会同步更新。")) return;
+  removeEvidenceAsset(customer, assetId);
+  persist(); renderApp(); toast("材料已删除，推进记录引用已同步清理");
+}
 
 function updateCustomerStage(customerId, stage) {
   const customer=getCustomer(customerId); if(!customer || customer.stage===stage)return;
@@ -815,6 +903,7 @@ const WORD_REPORT_STYLES = `
 function openReport(customerId) {
   const customer = getCustomer(customerId);
   if (!customer) return;
+  reportReturnFocus = document.activeElement;
   const builder = getReportBuilder();
   if (!builder) return reportBuilderUnavailable();
   let reportHtml;
@@ -822,7 +911,6 @@ function openReport(customerId) {
   catch (error) { console.error("Report preview unavailable", error); return reportBuilderUnavailable(); }
   if (typeof reportHtml !== "string" || !reportHtml.trim()) return reportBuilderUnavailable();
   reportCustomer = customer;
-  reportReturnFocus = document.activeElement;
   $("#reportDocument").innerHTML = reportHtml;
   $("#reportStatus").textContent = `${customer.name} · ${formatLongDate(new Date())}`;
   const layer = $("#reportLayer");
@@ -836,9 +924,10 @@ function openReport(customerId) {
 
 function closeReport() {
   const layer = $("#reportLayer");
-  if (!layer || layer.classList.contains("hidden")) return;
-  layer.classList.add("hidden");
-  layer.setAttribute?.("aria-hidden", "true");
+  if (layer) {
+    layer.classList.add("hidden");
+    layer.setAttribute?.("aria-hidden", "true");
+  }
   document.body.classList.remove("report-open");
   reportCustomer = null;
   restoreDialogFocus(reportReturnFocus);
@@ -851,11 +940,7 @@ function getReportBuilder() {
 }
 
 function reportBuilderUnavailable() {
-  reportCustomer = null;
-  const layer = $("#reportLayer");
-  layer?.classList.add("hidden");
-  layer?.setAttribute?.("aria-hidden", "true");
-  document.body.classList.remove("report-open");
+  closeReport();
   toast("报告组件未加载，请刷新页面后重试");
 }
 
@@ -916,7 +1001,39 @@ function formatLongDate(date) { return `${date.getFullYear()}年${date.getMonth(
 function formatRelative(value) { const days=daysSince(value); if(days===0)return "今天"; if(days===1)return "昨天"; if(days<30)return `${days} 天前`; return formatShortDate(value); }
 function toLocalInput(date) { const p=n=>String(n).padStart(2,"0"); return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`; }
 function normalizeDateInput(value) { return String(value||"").replace("T"," ") || nowDateTime(); }
-function extractDate(text) { const iso=text.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/); if(iso)return `${iso[1]}-${String(iso[2]).padStart(2,"0")}-${String(iso[3]).padStart(2,"0")}`; const md=text.match(/(\d{1,2})月(\d{1,2})[日号]?/); if(md)return `${new Date().getFullYear()}-${String(md[1]).padStart(2,"0")}-${String(md[2]).padStart(2,"0")}`; return ""; }
+function dateString(date) { return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`; }
+function parseNaturalDate(text, baseDate = new Date()) {
+  const input = String(text || "");
+  const explicit = input.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})[日号]?/);
+  if (explicit) return dateString(new Date(Number(explicit[1]), Number(explicit[2]) - 1, Number(explicit[3])));
+  const monthDay = input.match(/(?<!\d)(\d{1,2})月(\d{1,2})[日号]?/);
+  if (monthDay) return dateString(new Date(baseDate.getFullYear(), Number(monthDay[1]) - 1, Number(monthDay[2])));
+  const relative = input.match(/(今天|明天|后天)/);
+  if (relative) {
+    const offset = { 今天: 0, 明天: 1, 后天: 2 }[relative[1]];
+    return dateString(new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + offset));
+  }
+  const week = input.match(/(本周|下周|下下周)([一二三四五六日天])/);
+  if (week) {
+    const weekOffset = { 本周: 0, 下周: 1, 下下周: 2 }[week[1]];
+    const weekday = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 }[week[2]];
+    const currentWeekday = baseDate.getDay() || 7;
+    return dateString(new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() - currentWeekday + 1 + weekOffset * 7 + weekday - 1));
+  }
+  return "";
+}
+function extractNextAction(text, baseDate = new Date()) {
+  const input = String(text || "");
+  const dateToken = input.match(/(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}[日号]?|\d{1,2}月\d{1,2}[日号]?|今天|明天|后天|(?:本周|下周|下下周)[一二三四五六日天])/);
+  if (dateToken) {
+    const tail = input.slice((dateToken.index || 0) + dateToken[0].length).split(/[。；\n]/)[0]
+      .replace(/^[，,:：\s]+/, "").replace(/[，,]?\s*(?:并)?提醒我.*$/, "").trim();
+    if (tail) return { next: tail, nextDate: parseNaturalDate(dateToken[0], baseDate) };
+  }
+  const generic = input.match(/(?:下一步|接下来|后续|提醒我)[：:]?([^。；\n]+)/);
+  return { next: generic?.[1]?.replace(/(?:并)?提醒我.*$/, "").trim() || "", nextDate: parseNaturalDate(input, baseDate) };
+}
+function extractDate(text, baseDate = new Date()) { return parseNaturalDate(text, baseDate); }
 
 // ---------- 通用 UI ----------
 function methodIconName(method) {
