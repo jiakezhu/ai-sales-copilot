@@ -830,6 +830,22 @@ test("mobile controls expose 44px touch targets and visible keyboard focus", () 
   assert.match(css, /@media\s*\(max-width:\s*900px\)[\s\S]*?min-width:\s*44px/i);
 });
 
+test("mobile report and topbar actions have concrete 44px targets", () => {
+  const css = read("style.css");
+  const mobile = css.slice(css.indexOf("@media (max-width:900px)"));
+
+  assert.match(mobile, /\.report-mini\s*\{[^}]*min-height:\s*44px/i);
+  assert.match(mobile, /\.top-actions \.primary-button\s*\{[^}]*width:\s*44px[^}]*min-width:\s*44px/i);
+});
+
+test("approved mascot crop shows the complete icon without dock chrome", () => {
+  const css = read("style.css");
+
+  assert.match(css, /\.qq-penguin--brand img\s*\{[^}]*width:\s*75px[^}]*height:\s*95px[^}]*left:\s*-12px[^}]*top:\s*-25px/i);
+  assert.match(css, /\.qq-penguin--assistant img\s*\{[^}]*width:\s*88px[^}]*height:\s*112px[^}]*left:\s*-14px[^}]*top:\s*-29px/i);
+  assert.equal(createHash("sha256").update(readBinary("assets/qq-penguin-reference.png")).digest("hex"), "5eda8ddce51aa85a0fe6688563868229656fcd27b7f9fde27ac59857ccc87f7e");
+});
+
 test("modal and report dialogs declare focus targets and accessible close controls", () => {
   const html = read("index.html");
   const js = read("app.js");
@@ -852,4 +868,13 @@ test("dark surfaces and compact report preview remain explicit", () => {
   assert.match(css, /\[data-theme="dark"\]\s+\.report-toolbar\s*\{/);
   assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-document\s*\{[^}]*width:\s*100%[^}]*padding:\s*30px 18px/i);
   assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-field-grid\s*\{[^}]*grid-template-columns:\s*1fr/i);
+});
+
+test("390px report toolbar keeps close in the title row and exports together", () => {
+  const css = read("style.css");
+  const compact = css.slice(css.indexOf("@media (max-width:390px)"), css.indexOf("@media print"));
+
+  assert.match(compact, /\.report-toolbar\s*\{[^}]*position:\s*relative/i);
+  assert.match(compact, /\.report-actions\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(2,minmax\(0,1fr\)\)/i);
+  assert.match(compact, /\.report-actions \.icon-button\s*\{[^}]*position:\s*absolute[^}]*top:\s*10px[^}]*right:\s*12px[^}]*width:\s*44px[^}]*height:\s*44px/i);
 });

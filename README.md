@@ -4,6 +4,13 @@
 
 核心理念：**AI 是副驾，不是替身**。抽取信息、给参考分、建议痛点——全部可被销售采纳 / 修改 / 拒绝，主动权始终在销售手里。AI 查不到的情报会**诚实说"查不到"，绝不编造**。
 
+## 最终界面与报告约定
+
+- QQ penguin is the AI assistant identity and is excluded from business data and reports.
+- UI follows TDesign/Tencent blue tokens.
+- Reports dynamically omit empty sections and contain only customer facts, judgments, evidence, progress, and actions.
+- Verification command is `node --test tests/ui-contract.test.mjs` plus JavaScript syntax checks.
+
 ## 在线演示
 
 > 部署后自动填入 GitHub Pages 链接

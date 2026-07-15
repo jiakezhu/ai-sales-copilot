@@ -57,6 +57,13 @@
 
 ---
 
+## 最终界面与报告约定
+
+- QQ penguin is the AI assistant identity and is excluded from business data and reports.
+- UI follows TDesign/Tencent blue tokens.
+- Reports dynamically omit empty sections and contain only customer facts, judgments, evidence, progress, and actions.
+- Verification command is `node --test tests/ui-contract.test.mjs` plus JavaScript syntax checks.
+
 ## 4. 怎么跑 / 怎么验证
 
 ```bash
