@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>腾讯云 · 销售获客工作台</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+  <!-- 顶部栏 -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none"><path d="M4 13.5 L10 19 L20 6" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-title">腾讯云 · 销售获客工作台</div>
+        <div class="brand-sub">你的客户，你做主 · AI 只做辅助</div>
+      </div>
+    </div>
+
+    <!-- 全局数据条 -->
+    <div class="topbar-stats" id="topbarStats"></div>
+
+    <div class="topbar-right">
+      <button class="theme-switch" id="themeSwitch" title="切换明暗模式">
+        <span class="ts-track"><span class="ts-thumb"></span></span>
+        <span class="ts-ico ts-moon">🌙</span>
+        <span class="ts-ico ts-sun">☀️</span>
+      </button>
+      <button class="btn-ghost" id="statBtn">数据看板</button>
+      <button class="btn-primary" id="newBtn">＋ 新建客户</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <!-- 左侧：CRM 客户列表 + 多维筛选 -->
+    <aside class="sidebar">
+      <div class="search-box">
+        <span class="search-ico">🔍</span>
+        <input id="searchInput" placeholder="搜索客户名 / 行业" />
+      </div>
+
+      <div class="filter-group">
+        <div class="filter-label">重点等级</div>
+        <div class="grade-filter" id="gradeFilter"></div>
+      </div>
+      <div class="filter-group">
+        <div class="filter-label">推进阶段</div>
+        <div class="stage-filter" id="stageFilter"></div>
+      </div>
+
+      <div class="list-head">
+        <span class="list-title">客户列表</span>
+        <span class="cust-count" id="custCount">0</span>
+      </div>
+      <div id="customerList" class="customer-list"></div>
+    </aside>
+
+    <!-- 右侧：主工作区 -->
+    <main class="main">
+      <!-- 空状态：数据概览仪表盘（填满，不留白）-->
+      <div id="emptyState" class="empty-state">
+        <div class="hero-head">
+          <div>
+            <div class="hero-title">销售作战台</div>
+            <div class="hero-sub">选择左侧客户进入档案，或点右上角「＋ 新建客户」开始今天的作战。</div>
+          </div>
+        </div>
+        <div id="heroStats" class="hero-stats"></div>
+        <div class="hero-grid">
+          <div class="glass-card hero-todo-card">
+            <div class="card-title">今日 / 逾期待办<span class="card-tag-soft" id="heroTodoCount"></span></div>
+            <div id="heroTodoList" class="hero-todo-list"></div>
+          </div>
+          <div class="glass-card hero-dist-card">
+            <div class="card-title">客户重点等级分布</div>
+            <div id="heroGradeDist" class="hero-grade-dist"></div>
+            <div class="card-title" style="margin-top:20px">推进阶段分布</div>
+            <div id="heroStageDist" class="hero-stage-dist"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 客户详情工作区 -->
+      <div id="workspace" class="workspace hidden">
+        <!-- 客户头部 -->
+        <div class="ws-head glass-card">
+          <div class="ws-customer">
+            <div class="cust-avatar" id="custAvatar"></div>
+            <div class="ws-cust-meta">
+              <input class="cust-name-input" id="custNameInput" value="" />
+              <div class="ws-tags">
+                <span class="ws-industry" id="wsIndustry"></span>
+                <span class="ws-dot">·</span>
+                <span class="ws-stage-mini" id="wsStageMini"></span>
+              </div>
+            </div>
+          </div>
+          <div class="ws-head-right">
+            <div class="grade-select-wrap">
+              <label class="gs-label">重点等级</label>
+              <div class="grade-dropdown" id="gradeDropdown"></div>
+            </div>
+            <button class="btn-ghost sm icon-btn" id="delBtn" title="删除客户">🗑</button>
+          </div>
+        </div>
+
+        <!-- 阶段推进条 -->
+        <div class="stage-bar glass-card" id="stageBar"></div>
+
+        <!-- Tab 导航 -->
+        <nav class="tabs">
+          <button class="tab active" data-tab="followup">跟进记录</button>
+          <button class="tab" data-tab="org">组织架构</button>
+          <button class="tab" data-tab="assets">资料库</button>
+          <button class="tab" data-tab="profile">客户情报</button>
+          <button class="tab" data-tab="funnel">复盘</button>
+        </nav>
+
+        <!-- 模块① 跟进记录（核心）-->
+        <section class="tab-pane active" data-pane="followup">
+          <!-- 待办提醒条 -->
+          <div id="todoBar" class="todo-bar"></div>
+
+          <div class="followup-layout">
+            <!-- 左：新增跟进表单 -->
+            <div class="glass-card followup-form-card">
+              <div class="card-title">记录一次跟进</div>
+              <div class="ff-methods" id="ffMethods"></div>
+              <div class="ff-row">
+                <div class="ff-field">
+                  <label>沟通时间</label>
+                  <input type="datetime-local" id="ffDate" />
+                </div>
+                <div class="ff-field">
+                  <label>对接人</label>
+                  <input type="text" id="ffContact" list="contactOptions" placeholder="如：王工 / CTO 李阔" />
+                  <datalist id="contactOptions"></datalist>
+                </div>
+              </div>
+              <div class="ff-field" id="ffPlaceWrap">
+                <label id="ffPlaceLabel">地点 / 会议链接</label>
+                <input type="text" id="ffPlace" placeholder="线下填地址，线上填会议信息" />
+              </div>
+              <div class="ff-field">
+                <label>沟通内容</label>
+                <textarea id="ffContent" placeholder="这次聊了什么？对方的态度、关注点、异议……"></textarea>
+              </div>
+              <div class="ff-row">
+                <div class="ff-field">
+                  <label>下一步计划</label>
+                  <input type="text" id="ffNext" placeholder="如：发出海加速方案 / 预约上门" />
+                </div>
+                <div class="ff-field">
+                  <label>下次跟进提醒</label>
+                  <input type="date" id="ffNextDate" />
+                </div>
+              </div>
+              <div class="ff-field">
+                <label>随附截图 / 佐证材料（可选）</label>
+                <div class="ff-attach" id="ffAttach">
+                  <label class="ff-attach-btn">
+                    <input type="file" id="ffAttachInput" accept="image/*" multiple hidden />
+                    📎 添加截图
+                  </label>
+                  <div class="ff-attach-list" id="ffAttachList"></div>
+                </div>
+              </div>
+              <div class="ff-actions">
+                <button class="btn-primary" id="saveNoteBtn">保存跟进</button>
+                <button class="btn-ghost sm" id="clearNoteBtn">清空</button>
+                <span class="ff-editing hidden" id="ffEditing">编辑中</span>
+              </div>
+            </div>
+
+            <!-- 右：跟进时间轴 -->
+            <div class="glass-card followup-timeline-card">
+              <div class="card-title">跟进档案<span class="note-total" id="noteTotal"></span></div>
+              <div id="noteTimeline" class="note-timeline"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 模块② 组织架构（树状，销售自建）-->
+        <section class="tab-pane" data-pane="org">
+          <div class="glass-card">
+            <div class="card-title">对方组织架构图<span class="org-hint-tag">由你搭建 · 含联系方式与照片</span></div>
+            <div class="org-toolbar">
+              <button class="btn-primary sm" id="addRootBtn">＋ 添加高层（无上级）</button>
+              <span class="org-tip">点节点「＋下属」加下级；点「✎」编辑联系方式，点头像可上传真人照片。</span>
+            </div>
+            <div id="orgTree" class="org-tree"></div>
+          </div>
+        </section>
+
+        <!-- 模块③ 资料库（新增）-->
+        <section class="tab-pane" data-pane="assets">
+          <div class="assets-head glass-card">
+          <div class="assets-head-l">
+            <div class="card-title" style="margin:0">客户资料库<span class="card-tag-soft">会议纪要 · 名片 · 聊天记录 · 人员照片 · 附件</span></div>
+            <div class="assets-sub">把真实素材沉淀下来——会议纪要可让 AI 提取要点一键填入情报，名片是最真实的情报源，聊天截图是关系凭证。图片会压缩后存本地，刷新不丢。</div>
+          </div>
+          <div class="assets-head-r">
+            <button class="btn-primary sm" id="addMeetingBtn">📝 添加会议纪要</button>
+          </div>
+          <div class="assets-uploaders" id="assetUploaders"></div>
+        </div>
+
+          <!-- 拖拽上传大区 -->
+          <div class="dropzone glass-card" id="dropzone">
+            <input type="file" id="dropInput" accept="image/*,application/pdf" multiple hidden />
+            <div class="dz-icon">📥</div>
+            <div class="dz-title">把名片、聊天截图、照片拖到这里，或点击上传</div>
+            <div class="dz-sub">支持图片（自动压缩）· 上传后可选择分类、关联联系人、尝试识别</div>
+          </div>
+
+          <div class="assets-gallery" id="assetsGallery"></div>
+        </section>
+
+        <!-- 模块④ 客户情报 -->
+        <section class="tab-pane" data-pane="profile">
+          <div class="grid-2">
+            <div class="glass-card">
+              <div class="card-title">客户情报<span class="card-tag-soft">点字段即可编辑</span></div>
+              <div id="intelGrid" class="intel-grid"></div>
+            </div>
+            <div class="glass-card">
+              <div class="card-title">痛点 & 腾讯云方案</div>
+              <div class="pain-title">识别到的痛点</div>
+              <ul id="painList" class="pain-list"></ul>
+              <button class="btn-ghost sm" id="addPainBtn">＋ 添加痛点</button>
+              <div class="pain-title" style="margin-top:16px">匹配的产品方案</div>
+              <div id="solutionList" class="solution-list"></div>
+            </div>
+          </div>
+          <!-- AI 辅助区（弱化，折叠式）-->
+          <div class="glass-card ai-assist-card">
+            <div class="ai-assist-head">
+              <div class="ai-assist-title"><span class="ai-chip">AI 辅助</span>把你了解的信息交给 AI 结构化</div>
+              <button class="ai-toggle" id="aiToggle">展开 ▾</button>
+            </div>
+            <div class="ai-assist-body hidden" id="aiAssistBody">
+              <textarea id="intakeText" class="intake-text" placeholder="粘贴聊天记录、名片文字、你了解的情况，AI 会尝试抽取结构化字段，抽不到会诚实提示。"></textarea>
+              <div class="intake-actions">
+                <button class="btn-primary sm" id="aiExtractBtn">AI 结构化抽取</button>
+                <button class="btn-ghost sm" id="webSearchBtn">尝试联网检索</button>
+                <button class="btn-ghost sm" id="aiSuggestBtn">让 AI 给价值参考分</button>
+              </div>
+              <div id="extractResult" class="extract-result hidden"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 模块⑥ 复盘 -->
+        <section class="tab-pane" data-pane="funnel">
+          <div class="grid-2">
+            <div class="glass-card">
+              <div class="card-title">转化漏斗<span class="card-tag-soft">本客户跟进数据</span></div>
+              <div id="funnelChart" class="funnel-chart"></div>
+            </div>
+            <div class="glass-card">
+              <div class="card-title">漏斗诊断 & winback 建议</div>
+              <div id="funnelDiagnosis" class="diagnosis"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- 数据看板 -->
+      <div id="dashboard" class="dashboard hidden"></div>
+    </main>
+  </div>
+</div>
+
+<!-- 弹窗 -->
+<div id="modal" class="modal hidden">
+  <div class="modal-mask"></div>
+  <div class="modal-box" id="modalBox"></div>
+</div>
+
+<!-- 大图预览 -->
+<div id="lightbox" class="lightbox hidden">
+  <div class="lb-mask"></div>
+  <img id="lbImg" class="lb-img" alt="预览" />
+  <button class="lb-close" id="lbClose">×</button>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- CloudBase JS SDK（仅云端模式下真正使用；未配 ENV_ID 时加载了也不影响） -->
+<script src="https://web.sdk.qcloud.com/cloudbase/js-sdk/2.7.4/tcb.js"></script>
+
+<script src="data.js"></script>
+<script src="cloudbase-config.js"></script>
+<script src="auth.js"></script>
+<script src="crm.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

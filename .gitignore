@@ -1,0 +1,13 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# 临时截图副本
+__*.html
+
+# 编辑器
+.vscode/
+.idea/
+
+# 依赖（本项目纯前端无依赖，保险起见）
+node_modules/
