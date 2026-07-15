@@ -89,17 +89,18 @@
     if (asset == null) return null;
     if (typeof asset !== "object") {
       const name = valueOf(asset);
-      return name ? { name, type: "", caption: "", created: "", url: "", size: "" } : null;
+      return name ? { name, type: "", caption: "", created: "", url: "", identifier: "", size: "" } : null;
     }
     const name = valueOf(asset.name || asset.fileName || asset.title);
     const type = resolveLabel(context.assetTypes, asset.type);
     const caption = valueOf(asset.caption || asset.description || asset.note);
     const created = format(asset.createdAt || asset.date || asset.created, context.formatDateTime);
-    const url = valueOf(asset.url || asset.fileUrl || asset.cloudPath);
+    const locator = valueOf(asset.url || asset.fileUrl || asset.cloudPath);
+    const identifier = locator || valueOf(asset.dataUrl || asset.fileID);
+    if (!name && !caption && !identifier) return null;
+    const url = locator || (!name && !caption ? identifier : "");
     const size = valueOf(asset.size);
-    return [name, type, caption, created, url, size].some(Boolean)
-      ? { name, type, caption, created, url, size }
-      : null;
+    return { name, type, caption, created, url, identifier, size };
   }
 
   function decisionChains(people) {
@@ -285,7 +286,7 @@
 
     const allAssets = array(source.assets).concat(notes.flatMap(note => array(note && note.attachments)));
     const assets = uniqueRecords(allAssets.map(asset => normalizedAsset(asset, context)).filter(Boolean), asset => keyOf([
-      asset.name, asset.type, asset.caption, asset.created, asset.url, asset.size,
+      asset.name, asset.type, asset.caption, asset.created, asset.identifier, asset.size,
     ]));
     const evidence = list(assets.map(asset => describeParts([
       asset.name, asset.type, asset.caption, asset.created, asset.url, asset.size,

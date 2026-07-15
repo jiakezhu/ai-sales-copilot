@@ -24,7 +24,7 @@ The builder reads customer metadata, configured fields, relationship records, pa
 
 ## Verification
 
-- `node --test tests/ui-contract.test.mjs`: 37 passed, 0 failed.
+- `node --test tests/ui-contract.test.mjs`: 38 passed, 0 failed.
 - `node --check report.js`: passed.
 - `node --check app.js`: passed.
 - `git diff --check`: passed.
@@ -38,7 +38,7 @@ The core review findings were addressed with a second red-green cycle:
 - Added safe filtering for standalone placeholder sentinels while preserving genuine statements that merely contain the same words.
 - Added the current next action to the executive summary and retained every meaningful note's action, date, and completion state in the timeline while continuing to aggregate open actions.
 - Added readable organization levels, parent relationships, derived decision chains, and `orgDesc` compatibility.
-- Merged customer assets with note attachments and deduplicated only identical complete attachment facts.
+- Merged customer assets with note attachments and deduplicated only identical complete attachment facts. Attachment validity requires a non-sentinel name, caption, URL, cloud path, or equivalent identifier; type and size remain metadata and cannot create evidence or timeline records by themselves.
 - Added safe runtime validation and recovery messaging for absent, malformed, throwing, or invalid-return report builders.
 - Localized attitude enums and avoided empty customer-name headings.
-- Expanded the executable UI/report suite from 30 to 37 tests.
+- Expanded the executable UI/report suite from 30 to 38 tests.

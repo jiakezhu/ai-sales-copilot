@@ -683,6 +683,32 @@ test("evidence merges customer assets and note attachments with complete-record 
   assert.match(evidence, /截图\.png/);
 });
 
+test("attachment metadata alone cannot create evidence or an empty timeline record", () => {
+  const html = ReportBuilder.build({
+    name: "客户附件校验",
+    assets: [
+      { type: "file" },
+      { size: 2048 },
+      { name: "未填写", caption: "待补充", type: "file", size: 1024 },
+      { url: "https://files.example.com/proof-1" },
+    ],
+    notes: [{
+      method: "phone",
+      attachments: [
+        { type: "file" },
+        { size: 512 },
+        { name: "暂无", caption: "暂无内容", type: "file" },
+      ],
+    }],
+  }, reportContext);
+  const evidence = reportSection(html, "材料与证据索引");
+
+  assert.doesNotMatch(html, /全流程客户推进记录/);
+  assert.match(evidence, /https:\/\/files\.example\.com\/proof-1/);
+  assert.equal((evidence.match(/<li>/g) || []).length, 1);
+  assert.doesNotMatch(evidence, /2048|1024|512|未填写|待补充|暂无/);
+});
+
 test("report integration fails safely with a recoverable message when builder API is unavailable", () => {
   for (const brokenBuilder of [
     undefined,
