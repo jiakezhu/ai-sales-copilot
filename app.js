@@ -14,6 +14,7 @@ let assistantStateTimer = null;
 let currentAssistantState = "idle";
 let modalReturnFocus = null;
 let reportReturnFocus = null;
+const trustedEvidenceBlobUrls = new Set();
 
 const state = {
   page: "today",
@@ -485,16 +486,29 @@ function renderIntelligence(customer) {
 }
 
 function evidenceOpenTarget(asset) {
-  const url = String(asset?.dataUrl || asset?.fileUrl || asset?.url || asset?.cloudPath || asset?.fileID || "").trim();
-  if (!url) return { kind: "unavailable", url: "" };
-  const image = Boolean(asset?.isImage) || /^data:image\//i.test(url) || /\.(?:png|jpe?g|gif|webp|svg)(?:[?#]|$)/i.test(url);
-  return { kind: image ? "preview" : "open", url };
+  const url = String(asset?.dataUrl || asset?.fileUrl || asset?.url || "").trim();
+  if (/^https?:\/\/[^\s<>"']+$/i.test(url)) {
+    const image = Boolean(asset?.isImage) || /\.(?:png|jpe?g|gif|webp)(?:[?#]|$)/i.test(url);
+    return { kind: image ? "preview" : "open", url };
+  }
+  if (/^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/=\s]+$/i.test(url)) return { kind: "preview", url };
+  if (trustedEvidenceBlobUrls.has(url) && /^blob:https?:\/\/[^\s<>"']+$/i.test(url)) return { kind: "preview", url };
+  if (url) return { kind: "unsafe", url: "" };
+  const cloudRef = String(asset?.fileID || asset?.cloudPath || "").trim();
+  if (cloudRef) return { kind: "cloud", url: cloudRef };
+  return { kind: "unavailable", url: "" };
+}
+
+function registerEvidenceBlobUrl(url) {
+  const value = String(url || "").trim();
+  if (/^blob:https?:\/\/[^\s<>"']+$/i.test(value)) trustedEvidenceBlobUrls.add(value);
 }
 
 function renderEvidenceItem(customer, asset) {
   const target = evidenceOpenTarget(asset);
-  const availability = target.kind === "unavailable" ? "仅保存了本地元数据，无法预览" : target.kind === "preview" ? "可预览" : "可打开或下载";
-  return `<article><span>${icon(target.kind === "preview" ? "image" : "file-check-2")}</span><div><b>${safe(asset.name || "未命名材料")}</b><small>${safe(assetTypeLabel(asset.type))} · ${formatRelative(asset.createdAt)} · ${availability}</small></div><span class="asset-actions"><button data-action="open-asset" data-customer="${customer.id}" data-asset="${asset.id}" ${target.kind === "unavailable" ? "disabled" : ""} aria-label="${target.kind === "unavailable" ? "此材料不可预览" : "打开材料"}">${icon(target.kind === "preview" ? "eye" : "external-link")}</button><button data-action="remove-asset" data-customer="${customer.id}" data-asset="${asset.id}" aria-label="删除材料">${icon("trash-2")}</button></span></article>`;
+  const availability = target.kind === "unavailable" ? "仅保存了本地元数据，无法预览" : target.kind === "unsafe" ? "链接不安全，无法打开" : target.kind === "cloud" ? "云端材料，打开时获取临时链接" : target.kind === "preview" ? "可预览" : "可打开或下载";
+  const unavailable = ["unavailable", "unsafe"].includes(target.kind);
+  return `<article><span>${icon(target.kind === "preview" ? "image" : "file-check-2")}</span><div><b>${safe(asset.name || "未命名材料")}</b><small>${safe(assetTypeLabel(asset.type))} · ${formatRelative(asset.createdAt)} · ${availability}</small></div><span class="asset-actions"><button data-action="open-asset" data-customer="${safe(customer.id)}" data-asset="${safe(asset.id)}" ${unavailable ? "disabled" : ""} aria-label="${unavailable ? "此材料不可打开" : "打开材料"}">${icon(target.kind === "preview" ? "eye" : "external-link")}</button><button data-action="remove-asset" data-customer="${safe(customer.id)}" data-asset="${safe(asset.id)}" aria-label="删除材料">${icon("trash-2")}</button></span></article>`;
 }
 
 function intelField(customer, def, multiline = false) {
@@ -614,27 +628,42 @@ function formatFileSize(bytes) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function analyzeCopilot() {
+function analyzeCopilot(baseDate = new Date()) {
   const input = $("#copilotInput");
   const raw = input?.value.trim();
   if (!raw) return toast("先输入一段客户信息，或使用语音记录");
   const extracted = AIEngine.extract(raw);
   const matched = customers.find(c => raw.includes(c.name)) || customers.find(c => extracted.name && c.name.includes(extracted.name));
   const method = /微信/.test(raw) ? "wechat" : /邮件/.test(raw) ? "email" : /拜访|上门/.test(raw) ? "visit" : /会议|开会/.test(raw) ? "meeting" : "phone";
-  const contactMatch = raw.match(/(?:和|跟|联系了?|对接人[：:]?)\s*([\u4e00-\u9fa5A-Za-z]{2,10})(?:沟通|聊|通话|开会|说|，|,)/);
-  const action = extractNextAction(raw, new Date());
+  const action = extractNextAction(raw, baseDate);
   state.aiDraft = {
     customerId: matched?.id || "",
     raw,
     found: extracted.found,
     method,
-    contact: contactMatch?.[1] || "",
+    contact: extractContact(raw, matched),
     next: action.next,
     nextDate: action.nextDate,
     attachments: [...state.copilotAttachments],
   };
   renderAIDraft();
   $("#aiDraft")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function extractContact(raw, matchedCustomer) {
+  const text = String(raw || "");
+  const known = [...(matchedCustomer?.orgChain || [])]
+    .filter(person => person?.name && text.includes(person.name))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (known) return known.name;
+  const customerIndex = matchedCustomer?.name ? text.indexOf(matchedCustomer.name) : -1;
+  if (customerIndex >= 0) {
+    const afterCustomer = text.slice(customerIndex + matchedCustomer.name.length);
+    const direct = afterCustomer.match(/^\s*(?:的)?([\u4e00-\u9fa5A-Za-z·]{2,10}?)(?=通了电话|沟通|通话|聊|开会|说|，|,)/);
+    if (direct) return direct[1];
+  }
+  const fallback = text.match(/(?:和|跟|联系了?|对接人[：:]?)\s*([\u4e00-\u9fa5A-Za-z·]{2,10}?)(?=通了电话|沟通|通话|聊|开会|说|，|,)/);
+  return fallback?.[1] || "";
 }
 
 function renderAIDraft() {
@@ -853,10 +882,30 @@ function removeEvidenceAsset(customer, assetId) {
   customer.notes.forEach(note => { note.attachments = (note.attachments || []).filter(asset => asset.id !== assetId); });
 }
 
-function openEvidenceAsset(customerId, assetId) {
+async function resolveCloudEvidenceUrl(cloudRef) {
+  const app = typeof CloudAuth !== "undefined" ? CloudAuth?.app : null;
+  if (typeof CLOUD_ENABLED === "undefined" || !CLOUD_ENABLED || typeof app?.getTempFileURL !== "function") return "";
+  try {
+    const result = await app.getTempFileURL({ fileList: [cloudRef] });
+    const url = String(result?.fileList?.[0]?.tempFileURL || "").trim();
+    return /^https:\/\/[^\s<>"']+$/i.test(url) ? url : "";
+  } catch (error) {
+    console.warn("Cloud evidence URL unavailable", error);
+    return "";
+  }
+}
+
+async function openEvidenceAsset(customerId, assetId) {
   const asset = getCustomer(customerId)?.assets.find(item => item.id === assetId);
   const target = evidenceOpenTarget(asset);
   if (target.kind === "unavailable") return toast("该本地文件仅保存了名称和大小，无法预览");
+  if (target.kind === "unsafe") return toast("材料链接不安全，已拒绝打开");
+  if (target.kind === "cloud") {
+    const temporaryUrl = await resolveCloudEvidenceUrl(target.url);
+    if (!temporaryUrl) return toast("云端材料暂时无法打开，请稍后重试");
+    window.open(temporaryUrl, "_blank", "noopener,noreferrer");
+    return;
+  }
   window.open(target.url, "_blank", "noopener,noreferrer");
 }
 
@@ -1013,10 +1062,10 @@ function parseNaturalDate(text, baseDate = new Date()) {
     const offset = { 今天: 0, 明天: 1, 后天: 2 }[relative[1]];
     return dateString(new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + offset));
   }
-  const week = input.match(/(本周|下周|下下周)([一二三四五六日天])/);
+  const week = input.match(/(本周|下下周|下周)([一二三四五六日天])?/);
   if (week) {
     const weekOffset = { 本周: 0, 下周: 1, 下下周: 2 }[week[1]];
-    const weekday = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 }[week[2]];
+    const weekday = week[2] ? { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 }[week[2]] : 7;
     const currentWeekday = baseDate.getDay() || 7;
     return dateString(new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() - currentWeekday + 1 + weekOffset * 7 + weekday - 1));
   }
@@ -1024,7 +1073,7 @@ function parseNaturalDate(text, baseDate = new Date()) {
 }
 function extractNextAction(text, baseDate = new Date()) {
   const input = String(text || "");
-  const dateToken = input.match(/(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}[日号]?|\d{1,2}月\d{1,2}[日号]?|今天|明天|后天|(?:本周|下周|下下周)[一二三四五六日天])/);
+  const dateToken = input.match(/(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}[日号]?|\d{1,2}月\d{1,2}[日号]?|今天|明天|后天|(?:本周|下下周|下周)[一二三四五六日天]?)/);
   if (dateToken) {
     const tail = input.slice((dateToken.index || 0) + dateToken[0].length).split(/[。；\n]/)[0]
       .replace(/^[，,:：\s]+/, "").replace(/[，,]?\s*(?:并)?提醒我.*$/, "").trim();

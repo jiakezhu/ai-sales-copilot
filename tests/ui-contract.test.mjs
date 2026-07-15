@@ -110,6 +110,55 @@ function loadFinalFixApi() {
   return { api: sandbox.__finalFixApi, saved };
 }
 
+function loadAnalyzeCopilotApi(raw) {
+  const input = { value: raw };
+  const draftHost = { innerHTML: "", scrollIntoView() {} };
+  const sandbox = {
+    console,
+    document: {
+      addEventListener() {},
+      querySelector(selector) {
+        if (selector === "#copilotInput") return input;
+        if (selector === "#aiDraft") return draftHost;
+        return null;
+      },
+      querySelectorAll() { return []; },
+    },
+    window: {}, localStorage: { setItem() {} }, THEME_KEY: "theme",
+    FIELD_DEFS: [], GRADES: [], CRM_STAGES: [], ASSET_TYPES: [],
+    CONTACT_METHODS: [{ key: "phone", label: "电话", color: "#000" }],
+    AIEngine: { extract() { return { name: "", found: {} }; } },
+    methodMeta() { return { label: "电话", color: "#000" }; },
+    setTimeout() { return 1; }, clearTimeout() {},
+  };
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__analyzeApi = { state, analyzeCopilot, setCustomers(value) { customers = value; } };`, sandbox);
+  sandbox.__analyzeApi.draftHtml = () => draftHost.innerHTML;
+  return sandbox.__analyzeApi;
+}
+
+function loadEvidenceOpenApi({ cloudEnabled = false, getTempFileURL } = {}) {
+  const opened = [];
+  const toastMessages = [];
+  const classes = { remove() {}, add() {} };
+  const sandbox = {
+    console: { ...console, warn() {} },
+    document: {
+      addEventListener() {},
+      querySelector(selector) { return selector === "#toast" ? { textContent: "", classList: classes } : null; },
+      querySelectorAll() { return []; },
+    },
+    window: { open(url) { opened.push(url); return {}; } },
+    localStorage: { setItem() {} }, THEME_KEY: "theme",
+    FIELD_DEFS: [], CONTACT_METHODS: [], GRADES: [], CRM_STAGES: [], ASSET_TYPES: [],
+    CLOUD_ENABLED: cloudEnabled,
+    CloudAuth: { app: getTempFileURL ? { getTempFileURL } : {} },
+    setTimeout() { return 1; }, clearTimeout() {},
+  };
+  const context = { ...sandbox, __toasts: toastMessages };
+  vm.runInNewContext(`${read("app.js")}\n;toast = message => { globalThis.__toasts.push(message); }; globalThis.__evidenceApi = { evidenceOpenTarget, registerEvidenceBlobUrl, resolveCloudEvidenceUrl, openEvidenceAsset, setCustomers(value) { customers = value; } };`, context);
+  return { api: context.__evidenceApi, opened, toastMessages };
+}
+
 function reportSection(html, title) {
   return html.match(new RegExp(`<section[^>]*>\\s*<div class="report-section-title"><h2>${title}</h2></div>[\\s\\S]*?</section>`))?.[0] || "";
 }
@@ -905,6 +954,7 @@ test("natural Chinese dates and date-prefixed actions resolve against a fixed ba
     ["今天", "2026-07-16"], ["明天", "2026-07-17"], ["后天", "2026-07-18"],
     ["本周一", "2026-07-13"], ["本周日", "2026-07-19"],
     ["下周三", "2026-07-22"], ["下下周五", "2026-07-31"],
+    ["本周", "2026-07-19"], ["下周", "2026-07-26"], ["下下周", "2026-08-02"],
     ["2026/8/2", "2026-08-02"], ["8月3日", "2026-08-03"],
   ]);
   for (const [text, date] of expected) assert.equal(api.parseNaturalDate(text, base), date, text);
@@ -912,6 +962,34 @@ test("natural Chinese dates and date-prefixed actions resolve against a fixed ba
   const parsed = api.extractNextAction("下周三发 GAAP 对比方案，并提醒我跟进。", base);
   assert.equal(parsed.next, "发 GAAP 对比方案");
   assert.equal(parsed.nextDate, "2026-07-22");
+  assert.deepEqual({ ...api.extractNextAction("下周发方案", base) }, { next: "发方案", nextDate: "2026-07-26" });
+});
+
+test("the complete homepage example resolves matched customer, contact, action, and visible date", () => {
+  const raw = "刚和星澜互娱王工通了电话，对方担心海外延迟。下周三发 GAAP 对比方案，并提醒我跟进。";
+  const api = loadAnalyzeCopilotApi(raw);
+  api.setCustomers([{ id: "c-star", name: "星澜互娱", orgChain: [{ id: "p1", name: "王工" }] }]);
+  api.analyzeCopilot(new Date(2026, 6, 16, 9, 0, 0));
+  assert.equal(api.state.aiDraft.customerId, "c-star");
+  assert.equal(api.state.aiDraft.contact, "王工");
+  assert.equal(api.state.aiDraft.next, "发 GAAP 对比方案");
+  assert.equal(api.state.aiDraft.nextDate, "2026-07-22");
+  assert.match(api.draftHtml(), /创建下一步 · 7月22日/);
+});
+
+test("a bare next-week action receives Sunday, renders it, and can become a task", () => {
+  const raw = "星澜互娱下周发方案";
+  const analyze = loadAnalyzeCopilotApi(raw);
+  analyze.setCustomers([{ id: "c-star", name: "星澜互娱", orgChain: [] }]);
+  analyze.analyzeCopilot(new Date(2026, 6, 16, 9, 0, 0));
+  assert.equal(analyze.state.aiDraft.next, "发方案");
+  assert.equal(analyze.state.aiDraft.nextDate, "2026-07-26");
+  assert.match(analyze.draftHtml(), /创建下一步 · 7月26日/);
+
+  const { api } = loadFinalFixApi();
+  const customer = { fields: {}, notes: [], assets: [] };
+  api.applyAIDraftSelection(customer, analyze.state.aiDraft, { note: false, task: true, fields: [] }, "2026-07-16 09:00", "n1");
+  assert.equal(customer.notes.filter(note => note.next === "发方案" && note.nextDate === "2026-07-26").length, 1);
 });
 
 test("AI candidate selections persist independently and expose a task through getTasks semantics", () => {
@@ -979,13 +1057,54 @@ test("evidence actions expose real content, identify metadata-only files, and re
   const { api } = loadFinalFixApi();
   assert.deepEqual({ ...api.evidenceOpenTarget({ dataUrl: "data:image/png;base64,AA", isImage: true }) }, { kind: "preview", url: "data:image/png;base64,AA" });
   assert.deepEqual({ ...api.evidenceOpenTarget({ fileUrl: "https://example.com/a.pdf" }) }, { kind: "open", url: "https://example.com/a.pdf" });
-  assert.deepEqual({ ...api.evidenceOpenTarget({ cloudPath: "cloud://bucket/a.pdf" }) }, { kind: "open", url: "cloud://bucket/a.pdf" });
+  assert.deepEqual({ ...api.evidenceOpenTarget({ cloudPath: "cloud://bucket/a.pdf" }) }, { kind: "cloud", url: "cloud://bucket/a.pdf" });
   assert.deepEqual({ ...api.evidenceOpenTarget({ name: "本地.pdf", size: 100 }) }, { kind: "unavailable", url: "" });
+  for (const unsafe of [
+    { url: "javascript:alert(1)" }, { url: "file:///etc/passwd" },
+    { dataUrl: "data:text/html,<script>alert(1)</script>" },
+    { dataUrl: "data:image/svg+xml,<svg onload=alert(1)>" },
+    { dataUrl: "data:application/pdf;base64,AA==" },
+  ]) assert.equal(api.evidenceOpenTarget(unsafe).kind, "unsafe");
 
   const customer = { assets: [{ id: "a1" }, { id: "a2" }], notes: [{ attachments: [{ id: "a1" }, { id: "a2" }] }] };
   api.removeEvidenceAsset(customer, "a1");
   assert.deepEqual(Array.from(customer.assets, x => x.id), ["a2"]);
   assert.deepEqual(Array.from(customer.notes[0].attachments, x => x.id), ["a2"]);
+});
+
+test("evidence open path allows safe raster/https and rejects malicious protocols", async () => {
+  const harness = loadEvidenceOpenApi();
+  harness.api.setCustomers([{ id: "c1", assets: [
+    { id: "https", url: "https://example.com/a.pdf" },
+    { id: "png", dataUrl: "data:image/png;base64,AA==", isImage: true },
+    { id: "evil", url: "javascript:alert(1)" },
+  ] }]);
+  await harness.api.openEvidenceAsset("c1", "https");
+  await harness.api.openEvidenceAsset("c1", "png");
+  await harness.api.openEvidenceAsset("c1", "evil");
+  assert.deepEqual(harness.opened, ["https://example.com/a.pdf", "data:image/png;base64,AA=="]);
+  assert.match(harness.toastMessages.at(-1), /不安全|无法打开/);
+});
+
+test("blob evidence requires an application-owned runtime registration", () => {
+  const harness = loadEvidenceOpenApi();
+  const blobUrl = "blob:https://app.example.com/123";
+  assert.equal(harness.api.evidenceOpenTarget({ dataUrl: blobUrl, trustedObjectUrl: true }).kind, "unsafe");
+  harness.api.registerEvidenceBlobUrl(blobUrl);
+  assert.deepEqual({ ...harness.api.evidenceOpenTarget({ dataUrl: blobUrl }) }, { kind: "preview", url: blobUrl });
+});
+
+test("cloud evidence resolves to a temporary https URL and reports unavailable failures", async () => {
+  const success = loadEvidenceOpenApi({ cloudEnabled: true, getTempFileURL: async () => ({ fileList: [{ tempFileURL: "https://tmp.example.com/a.pdf" }] }) });
+  success.api.setCustomers([{ id: "c1", assets: [{ id: "cloud", fileID: "cloud://bucket/a.pdf" }] }]);
+  await success.api.openEvidenceAsset("c1", "cloud");
+  assert.deepEqual(success.opened, ["https://tmp.example.com/a.pdf"]);
+
+  const failure = loadEvidenceOpenApi({ cloudEnabled: true, getTempFileURL: async () => { throw new Error("offline"); } });
+  failure.api.setCustomers([{ id: "c1", assets: [{ id: "cloud", cloudPath: "cloud://bucket/a.pdf" }] }]);
+  await failure.api.openEvidenceAsset("c1", "cloud");
+  assert.deepEqual(failure.opened, []);
+  assert.match(failure.toastMessages.at(-1), /云端材料暂时无法打开/);
 });
 
 test("final UI contract restores linear CRUD actions, complete evidence, and pinned Lucide SRI", () => {
