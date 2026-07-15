@@ -50,12 +50,12 @@
     <button class="mobile-capture" data-action="focus-copilot" aria-label="用 AI 记录信息"><i data-lucide="sparkles"></i></button>
   </div>
 
-  <div class="modal-layer hidden" id="modalLayer" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-layer hidden" id="modalLayer" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-hidden="true">
     <div class="modal-backdrop" data-action="close-modal"></div>
-    <section class="modal-panel" id="modalPanel"></section>
+    <section class="modal-panel" id="modalPanel" tabindex="-1"></section>
   </div>
 
-  <div class="report-layer hidden" id="reportLayer" role="dialog" aria-modal="true" aria-label="客户全景报告预览">
+  <div class="report-layer hidden" id="reportLayer" role="dialog" aria-modal="true" aria-label="客户全景报告预览" aria-hidden="true" tabindex="-1">
     <div class="report-toolbar no-print">
       <div><b>客户全景报告</b><span id="reportStatus">客户报告预览</span></div>
       <div class="report-actions">

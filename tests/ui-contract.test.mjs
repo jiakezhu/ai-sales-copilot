@@ -799,3 +799,57 @@ test("attitude enums are localized and missing customer names do not create empt
   assert.doesNotMatch(html, /positive/);
   assert.doesNotMatch(html, /<h1>\s*<\/h1>/);
 });
+
+test("mobile, motion, and mascot boundaries are explicit", () => {
+  const css = read("style.css");
+  const js = read("app.js");
+  const reportAdapter = js.slice(js.indexOf("function buildReport"), js.indexOf("function exportWordReport"));
+
+  assert.match(css, /@media\s*\(max-width:\s*900px\)/);
+  assert.match(css, /@media\s*\(max-width:\s*680px\)/);
+  assert.match(css, /@media\s*\(max-width:\s*390px\)/);
+  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+  assert.doesNotMatch(reportAdapter, /qq-penguin|企鹅|assets\//);
+});
+
+test("390px customer cards retain every business-priority field", () => {
+  const css = read("style.css");
+  const mobile = css.slice(css.indexOf("@media (max-width:680px){\n  .customer-worktable"));
+
+  assert.match(mobile, /\.customer-row>\.muted-cell:nth-child\(3\)\s*\{[^}]*display:\s*flex/i);
+  assert.match(mobile, /\.customer-row>\.muted-cell:nth-child\(5\)\s*\{[^}]*display:\s*flex/i);
+  assert.match(mobile, /\.customer-row>\.next-cell\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/i);
+});
+
+test("mobile controls expose 44px touch targets and visible keyboard focus", () => {
+  const css = read("style.css");
+
+  assert.match(css, /:where\(button,\s*\[role="button"\],\s*summary,\s*input,\s*select,\s*textarea\):focus-visible/);
+  assert.match(css, /\.option-cards label:has\(input:focus-visible\)/);
+  assert.match(css, /@media\s*\(max-width:\s*900px\)[\s\S]*?min-height:\s*44px/i);
+  assert.match(css, /@media\s*\(max-width:\s*900px\)[\s\S]*?min-width:\s*44px/i);
+});
+
+test("modal and report dialogs declare focus targets and accessible close controls", () => {
+  const html = read("index.html");
+  const js = read("app.js");
+
+  assert.match(html, /id="modalLayer"[^>]*aria-hidden="true"/);
+  assert.match(html, /id="modalPanel"[^>]*tabindex="-1"/);
+  assert.match(html, /id="reportLayer"[^>]*aria-hidden="true"[^>]*tabindex="-1"/);
+  assert.match(js, /function trapDialogFocus\(event\)/);
+  assert.match(js, /!layer\.contains\(document\.activeElement\)/);
+  assert.match(js, /querySelector\(DIALOG_FOCUSABLE\)\?\.focus\(\)/);
+  assert.match(js, /restoreDialogFocus\(/);
+  assert.doesNotMatch(js, /class="icon-button" data-action="close-modal">/);
+  assert.match(js, /data-action="close-modal" aria-label="关闭弹窗"/);
+});
+
+test("dark surfaces and compact report preview remain explicit", () => {
+  const css = read("style.css");
+
+  assert.match(css, /\[data-theme="dark"\]\s+\.modal-panel\s*\{/);
+  assert.match(css, /\[data-theme="dark"\]\s+\.report-toolbar\s*\{/);
+  assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-document\s*\{[^}]*width:\s*100%[^}]*padding:\s*30px 18px/i);
+  assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-field-grid\s*\{[^}]*grid-template-columns:\s*1fr/i);
+});

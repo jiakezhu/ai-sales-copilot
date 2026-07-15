@@ -5,12 +5,15 @@ const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => Array.from(root.querySelectorAll(s));
 const safe = (value) => String(value == null ? "" : value).replace(/[&<>\"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
 const icon = (name, className = "") => `<i data-lucide="${name}"${className ? ` class="${className}"` : ""}></i>`;
+const DIALOG_FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
 let customers = [];
 let reportCustomer = null;
 let toastTimer = null;
 let assistantStateTimer = null;
 let currentAssistantState = "idle";
+let modalReturnFocus = null;
+let reportReturnFocus = null;
 
 const state = {
   page: "today",
@@ -87,11 +90,12 @@ function bindAppEvents() {
       event.preventDefault();
       $("#globalSearch").focus();
     }
-    if (event.key === "Escape") {
-      closeRowMenus(undefined, true);
-      closeModal();
-      closeReport();
-    }
+    if (event.key === "Tab" && trapDialogFocus(event)) return;
+    if (event.key !== "Escape") return;
+    if (!$("#reportLayer")?.classList.contains("hidden")) return closeReport();
+    if (!$("#modalLayer")?.classList.contains("hidden")) return closeModal();
+    closeChoiceMenus();
+    closeRowMenus(undefined, true);
   });
 }
 
@@ -706,7 +710,7 @@ function startVoiceCapture(button) {
 
 // ---------- 手动录入 ----------
 function openNewCustomer() {
-  showModal(`<div class="modal-head"><div><p class="eyebrow">NEW ACCOUNT</p><h2 id="modalTitle">新建客户</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="new-customer"><label>客户名称<input name="name" required autofocus placeholder="公司或组织名称" /></label><label>所属行业<input name="industry" placeholder="例如：游戏、零售、SaaS" /></label><fieldset class="choice-fieldset"><legend>重点等级</legend><div class="option-cards grade-options">${GRADES.map(g => `<label><input type="radio" name="grade" value="${g.key}" ${g.key === "B" ? "checked" : ""}/><span class="grade-option grade-${g.key}">${g.key}</span><b>${safe(g.label.split("·").at(-1).trim())}</b></label>`).join("")}</div></fieldset><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("arrow-right")} 创建并进入档案</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">NEW ACCOUNT</p><h2 id="modalTitle">新建客户</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="new-customer"><label>客户名称<input name="name" required autofocus placeholder="公司或组织名称" /></label><label>所属行业<input name="industry" placeholder="例如：游戏、零售、SaaS" /></label><fieldset class="choice-fieldset"><legend>重点等级</legend><div class="option-cards grade-options">${GRADES.map(g => `<label><input type="radio" name="grade" value="${g.key}" ${g.key === "B" ? "checked" : ""}/><span class="grade-option grade-${g.key}">${g.key}</span><b>${safe(g.label.split("·").at(-1).trim())}</b></label>`).join("")}</div></fieldset><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("arrow-right")} 创建并进入档案</button></div></form>`);
 }
 
 function submitNewCustomer(form) {
@@ -721,7 +725,7 @@ function submitNewCustomer(form) {
 
 function openManualEntry(customerId) {
   const selected = customerId || state.customerId || "";
-  showModal(`<div class="modal-head"><div><p class="eyebrow">PROGRESS ENTRY</p><h2 id="modalTitle">手动记录客户推进</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="manual-entry"><label>关联客户<div class="modern-select"><select name="customerId" required><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${selected === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><fieldset class="choice-fieldset"><legend>沟通方式</legend><div class="option-cards method-options">${CONTACT_METHODS.map((m,i) => `<label><input type="radio" name="method" value="${m.key}" ${i===0?"checked":""}/><span>${icon(methodIconName(m.key))}</span><b>${safe(m.label)}</b></label>`).join("")}</div></fieldset><label>沟通时间<input type="datetime-local" name="date" value="${toLocalInput(new Date())}" /></label><label>对接人<input name="contact" placeholder="姓名或职位" /></label><label>沟通内容<textarea name="content" rows="5" required placeholder="记录对方态度、需求、异议和重要事实"></textarea></label><div class="form-row"><label>下一步行动<input name="next" placeholder="例如：发送方案、预约拜访" /></label><label>提醒日期<input type="date" name="nextDate" /></label></div><label class="file-field">${icon("paperclip")} 佐证材料<input type="file" name="files" multiple /><small>支持图片和常见文件；材料会关联到本次推进记录</small></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存推进记录</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">PROGRESS ENTRY</p><h2 id="modalTitle">手动记录客户推进</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="manual-entry"><label>关联客户<div class="modern-select"><select name="customerId" required><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${selected === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><fieldset class="choice-fieldset"><legend>沟通方式</legend><div class="option-cards method-options">${CONTACT_METHODS.map((m,i) => `<label><input type="radio" name="method" value="${m.key}" ${i===0?"checked":""}/><span>${icon(methodIconName(m.key))}</span><b>${safe(m.label)}</b></label>`).join("")}</div></fieldset><label>沟通时间<input type="datetime-local" name="date" value="${toLocalInput(new Date())}" /></label><label>对接人<input name="contact" placeholder="姓名或职位" /></label><label>沟通内容<textarea name="content" rows="5" required placeholder="记录对方态度、需求、异议和重要事实"></textarea></label><div class="form-row"><label>下一步行动<input name="next" placeholder="例如：发送方案、预约拜访" /></label><label>提醒日期<input type="date" name="nextDate" /></label></div><label class="file-field">${icon("paperclip")} 佐证材料<input type="file" name="files" multiple /><small>支持图片和常见文件；材料会关联到本次推进记录</small></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存推进记录</button></div></form>`);
 }
 
 async function submitManualEntry(form) {
@@ -746,7 +750,7 @@ async function submitManualEntry(form) {
 function openContactForm(customerId) {
   const customer = getCustomer(customerId);
   if (!customer) return;
-  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">添加关键联系人</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><div class="form-row"><label>姓名<input name="name" required /></label><label>职位<input name="role" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options"><label><input type="radio" name="level" value="1"/><span>${icon("crown")}</span><b>决策层</b></label><label><input type="radio" name="level" value="2" checked/><span>${icon("users")}</span><b>影响层</b></label><label><input type="radio" name="level" value="3"/><span>${icon("wrench")}</span><b>执行层</b></label></div></fieldset><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.map(p => `<option value="${p.id}">${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><div class="form-row"><label>电话<input name="phone" /></label><label>微信<input name="wechat" /></label></div><label>邮箱<input name="email" type="email" /></label><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点、建联情况"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("user-plus")} 保存联系人</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">添加关键联系人</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><div class="form-row"><label>姓名<input name="name" required /></label><label>职位<input name="role" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options"><label><input type="radio" name="level" value="1"/><span>${icon("crown")}</span><b>决策层</b></label><label><input type="radio" name="level" value="2" checked/><span>${icon("users")}</span><b>影响层</b></label><label><input type="radio" name="level" value="3"/><span>${icon("wrench")}</span><b>执行层</b></label></div></fieldset><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.map(p => `<option value="${p.id}">${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><div class="form-row"><label>电话<input name="phone" /></label><label>微信<input name="wechat" /></label></div><label>邮箱<input name="email" type="email" /></label><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点、建联情况"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("user-plus")} 保存联系人</button></div></form>`);
 }
 
 function submitContact(form) {
@@ -761,12 +765,12 @@ function openPainForm(customerId) {
 
 function openSolutionForm(customerId) {
   const customer = getCustomer(customerId); if (!customer) return;
-  showModal(`<div class="modal-head"><div><p class="eyebrow">SOLUTION</p><h2 id="modalTitle">添加匹配方案</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="solution"><input type="hidden" name="customerId" value="${customer.id}" /><label>产品或方案<input name="product" required placeholder="例如：全球应用加速 GAAP" /></label><label>匹配理由<textarea name="reason" rows="4" required placeholder="它解决客户的哪个明确痛点？"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存方案</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">SOLUTION</p><h2 id="modalTitle">添加匹配方案</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="solution"><input type="hidden" name="customerId" value="${customer.id}" /><label>产品或方案<input name="product" required placeholder="例如：全球应用加速 GAAP" /></label><label>匹配理由<textarea name="reason" rows="4" required placeholder="它解决客户的哪个明确痛点？"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存方案</button></div></form>`);
 }
 
 function showSimpleTextForm(type, customerId, title, label, placeholder) {
   const customer=getCustomer(customerId); if(!customer) return;
-  showModal(`<div class="modal-head"><div><p class="eyebrow">CUSTOMER INTELLIGENCE</p><h2 id="modalTitle">${title}</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="${type}"><input type="hidden" name="customerId" value="${customer.id}" /><label>${label}<textarea name="value" rows="4" required placeholder="${placeholder}"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">CUSTOMER INTELLIGENCE</p><h2 id="modalTitle">${title}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="${type}"><input type="hidden" name="customerId" value="${customer.id}" /><label>${label}<textarea name="value" rows="4" required placeholder="${placeholder}"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存</button></div></form>`);
 }
 
 function submitPain(form) { const data=new FormData(form), customer=getCustomer(data.get("customerId")); if(!customer)return; customer.painPoints.push({v:String(data.get("value")||"").trim()}); persist(); closeModal(); renderApp(); toast("痛点已保存"); }
@@ -818,18 +822,27 @@ function openReport(customerId) {
   catch (error) { console.error("Report preview unavailable", error); return reportBuilderUnavailable(); }
   if (typeof reportHtml !== "string" || !reportHtml.trim()) return reportBuilderUnavailable();
   reportCustomer = customer;
+  reportReturnFocus = document.activeElement;
   $("#reportDocument").innerHTML = reportHtml;
   $("#reportStatus").textContent = `${customer.name} · ${formatLongDate(new Date())}`;
-  $("#reportLayer").classList.remove("hidden");
+  const layer = $("#reportLayer");
+  layer.classList.remove("hidden");
+  layer.setAttribute?.("aria-hidden", "false");
   document.body.classList.add("report-open");
   refreshIcons();
   window.scrollTo({ top: 0 });
+  requestAnimationFrame(() => layer.querySelector?.('[data-action="close-report"]')?.focus?.() || layer.focus?.());
 }
 
 function closeReport() {
-  $("#reportLayer").classList.add("hidden");
+  const layer = $("#reportLayer");
+  if (!layer || layer.classList.contains("hidden")) return;
+  layer.classList.add("hidden");
+  layer.setAttribute?.("aria-hidden", "true");
   document.body.classList.remove("report-open");
   reportCustomer = null;
+  restoreDialogFocus(reportReturnFocus);
+  reportReturnFocus = null;
 }
 
 function getReportBuilder() {
@@ -839,7 +852,9 @@ function getReportBuilder() {
 
 function reportBuilderUnavailable() {
   reportCustomer = null;
-  $("#reportLayer")?.classList.add("hidden");
+  const layer = $("#reportLayer");
+  layer?.classList.add("hidden");
+  layer?.setAttribute?.("aria-hidden", "true");
   document.body.classList.remove("report-open");
   toast("报告组件未加载，请刷新页面后重试");
 }
@@ -941,7 +956,43 @@ function closeRowMenus(except, restoreFocus = false, root = document) {
   });
 }
 function toggleTheme() { const next=document.documentElement.dataset.theme==="dark"?"light":"dark"; document.documentElement.dataset.theme=next; localStorage.setItem(THEME_KEY,next); }
-function showModal(content) { $("#modalPanel").innerHTML=content; $("#modalLayer").classList.remove("hidden"); document.body.classList.add("modal-open"); refreshIcons(); requestAnimationFrame(()=>$("#modalPanel input[autofocus]")?.focus()); }
-function closeModal() { $("#modalLayer").classList.add("hidden"); document.body.classList.remove("modal-open"); }
+function showModal(content) {
+  const layer = $("#modalLayer");
+  const panel = $("#modalPanel");
+  modalReturnFocus = document.activeElement;
+  panel.innerHTML = content;
+  layer.classList.remove("hidden");
+  layer.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+  refreshIcons();
+  requestAnimationFrame(() => panel.querySelector("input[autofocus]")?.focus() || panel.querySelector(DIALOG_FOCUSABLE)?.focus() || panel.focus());
+}
+function closeModal() {
+  const layer = $("#modalLayer");
+  if (!layer || layer.classList.contains("hidden")) return;
+  layer.classList.add("hidden");
+  layer.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+  restoreDialogFocus(modalReturnFocus);
+  modalReturnFocus = null;
+}
+function restoreDialogFocus(element) {
+  if (element && typeof element.focus === "function") element.focus({ preventScroll: true });
+}
+function trapDialogFocus(event) {
+  const report = $("#reportLayer");
+  const modal = $("#modalLayer");
+  const layer = report && !report.classList.contains("hidden") ? report : modal && !modal.classList.contains("hidden") ? modal : null;
+  if (!layer) return false;
+  const focusable = Array.from(layer.querySelectorAll(DIALOG_FOCUSABLE))
+    .filter(element => !element.closest("[hidden]") && element.getClientRects().length);
+  if (!focusable.length) { event.preventDefault(); layer.focus(); return true; }
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (!layer.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); return true; }
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  return true;
+}
 function toast(message) { const el=$("#toast"); clearTimeout(toastTimer); el.textContent=message; el.classList.remove("hidden"); toastTimer=setTimeout(()=>el.classList.add("hidden"),2600); }
 function emptyState(title,copy) { return `<div class="empty-state"><span>·</span><b>${safe(title)}</b><p>${safe(copy)}</p></div>`; }
