@@ -33,15 +33,19 @@ function loadAssistantStateTestApi(card, timers, options = {}) {
       querySelector(selector) {
         if (selector === "#copilotCard") return currentCard;
         if (selector === "#copilotInput") return options.input || null;
+        if (selector === "#aiDraft") return options.draftHost || null;
         return null;
       },
       querySelectorAll() { return []; },
     },
     window: { SpeechRecognition: options.Recognition },
+    FIELD_DEFS: [],
+    CONTACT_METHODS: [{ key: "phone", label: "电话", icon: "phone" }],
+    methodMeta: () => ({ label: "电话", icon: "phone" }),
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
   };
-  vm.runInNewContext(`${read("app.js")}\n;globalThis.__assistantStateTestApi = { state, setAssistantState, reconcileAssistantState, startVoiceCapture };`, sandbox);
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__assistantStateTestApi = { state, setAssistantState, reconcileAssistantState, startVoiceCapture, handleChange };`, sandbox);
   sandbox.__assistantStateTestApi.replaceCard = nextCard => { currentCard = nextCard; };
   return sandbox.__assistantStateTestApi;
 }
@@ -149,7 +153,8 @@ test("QQ penguin is controlled by explicit assistant states", () => {
   const js = read("app.js");
   assert.match(js, /function setAssistantState\(assistantState\)/);
   assert.match(js, /setAssistantState\("listening"\)/);
-  assert.match(js, /setAssistantState\("reviewing"\)/);
+  assert.match(js, /if \(state\.aiDraft\) return "reviewing";/);
+  assert.match(js, /function reconcileAssistantState\(\)/);
   assert.match(js, /setAssistantState\("success"\)/);
   assert.match(js, /setAssistantState\("idle"\)/);
 });
@@ -254,6 +259,40 @@ test("reconcile restores listening on a rebuilt Today card without extending suc
   assert.equal(rebuiltCard.dataset.assistantState, "listening");
   assert.equal(rebuiltCard.classes.has("assistant-listening"), true);
   assert.match(read("app.js"), /function renderApp\(\)[\s\S]*?reconcileAssistantState\(\);/);
+});
+
+test("target selection rerender keeps listening while speech capture is active", async () => {
+  const classes = new Set(["ai-assistant-card"]);
+  const card = {
+    dataset: {},
+    classList: {
+      add(value) { classes.add(value); },
+      remove(...values) { values.forEach(value => classes.delete(value)); },
+    },
+  };
+  const draftHost = { innerHTML: "" };
+  const api = loadAssistantStateTestApi(card, {
+    setTimeout() { return 1; },
+    clearTimeout() {},
+  }, { draftHost });
+  api.state.recording = true;
+  api.state.aiDraft = {
+    customerId: "",
+    raw: "录音中的草稿",
+    found: {},
+    method: "phone",
+    contact: "",
+    next: "",
+    nextDate: "",
+    attachments: [],
+  };
+
+  await api.handleChange({ target: { id: "aiTargetSelect", value: "customer-1", matches() { return false; } } });
+
+  assert.equal(api.state.aiDraft.customerId, "customer-1");
+  assert.equal(card.dataset.assistantState, "listening");
+  assert.equal(classes.has("assistant-listening"), true);
+  assert.equal(classes.has("assistant-reviewing"), false);
 });
 
 test("assistant state styling stays restrained and motion-safe", () => {

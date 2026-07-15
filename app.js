@@ -635,7 +635,7 @@ function renderAIDraft() {
     </div>
     <div class="review-actions"><button class="text-button" data-action="discard-ai">取消</button><span>所有内容写入后仍可手动修改</span><button class="primary-button" data-action="confirm-ai" ${draft.customerId ? "" : "disabled"}>确认并写入</button></div>
   </section>`;
-  setAssistantState("reviewing");
+  reconcileAssistantState();
   refreshIcons();
 }
 
