@@ -65,3 +65,30 @@ test("Today page is ordered as AI, actions, then customer signals", () => {
   assert.match(js, /告诉小企刚刚发生了什么/);
   assert.doesNotMatch(js, /class="metric-strip"/);
 });
+
+test("Today surfaces remain readable in dark theme", () => {
+  const css = read("style.css");
+  assert.match(css, /\[data-theme="dark"\]\s*\{[^}]*--td-bg-container:\s*var\(--surface\)/s);
+  assert.match(css, /\.ai-assistant-card\s*\{[^}]*background:[^}]*var\(--surface\)/s);
+  assert.doesNotMatch(css, /\.ai-assistant-card\s*\{[^}]*#fff\s+72%/s);
+});
+
+test("mobile Today actions keep their date chips visible", () => {
+  const css = read("style.css");
+  assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.today-action-list \.date-chip\s*\{[^}]*display:\s*inline-flex[^}]*white-space:\s*normal/i);
+});
+
+test("copilot attachments are read, reviewed, and saved with the note", () => {
+  const js = read("app.js");
+  assert.match(js, /target\.id === "copilotFiles"/);
+  assert.match(js, /AssetEngine\.readFile\(file\)/);
+  assert.match(js, /id="copilotFileStatus"/);
+  assert.match(js, /attachments:\s*\[\.\.\.state\.copilotAttachments\]/);
+  assert.match(js, /customer\.assets\.push\(\.\.\.attachments\)/);
+  assert.match(js, /attachments,\s*\n?\s*\}\);/);
+});
+
+test("outlined TDesign button uses the hover brand token", () => {
+  const css = read("style.css");
+  assert.match(css, /\.td-button--outline:hover\s*\{[^}]*var\(--td-brand-color-hover\)/);
+});

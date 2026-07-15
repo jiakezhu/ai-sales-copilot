@@ -17,6 +17,7 @@ const state = {
   query: "",
   stageFilter: "all",
   aiDraft: null,
+  copilotAttachments: [],
   recording: false,
 };
 
@@ -127,7 +128,7 @@ async function handleAction(event) {
   if (action === "reset-filters") { state.query = ""; state.stageFilter = "all"; $("#globalSearch").value = ""; return renderApp(); }
 }
 
-function handleChange(event) {
+async function handleChange(event) {
   const target = event.target;
   if (target.id === "stageFilter") {
     state.stageFilter = target.value;
@@ -136,6 +137,7 @@ function handleChange(event) {
   if (target.matches("[data-customer-stage]")) return updateCustomerStage(target.dataset.customerStage, target.value);
   if (target.matches("[data-customer-grade]")) return updateCustomerGrade(target.dataset.customerGrade, target.value);
   if (target.matches("[data-intel-field]")) return updateIntelField(target);
+  if (target.id === "copilotFiles") return handleCopilotFiles(target.files);
   if (target.id === "aiTargetSelect" && state.aiDraft) {
     state.aiDraft.customerId = target.value;
     renderAIDraft();
@@ -225,7 +227,12 @@ function renderCopilotComposer() {
       <span class="compose-hint">AI 只提取明确出现的信息</span>
       <button class="primary-button" data-action="analyze-ai">识别并整理 ${icon("arrow-right")}</button>
     </div>
-  </div>`;
+  </div><div id="copilotFileStatus" class="copilot-file-status" aria-live="polite">${copilotFileStatusMarkup()}</div>`;
+}
+
+function copilotFileStatusMarkup() {
+  if (!state.copilotAttachments.length) return "";
+  return `<span class="copilot-file-label">${icon("paperclip")} 已关联 ${state.copilotAttachments.length} 份资料</span>${state.copilotAttachments.map(attachment => `<span class="copilot-file-chip" title="${safe(attachment.mime || "文件")}">${safe(attachment.name)} · ${formatFileSize(attachment.size)}</span>`).join("")}`;
 }
 
 function renderTodayActions(priority, overdue) {
@@ -514,6 +521,37 @@ function focusCopilot() {
   });
 }
 
+async function handleCopilotFiles(fileList) {
+  const attachments = [];
+  let failed = 0;
+  for (const file of Array.from(fileList || [])) {
+    try {
+      const meta = await AssetEngine.readFile(file);
+      attachments.push(AssetEngine.makeAsset("file", meta, { caption: "由 AI 信息收件箱关联" }));
+    } catch (error) {
+      failed += 1;
+      console.warn("Copilot attachment skipped", error);
+    }
+  }
+  state.copilotAttachments = attachments;
+  const status = $("#copilotFileStatus");
+  if (status) status.innerHTML = copilotFileStatusMarkup();
+  if (state.aiDraft) {
+    state.aiDraft.attachments = [...attachments];
+    renderAIDraft();
+  } else {
+    refreshIcons();
+  }
+  if (failed) toast(`${failed} 份资料读取失败，请重新选择`);
+}
+
+function formatFileSize(bytes) {
+  const size = Number(bytes) || 0;
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function analyzeCopilot() {
   const input = $("#copilotInput");
   const raw = input?.value.trim();
@@ -532,6 +570,7 @@ function analyzeCopilot() {
     contact: contactMatch?.[1] || "",
     next: nextMatch?.[1]?.replace(/(?:并)?提醒我.*$/, "").trim() || "",
     nextDate: date,
+    attachments: [...state.copilotAttachments],
   };
   renderAIDraft();
   $("#aiDraft")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -548,6 +587,7 @@ function renderAIDraft() {
       <label class="review-item main-review"><input class="draft-check" type="checkbox" data-kind="note" checked /><span class="review-check"></span><div><small>新增推进记录 · ${safe(methodMeta(draft.method).label)}</small><b>${safe(draft.raw)}</b>${draft.contact ? `<p>对接人：${safe(draft.contact)}</p>` : ""}</div></label>
       ${fields.map(([key,value]) => { const def=FIELD_DEFS.find(d=>d.key===key); return `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="field" data-key="${key}" checked /><span class="review-check"></span><div><small>更新情报 · ${safe(def?.label || key)}</small><b>${safe(value)}</b></div></label>`; }).join("")}
       ${draft.next ? `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="task" checked /><span class="review-check"></span><div><small>创建下一步${draft.nextDate ? ` · ${formatShortDate(draft.nextDate)}` : ""}</small><b>${safe(draft.next)}</b></div></label>` : ""}
+      ${draft.attachments?.length ? `<article class="review-item review-attachment"><span class="review-file-icon">${icon("files")}</span><div><small>随推进记录保存 · ${draft.attachments.length} 份资料</small><b>${draft.attachments.map(attachment => safe(attachment.name)).join("、")}</b></div></article>` : ""}
     </div>
     <div class="review-actions"><button class="text-button" data-action="discard-ai">取消</button><span>所有内容写入后仍可手动修改</span><button class="primary-button" data-action="confirm-ai" ${draft.customerId ? "" : "disabled"}>确认并写入</button></div>
   </section>`;
@@ -564,14 +604,18 @@ function confirmAIDraft() {
     customer.fields[box.dataset.key] = { v: draft.found[box.dataset.key] };
   });
   if (isChecked("note")) {
+    const attachments = [...(draft.attachments || [])];
+    customer.assets.push(...attachments);
     customer.notes.push({
       id: uid("n"), method: draft.method, date: nowDateTime(), contact: draft.contact,
       place: "", content: draft.raw, next: isChecked("task") ? draft.next : "",
-      nextDate: isChecked("task") ? draft.nextDate : "", taskDone: false, source: "ai-confirmed", attachments: [],
+      nextDate: isChecked("task") ? draft.nextDate : "", taskDone: false, source: "ai-confirmed",
+      attachments,
     });
   }
   persist();
   state.aiDraft = null;
+  state.copilotAttachments = [];
   const input = $("#copilotInput"); if (input) input.value = "";
   renderApp();
   toast(`已写入「${customer.name}」，可随时手动修改`);
