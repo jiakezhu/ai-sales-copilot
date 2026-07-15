@@ -10,6 +10,7 @@ let customers = [];
 let reportCustomer = null;
 let toastTimer = null;
 let assistantStateTimer = null;
+let currentAssistantState = "idle";
 
 const state = {
   page: "today",
@@ -175,6 +176,7 @@ function renderApp() {
   if (state.page === "tasks") root.innerHTML = renderTasks();
   if (state.page === "analytics") root.innerHTML = renderAnalytics();
   if (state.aiDraft && state.page === "today") renderAIDraft();
+  reconcileAssistantState();
   refreshIcons();
 }
 
@@ -521,17 +523,34 @@ function renderAnalytics() {
 }
 
 // ---------- AI 信息收件箱 ----------
-function setAssistantState(assistantState) {
+function applyAssistantState(nextAssistantState) {
   const card = $("#copilotCard");
   if (!card) return;
+  card.classList.remove("assistant-listening", "assistant-reviewing", "assistant-success");
+  card.dataset.assistantState = nextAssistantState;
+  if (nextAssistantState !== "idle") card.classList.add(`assistant-${nextAssistantState}`);
+}
+
+function setAssistantState(assistantState) {
   clearTimeout(assistantStateTimer);
   assistantStateTimer = null;
-  card.classList.remove("assistant-listening", "assistant-reviewing", "assistant-success");
-  card.dataset.assistantState = assistantState;
-  if (assistantState !== "idle") card.classList.add(`assistant-${assistantState}`);
+  currentAssistantState = assistantState;
+  applyAssistantState(assistantState);
   if (assistantState === "success") {
     assistantStateTimer = setTimeout(() => setAssistantState("idle"), 1200);
   }
+}
+
+function deriveAssistantState() {
+  if (state.recording) return "listening";
+  if (state.aiDraft) return "reviewing";
+  return currentAssistantState === "success" ? "success" : "idle";
+}
+
+function reconcileAssistantState() {
+  const nextAssistantState = deriveAssistantState();
+  if (nextAssistantState === currentAssistantState) return applyAssistantState(nextAssistantState);
+  setAssistantState(nextAssistantState);
 }
 
 function focusCopilot() {
@@ -676,7 +695,7 @@ function startVoiceCapture(button) {
   recognition.onerror = () => toast("没有听清，请再试一次或改用文字输入");
   recognition.onend = () => {
     state.recording = false;
-    setAssistantState("idle");
+    reconcileAssistantState();
     button.classList.remove("recording");
     button.innerHTML = `${icon("mic")} 语音`;
     refreshIcons();

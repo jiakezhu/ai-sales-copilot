@@ -24,18 +24,25 @@ function loadWorkspaceTestApi(openMenus = []) {
   return { api: sandbox.__workspaceTestApi, sandbox };
 }
 
-function loadAssistantStateTestApi(card, timers) {
+function loadAssistantStateTestApi(card, timers, options = {}) {
+  let currentCard = card;
   const sandbox = {
     console,
     document: {
       addEventListener() {},
-      querySelector(selector) { return selector === "#copilotCard" ? card : null; },
+      querySelector(selector) {
+        if (selector === "#copilotCard") return currentCard;
+        if (selector === "#copilotInput") return options.input || null;
+        return null;
+      },
       querySelectorAll() { return []; },
     },
+    window: { SpeechRecognition: options.Recognition },
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
   };
-  vm.runInNewContext(`${read("app.js")}\n;globalThis.__assistantStateTestApi = { setAssistantState };`, sandbox);
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__assistantStateTestApi = { state, setAssistantState, reconcileAssistantState, startVoiceCapture };`, sandbox);
+  sandbox.__assistantStateTestApi.replaceCard = nextCard => { currentCard = nextCard; };
   return sandbox.__assistantStateTestApi;
 }
 
@@ -173,6 +180,80 @@ test("assistant state helper applies one card state and cancels stale success re
   assert.equal(classes.has("assistant-success"), false);
   assert.equal(classes.has("assistant-listening"), true);
   assert.equal(pendingTimer, null);
+});
+
+test("voice end returns to reviewing when an AI draft already exists", () => {
+  const classes = new Set(["ai-assistant-card"]);
+  const card = {
+    dataset: {},
+    classList: {
+      add(value) { classes.add(value); },
+      remove(...values) { values.forEach(value => classes.delete(value)); },
+    },
+  };
+  const input = { value: "", focus() {} };
+  let recognition;
+  class Recognition {
+    constructor() { recognition = this; }
+    start() {}
+  }
+  const buttonClasses = new Set();
+  const button = {
+    innerHTML: "",
+    classList: {
+      add(value) { buttonClasses.add(value); },
+      remove(value) { buttonClasses.delete(value); },
+    },
+  };
+  const api = loadAssistantStateTestApi(card, {
+    setTimeout() { return 1; },
+    clearTimeout() {},
+  }, { input, Recognition });
+  api.state.aiDraft = { raw: "待确认草稿" };
+
+  api.startVoiceCapture(button);
+  assert.equal(card.dataset.assistantState, "listening");
+  recognition.onend();
+
+  assert.equal(api.state.recording, false);
+  assert.equal(card.dataset.assistantState, "reviewing");
+  assert.equal(classes.has("assistant-reviewing"), true);
+  assert.equal(buttonClasses.has("recording"), false);
+});
+
+test("reconcile restores listening on a rebuilt Today card without extending success", () => {
+  const makeCard = () => {
+    const classes = new Set(["ai-assistant-card"]);
+    return {
+      classes,
+      dataset: {},
+      classList: {
+        add(value) { classes.add(value); },
+        remove(...values) { values.forEach(value => classes.delete(value)); },
+      },
+    };
+  };
+  const firstCard = makeCard();
+  let timerCount = 0;
+  const api = loadAssistantStateTestApi(firstCard, {
+    setTimeout() { timerCount += 1; return timerCount; },
+    clearTimeout() {},
+  });
+
+  api.setAssistantState("success");
+  const successCard = makeCard();
+  api.replaceCard(successCard);
+  api.reconcileAssistantState();
+  assert.equal(successCard.dataset.assistantState, "success");
+  assert.equal(timerCount, 1);
+
+  api.state.recording = true;
+  const rebuiltCard = makeCard();
+  api.replaceCard(rebuiltCard);
+  api.reconcileAssistantState();
+  assert.equal(rebuiltCard.dataset.assistantState, "listening");
+  assert.equal(rebuiltCard.classes.has("assistant-listening"), true);
+  assert.match(read("app.js"), /function renderApp\(\)[\s\S]*?reconcileAssistantState\(\);/);
 });
 
 test("assistant state styling stays restrained and motion-safe", () => {
