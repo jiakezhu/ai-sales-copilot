@@ -289,6 +289,7 @@ function renderWorkspace() {
   $("#wsIndustry").textContent = (c.fields.industry && c.fields.industry.v) || "未填行业";
   const st = CRM_STAGES.find(s => s.key === c.stage) || CRM_STAGES[0];
   $("#wsStageMini").innerHTML = `<span class="dot" style="background:${st.color}"></span>${st.label}`;
+  renderKeyInfo();
   $("#delBtn").onclick = () => confirmModal(`确定删除「${c.name}」？此操作不可撤销。`, deleteCurrent);
   renderGradeDropdown();
   renderStageBar();
@@ -305,6 +306,35 @@ function renderAvatar() {
   const el = $("#custAvatar");
   el.style.background = `linear-gradient(135deg, ${c.color}, ${shade(c.color,-20)})`;
   el.textContent = c.logo || c.name[0];
+}
+
+// 名字/头像旁的关键情报 chip：成立时间 / 团队规模 / 融资情况 / 活跃·营收
+// 只展示有值的字段；点击任意 chip 跳到「客户情报」Tab 编辑
+function renderKeyInfo() {
+  const c = current;
+  const el = $("#wsKeyInfo");
+  if (!el) return;
+  const KEY_CHIPS = [
+    { key: "founded", icon: "📅", label: "成立" },
+    { key: "staff",   icon: "👥", label: "规模" },
+    { key: "funding", icon: "💰", label: "融资" },
+    { key: "dau",     icon: "📈", label: "活跃" },
+    { key: "revenue", icon: "💴", label: "营收" },
+  ];
+  const chips = KEY_CHIPS
+    .map(k => ({ ...k, v: (c.fields[k.key] && c.fields[k.key].v || "").trim() }))
+    .filter(k => k.v);
+  if (!chips.length) {
+    el.innerHTML = `<span class="ws-ki-empty">关键情报未填 · 去「客户情报」补充</span>`;
+    el.querySelector(".ws-ki-empty").onclick = () => switchTab("profile");
+    return;
+  }
+  el.innerHTML = chips.map(k =>
+    `<span class="ws-ki-chip" data-key="${k.key}" title="${esc(k.label)}：${esc(k.v)}（点击编辑）">
+      <span class="ws-ki-ic">${k.icon}</span><span class="ws-ki-v">${esc(k.v)}</span>
+    </span>`).join("");
+  el.querySelectorAll(".ws-ki-chip").forEach(chip =>
+    chip.addEventListener("click", () => switchTab("profile")));
 }
 
 // 重点等级下拉（销售手动）
@@ -1435,6 +1465,9 @@ function renderDashboard() {
   let todoCount = 0, overdueCount = 0;
   customers.forEach(c => (c.notes||[]).forEach(n => { if (n.next && n.nextDate) { todoCount++; if (n.nextDate < today) overdueCount++; } }));
 
+  // ===== 工作推进节奏：基于全部客户的跟进记录（note.date）做时间维度统计 =====
+  const pace = computePace();
+
   $("#dashboard").innerHTML = `
     <div class="dash-head">销售数据看板<button class="btn-ghost sm" id="closeDash">返回</button></div>
     <div class="dash-cards">
@@ -1443,6 +1476,69 @@ function renderDashboard() {
       <div class="dash-card"><div class="dc-num">${todoCount}</div><div class="dc-lbl">待办跟进</div></div>
       <div class="dash-card ${overdueCount?'warn':''}"><div class="dc-num">${overdueCount}</div><div class="dc-lbl">已逾期</div></div>
     </div>
+
+    <!-- 工作推进节奏 · 时间维度汇总卡 -->
+    <div class="dash-section-title">📈 我的工作推进节奏<span class="dss-sub">基于全部客户的跟进记录汇总</span></div>
+    <div class="dash-cards pace-cards">
+      <div class="dash-card pace-card">
+        <div class="dc-num">${pace.thisWeek}<span class="pc-unit">次</span></div>
+        <div class="dc-lbl">本周跟进${paceDelta(pace.thisWeek, pace.lastWeek)}</div>
+      </div>
+      <div class="dash-card pace-card">
+        <div class="dc-num">${pace.thisMonth}<span class="pc-unit">次</span></div>
+        <div class="dc-lbl">本月跟进${paceDelta(pace.thisMonth, pace.lastMonth)}</div>
+      </div>
+      <div class="dash-card pace-card">
+        <div class="dc-num">${pace.touchedThisWeek}<span class="pc-unit">家</span></div>
+        <div class="dc-lbl">本周触达客户</div>
+      </div>
+      <div class="dash-card pace-card">
+        <div class="dc-num">${pace.weekAvg}<span class="pc-unit">次</span></div>
+        <div class="dc-lbl">近8周周均</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <!-- 近 8 周跟进量趋势 -->
+      <div class="card"><div class="card-title">近 8 周跟进量趋势<span class="card-tag-soft">看节奏起伏</span></div>
+        <div class="trend-chart">
+          ${pace.weeks.map(w => `
+            <div class="tc-col" title="${w.label}：${w.n} 次跟进">
+              <div class="tc-bar-wrap">
+                <div class="tc-bar ${w.isCurrent?'cur':''}" style="height:${w.n/pace.weekMax*100}%"></div>
+              </div>
+              <div class="tc-n">${w.n||''}</div>
+              <div class="tc-lbl">${w.short}</div>
+            </div>`).join("")}
+        </div>
+        <div class="dash-tip">${pace.trendTip}</div>
+      </div>
+
+      <!-- 沟通方式分布 -->
+      <div class="card"><div class="card-title">沟通方式分布<span class="card-tag-soft">你的触达结构</span></div>
+        ${pace.methodTotal ? `<div class="method-dist">
+          ${pace.methods.map(m => `<div class="md-row">
+            <div class="md-lbl"><span class="md-ic" style="color:${m.color}">${m.icon}</span>${esc(m.label)}</div>
+            <div class="md-bar-wrap"><div class="md-bar" style="width:${m.n/pace.methodMax*100}%;background:${m.color}"></div></div>
+            <div class="md-n">${m.n}<span class="md-pct">${Math.round(m.n/pace.methodTotal*100)}%</span></div>
+          </div>`).join("")}
+        </div>` : `<div class="dash-empty">暂无跟进记录，去客户页添加第一条跟进吧。</div>`}
+      </div>
+    </div>
+
+    <!-- 待办日历热力（未来 14 天） -->
+    <div class="card"><div class="card-title">待办日历热力<span class="card-tag-soft">未来 14 天 · 提前看忙闲</span></div>
+      <div class="todo-heat">
+        ${pace.todoDays.map(d => `<div class="th-cell l${d.level} ${d.isToday?'today':''} ${d.overdue?'overdue':''}" title="${d.label}：${d.n} 项待办">
+          <div class="th-date">${d.dd}</div>
+          <div class="th-dot">${d.n||''}</div>
+          <div class="th-wd">${d.wd}</div>
+        </div>`).join("")}
+      </div>
+      <div class="dash-tip">${pace.todoTip}</div>
+    </div>
+
+    <div class="dash-section-title">👥 客户结构</div>
     <div class="grid-2">
       <div class="card"><div class="card-title">推进阶段分布</div>
         <div class="dash-bars">${byStage.map(s => `<div class="db-row"><div class="db-lbl">${s.label}</div><div class="db-bar-wrap"><div class="db-bar" style="width:${s.n/maxStage*100}%;background:${s.color}"></div></div><div class="db-n">${s.n}</div></div>`).join("")}</div>
@@ -1453,6 +1549,124 @@ function renderDashboard() {
       </div>
     </div>`;
   $("#closeDash").onclick = toggleDashboard;
+}
+
+// 环比小标签（次数对比上一周期）
+function paceDelta(cur, prev) {
+  if (prev === 0 && cur === 0) return '';
+  if (prev === 0) return ` <span class="pc-delta up">新增</span>`;
+  const diff = cur - prev;
+  if (diff === 0) return ` <span class="pc-delta flat">持平</span>`;
+  const pct = Math.round(Math.abs(diff) / prev * 100);
+  return diff > 0
+    ? ` <span class="pc-delta up">↑${pct}%</span>`
+    : ` <span class="pc-delta down">↓${pct}%</span>`;
+}
+
+// ---- 时间维度统计核心：把所有客户的 notes 按时间聚合 ----
+function computePace() {
+  // 收集全部跟进记录（含所属客户），date 形如 "2026-06-20 14:30"
+  const allNotes = [];
+  customers.forEach(c => (c.notes || []).forEach(n => {
+    if (n.date) allNotes.push({ ...n, _cust: c.id });
+  }));
+
+  const now = new Date();
+  const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  // 周一为一周起点
+  const weekStart = (d) => {
+    const x = startOfDay(d);
+    const wd = (x.getDay() + 6) % 7; // 周一=0
+    x.setDate(x.getDate() - wd);
+    return x;
+  };
+  const parseDate = s => {
+    const p = String(s).slice(0, 10).split("-");
+    return p.length === 3 ? new Date(+p[0], +p[1]-1, +p[2]) : null;
+  };
+
+  const curWeekStart = weekStart(now);
+  const lastWeekStart = new Date(curWeekStart); lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+  const curMonth = now.getMonth(), curYear = now.getFullYear();
+  const lastMonthDate = new Date(curYear, curMonth - 1, 1);
+
+  let thisWeek = 0, lastWeek = 0, thisMonth = 0, lastMonth = 0;
+  const touchedSet = new Set();
+  allNotes.forEach(n => {
+    const d = parseDate(n.date); if (!d) return;
+    if (d >= curWeekStart) { thisWeek++; touchedSet.add(n._cust); }
+    else if (d >= lastWeekStart && d < curWeekStart) lastWeek++;
+    if (d.getFullYear() === curYear && d.getMonth() === curMonth) thisMonth++;
+    else if (d.getFullYear() === lastMonthDate.getFullYear() && d.getMonth() === lastMonthDate.getMonth()) lastMonth++;
+  });
+
+  // 近 8 周柱状
+  const weeks = [];
+  for (let i = 7; i >= 0; i--) {
+    const ws = new Date(curWeekStart); ws.setDate(ws.getDate() - i * 7);
+    const we = new Date(ws); we.setDate(we.getDate() + 7);
+    const n = allNotes.filter(x => { const d = parseDate(x.date); return d && d >= ws && d < we; }).length;
+    weeks.push({
+      n,
+      isCurrent: i === 0,
+      label: `${ws.getMonth()+1}/${ws.getDate()} 当周`,
+      short: i === 0 ? "本周" : `${ws.getMonth()+1}/${ws.getDate()}`,
+    });
+  }
+  const weekMax = Math.max(1, ...weeks.map(w => w.n));
+  const week8Total = weeks.reduce((s, w) => s + w.n, 0);
+  const weekAvg = Math.round(week8Total / 8 * 10) / 10;
+
+  // 趋势提示
+  let trendTip;
+  if (week8Total === 0) trendTip = "近 8 周还没有跟进记录，先动起来 —— 保持稳定的触达节奏是转化的前提。";
+  else if (thisWeek === 0) trendTip = "本周还没有跟进动作，别让节奏断档，安排一两次触达把势头接上。";
+  else if (thisWeek >= weekAvg) trendTip = `本周 ${thisWeek} 次，达到或高于周均 ${weekAvg} 次，节奏保持得不错，继续。`;
+  else trendTip = `本周 ${thisWeek} 次，低于周均 ${weekAvg} 次，留意别让跟进强度掉下来。`;
+
+  // 沟通方式分布
+  const methodCount = {};
+  allNotes.forEach(n => { methodCount[n.method] = (methodCount[n.method] || 0) + 1; });
+  const methods = CONTACT_METHODS
+    .map(m => ({ ...m, n: methodCount[m.key] || 0 }))
+    .filter(m => m.n > 0)
+    .sort((a, b) => b.n - a.n);
+  const methodTotal = methods.reduce((s, m) => s + m.n, 0);
+  const methodMax = Math.max(1, ...methods.map(m => m.n));
+
+  // 待办日历热力：未来 14 天，按 nextDate 聚合
+  const todoByDate = {};
+  customers.forEach(c => (c.notes || []).forEach(n => {
+    if (n.next && n.nextDate) todoByDate[n.nextDate] = (todoByDate[n.nextDate] || 0) + 1;
+  }));
+  const WD = ["日","一","二","三","四","五","六"];
+  const todoDays = [];
+  const today0 = startOfDay(now);
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(today0); d.setDate(d.getDate() + i);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const n = todoByDate[key] || 0;
+    const level = n === 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : 3;
+    todoDays.push({
+      n, level, dd: d.getDate(), wd: WD[d.getDay()],
+      isToday: i === 0,
+      overdue: false,
+      label: `${d.getMonth()+1}/${d.getDate()}`,
+    });
+  }
+  const next14Total = todoDays.reduce((s, d) => s + d.n, 0);
+  const busiest = todoDays.reduce((a, b) => b.n > a.n ? b : a, todoDays[0]);
+  let todoTip;
+  if (next14Total === 0) todoTip = "未来两周暂无已排期的待办，记得在跟进记录里设置「下一步 + 提醒日期」，别靠脑子记。";
+  else todoTip = `未来两周共 ${next14Total} 项待办，最忙是 ${busiest.label}（${busiest.n} 项），提前把重点客户的准备工作排上。`;
+
+  return {
+    thisWeek, lastWeek, thisMonth, lastMonth,
+    touchedThisWeek: touchedSet.size,
+    weeks, weekMax, weekAvg, trendTip,
+    methods, methodTotal, methodMax,
+    todoDays, todoTip,
+  };
 }
 
 // ===================================================================
