@@ -9,6 +9,7 @@ const icon = (name, className = "") => `<i data-lucide="${name}"${className ? ` 
 let customers = [];
 let reportCustomer = null;
 let toastTimer = null;
+let assistantStateTimer = null;
 
 const state = {
   page: "today",
@@ -520,6 +521,19 @@ function renderAnalytics() {
 }
 
 // ---------- AI 信息收件箱 ----------
+function setAssistantState(assistantState) {
+  const card = $("#copilotCard");
+  if (!card) return;
+  clearTimeout(assistantStateTimer);
+  assistantStateTimer = null;
+  card.classList.remove("assistant-listening", "assistant-reviewing", "assistant-success");
+  card.dataset.assistantState = assistantState;
+  if (assistantState !== "idle") card.classList.add(`assistant-${assistantState}`);
+  if (assistantState === "success") {
+    assistantStateTimer = setTimeout(() => setAssistantState("idle"), 1200);
+  }
+}
+
 function focusCopilot() {
   if (state.page !== "today") {
     state.page = "today";
@@ -602,6 +616,7 @@ function renderAIDraft() {
     </div>
     <div class="review-actions"><button class="text-button" data-action="discard-ai">取消</button><span>所有内容写入后仍可手动修改</span><button class="primary-button" data-action="confirm-ai" ${draft.customerId ? "" : "disabled"}>确认并写入</button></div>
   </section>`;
+  setAssistantState("reviewing");
   refreshIcons();
 }
 
@@ -629,12 +644,14 @@ function confirmAIDraft() {
   state.copilotAttachments = [];
   const input = $("#copilotInput"); if (input) input.value = "";
   renderApp();
+  setAssistantState("success");
   toast(`已写入「${customer.name}」，可随时手动修改`);
 }
 
 function discardAIDraft() {
   state.aiDraft = null;
   const host = $("#aiDraft"); if (host) host.innerHTML = "";
+  setAssistantState("idle");
 }
 
 function startVoiceCapture(button) {
@@ -646,6 +663,7 @@ function startVoiceCapture(button) {
   recognition.interimResults = true;
   recognition.continuous = false;
   state.recording = true;
+  setAssistantState("listening");
   button.classList.add("recording");
   button.innerHTML = `${icon("audio-lines")} 正在听`;
   refreshIcons();
@@ -658,6 +676,7 @@ function startVoiceCapture(button) {
   recognition.onerror = () => toast("没有听清，请再试一次或改用文字输入");
   recognition.onend = () => {
     state.recording = false;
+    setAssistantState("idle");
     button.classList.remove("recording");
     button.innerHTML = `${icon("mic")} 语音`;
     refreshIcons();

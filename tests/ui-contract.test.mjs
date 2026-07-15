@@ -24,6 +24,21 @@ function loadWorkspaceTestApi(openMenus = []) {
   return { api: sandbox.__workspaceTestApi, sandbox };
 }
 
+function loadAssistantStateTestApi(card, timers) {
+  const sandbox = {
+    console,
+    document: {
+      addEventListener() {},
+      querySelector(selector) { return selector === "#copilotCard" ? card : null; },
+      querySelectorAll() { return []; },
+    },
+    setTimeout: timers.setTimeout,
+    clearTimeout: timers.clearTimeout,
+  };
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__assistantStateTestApi = { setAssistantState };`, sandbox);
+  return sandbox.__assistantStateTestApi;
+}
+
 test("Tencent shell uses the supplied QQ penguin and TDesign tokens", () => {
   const html = read("index.html");
   const css = read("style.css");
@@ -121,6 +136,52 @@ test("business views use professional workspace classes without mascot imagery",
   const businessStart = js.indexOf("function renderCustomers");
   const aiStart = js.indexOf("function focusCopilot");
   assert.doesNotMatch(js.slice(businessStart, aiStart), /qq-penguin/);
+});
+
+test("QQ penguin is controlled by explicit assistant states", () => {
+  const js = read("app.js");
+  assert.match(js, /function setAssistantState\(assistantState\)/);
+  assert.match(js, /setAssistantState\("listening"\)/);
+  assert.match(js, /setAssistantState\("reviewing"\)/);
+  assert.match(js, /setAssistantState\("success"\)/);
+  assert.match(js, /setAssistantState\("idle"\)/);
+});
+
+test("assistant state helper applies one card state and cancels stale success reset", () => {
+  const classes = new Set(["ai-assistant-card"]);
+  const card = {
+    dataset: {},
+    classList: {
+      add(value) { classes.add(value); },
+      remove(...values) { values.forEach(value => classes.delete(value)); },
+    },
+  };
+  let pendingTimer = null;
+  let scheduledDelay = null;
+  const api = loadAssistantStateTestApi(card, {
+    setTimeout(callback, delay) { pendingTimer = callback; scheduledDelay = delay; return 1; },
+    clearTimeout() { pendingTimer = null; },
+  });
+
+  api.setAssistantState("success");
+  assert.equal(card.dataset.assistantState, "success");
+  assert.equal(classes.has("assistant-success"), true);
+  assert.equal(scheduledDelay, 1200);
+
+  api.setAssistantState("listening");
+  assert.equal(card.dataset.assistantState, "listening");
+  assert.equal(classes.has("assistant-success"), false);
+  assert.equal(classes.has("assistant-listening"), true);
+  assert.equal(pendingTimer, null);
+});
+
+test("assistant state styling stays restrained and motion-safe", () => {
+  const css = read("style.css");
+  assert.match(css, /\.ai-assistant-card\.assistant-listening\s+\.qq-penguin--assistant\s*\{[^}]*animation:\s*assistantBreath 1\.2s ease-in-out infinite/i);
+  assert.match(css, /\.ai-assistant-card\.assistant-reviewing\s*\{[^}]*var\(--td-brand-color-hover\)/i);
+  assert.match(css, /\.ai-assistant-card\.assistant-success\s*\{[^}]*var\(--td-success\)/i);
+  assert.match(css, /@keyframes\s+assistantBreath\s*\{[^}]*50%\s*\{[^}]*translateY\(-2px\)/i);
+  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.ai-assistant-card\.assistant-listening\s+\.qq-penguin--assistant\s*\{[^}]*animation:\s*none/i);
 });
 
 test("customer and task worktables share TDesign surfaces and remain readable in dark mode", () => {
