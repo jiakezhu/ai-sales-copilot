@@ -86,16 +86,16 @@ function bindAppEvents() {
       $("#globalSearch").focus();
     }
     if (event.key === "Escape") {
+      closeRowMenus(undefined, true);
       closeModal();
       closeReport();
-      closeRowMenus();
     }
   });
 }
 
 async function handleAction(event) {
-  const trigger = event.target.closest("[data-action]");
-  if (!trigger) { closeChoiceMenus(); closeRowMenus(); return; }
+  const trigger = prepareRowMenusForAction(event);
+  if (!trigger) { closeChoiceMenus(); return; }
   const action = trigger.dataset.action;
 
   if (action === "nav") return navigate(trigger.dataset.page);
@@ -123,7 +123,7 @@ async function handleAction(event) {
   if (action === "remove-pain") return removePain(trigger.dataset.customer, Number(trigger.dataset.index));
   if (action === "remove-contact") return removeContact(trigger.dataset.customer, trigger.dataset.contact);
   if (action === "toggle-choice") return toggleChoiceMenu(trigger);
-  if (action === "toggle-row-menu") return closeRowMenus(trigger.closest("details"));
+  if (action === "toggle-row-menu") return;
   if (action === "set-stage") { closeChoiceMenus(); return updateCustomerStage(trigger.dataset.customer, trigger.dataset.value); }
   if (action === "set-grade") { closeChoiceMenus(); return updateCustomerGrade(trigger.dataset.customer, trigger.dataset.value); }
   if (action === "filter-stage") { state.stageFilter = trigger.dataset.value; return renderApp(); }
@@ -497,12 +497,16 @@ function renderTaskRow(task) {
   return `<article class="task-row ${task.done ? "done" : ""}"><button class="task-check ${task.done ? "checked" : ""}" ${task.done ? "disabled" : `data-action="complete-task" data-customer="${task.customer.id}" data-note="${task.note.id}"`} aria-label="${task.done ? "已完成" : "完成待办"}">${task.done ? icon("check") : ""}</button><button class="task-content" data-action="open-customer" data-id="${task.customer.id}"><b>${safe(task.text)}</b><span>${safe(task.customer.name)} · ${safe(task.note.contact || "未指定联系人")}</span></button><b class="grade-dot grade-${task.customer.grade}">${task.customer.grade}</b><time class="${task.overdue && !task.done ? "danger-text" : ""}">${formatShortDate(task.date)}</time></article>`;
 }
 
+function getStalledPriorityCustomers(customerList = customers) {
+  return customerList
+    .map(customer => ({ customer, days: daysSince(lastActivityDate(customer)) }))
+    .filter(item => item.days >= 14 && ["S", "A"].includes(item.customer.grade) && !["won", "lost"].includes(item.customer.stage))
+    .sort((a, b) => b.days - a.days);
+}
+
 function renderAnalytics() {
   const maxStage = Math.max(1, ...CRM_STAGES.map(s => customers.filter(c => c.stage === s.key).length));
-  const stalledPriority = customers
-    .map(customer => ({ customer, days: daysSince(lastActivityDate(customer)) }))
-    .filter(item => item.days >= 14 && ["S", "A"].includes(item.customer.grade))
-    .sort((a, b) => b.days - a.days);
+  const stalledPriority = getStalledPriorityCustomers();
   return `<div class="page analytics-page">
     <section class="page-heading"><div><p class="eyebrow">PERFORMANCE</p><h1>分析</h1><p>看推进节奏和客户结构，不重复展示无行动价值的数据。</p></div></section>
     <div class="analytics-workspace">
@@ -846,9 +850,19 @@ function closeChoiceMenus(except) {
     control.querySelector(".choice-trigger")?.setAttribute("aria-expanded", "false");
   });
 }
-function closeRowMenus(except) {
-  $$(".row-more-actions[open]").forEach(menu => {
-    if (menu !== except) menu.removeAttribute("open");
+function prepareRowMenusForAction(event, root = document) {
+  const rowMenu = event.target.closest(".row-more-actions");
+  const trigger = event.target.closest("[data-action]");
+  if (trigger?.dataset.action === "toggle-row-menu") closeRowMenus(rowMenu, false, root);
+  else if (!rowMenu) closeRowMenus(undefined, false, root);
+  return trigger;
+}
+function closeRowMenus(except, restoreFocus = false, root = document) {
+  Array.from(root.querySelectorAll(".row-more-actions[open]")).forEach(menu => {
+    if (menu === except) return;
+    const focusWasInside = restoreFocus && menu.contains(root.activeElement);
+    menu.removeAttribute("open");
+    if (focusWasInside) menu.querySelector("summary")?.focus();
   });
 }
 function toggleTheme() { const next=document.documentElement.dataset.theme==="dark"?"light":"dark"; document.documentElement.dataset.theme=next; localStorage.setItem(THEME_KEY,next); }

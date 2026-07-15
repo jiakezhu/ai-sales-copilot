@@ -2,9 +2,27 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const readBinary = path => readFileSync(new URL(`../${path}`, import.meta.url));
+
+function loadWorkspaceTestApi(openMenus = []) {
+  const sandbox = {
+    console,
+    document: {
+      activeElement: null,
+      documentElement: { dataset: { theme: "light" } },
+      addEventListener() {},
+      querySelector() { return null; },
+      querySelectorAll(selector) { return selector === ".row-more-actions[open]" ? openMenus : []; },
+    },
+    localStorage: { setItem() {} },
+    THEME_KEY: "theme",
+  };
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__workspaceTestApi = { closeRowMenus, prepareRowMenusForAction, handleAction, getStalledPriorityCustomers };`, sandbox);
+  return { api: sandbox.__workspaceTestApi, sandbox };
+}
 
 test("Tencent shell uses the supplied QQ penguin and TDesign tokens", () => {
   const html = read("index.html");
@@ -127,6 +145,22 @@ test("analytics retains only actionable responsive workspaces", () => {
   assert.match(css, /@media\s*\(max-width:900px\)[\s\S]*?\.analytics-workspace\s*\{[^}]*grid-template-columns:\s*1fr/i);
 });
 
+test("stalled priority customers exclude won and lost terminal stages", () => {
+  const { api } = loadWorkspaceTestApi();
+  const customer = stage => ({
+    id: stage,
+    grade: "S",
+    stage,
+    notes: [{ date: "2020-01-01" }],
+    stageHistory: [],
+  });
+
+  assert.deepEqual(
+    Array.from(api.getStalledPriorityCustomers([customer("proposal"), customer("won"), customer("lost")]), item => item.customer.id),
+    ["proposal"]
+  );
+});
+
 test("390px customer cards preserve business priority and detail navigation", () => {
   const js = read("app.js");
   const css = read("style.css");
@@ -138,12 +172,57 @@ test("390px customer cards preserve business priority and detail navigation", ()
   assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.detail-section-nav\s*\{[^}]*overflow-x:\s*auto/i);
 });
 
-test("customer row menus close predictably for pointer and keyboard users", () => {
-  const js = read("app.js");
-  assert.match(js, /data-action="toggle-row-menu"/);
-  assert.match(js, /function closeRowMenus\(except\)/);
-  assert.match(js, /if \(action === "toggle-row-menu"\) return closeRowMenus\(trigger\.closest\("details"\)\)/);
-  assert.match(js, /if \(event\.key === "Escape"\)\s*\{[\s\S]*?closeRowMenus\(\)/);
+test("Escape closes row menus and restores focus from hidden content", () => {
+  let focused = false;
+  const activeElement = {};
+  const summary = { focus() { focused = true; } };
+  const menu = {
+    open: true,
+    contains(node) { return node === activeElement; },
+    querySelector(selector) { return selector === "summary" ? summary : null; },
+    removeAttribute(name) { if (name === "open") this.open = false; },
+  };
+  const { api, sandbox } = loadWorkspaceTestApi([menu]);
+  sandbox.document.activeElement = activeElement;
+
+  api.closeRowMenus(undefined, true, sandbox.document);
+
+  assert.equal(menu.open, false);
+  assert.equal(focused, true);
+});
+
+test("outside data-action clicks close menus before their action runs", async () => {
+  const menu = {
+    open: true,
+    contains() { return false; },
+    querySelector() { return null; },
+    removeAttribute(name) { if (name === "open") this.open = false; },
+  };
+  const trigger = { dataset: { action: "theme" } };
+  const target = { closest(selector) { return selector === "[data-action]" ? trigger : null; } };
+  const { api, sandbox } = loadWorkspaceTestApi([menu]);
+
+  await api.handleAction({ target });
+
+  assert.equal(menu.open, false);
+  assert.equal(sandbox.document.documentElement.dataset.theme, "dark");
+});
+
+test("menu-internal data-action clicks remain dispatchable", async () => {
+  const menu = {
+    open: true,
+    contains() { return false; },
+    querySelector() { return null; },
+    removeAttribute(name) { if (name === "open") this.open = false; },
+  };
+  const trigger = { dataset: { action: "theme" } };
+  const target = { closest(selector) { return selector === ".row-more-actions" ? menu : selector === "[data-action]" ? trigger : null; } };
+  const { api, sandbox } = loadWorkspaceTestApi([menu]);
+
+  await api.handleAction({ target });
+
+  assert.equal(menu.open, true);
+  assert.equal(sandbox.document.documentElement.dataset.theme, "dark");
 });
 
 test("business workspace controls expose a visible keyboard focus ring", () => {
