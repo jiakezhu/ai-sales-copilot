@@ -1,1919 +1,802 @@
-// ===================================================================
-// 腾讯云 · 销售获客工作台 · 主交互
-// 核心：跟进记录（结构化）+ 组织架构（树状）+ 手动重点等级 + 多维筛选
-// AI 是辅助：抽取信息、参考建议，均可被销售覆盖。
-// ===================================================================
+// 云销副驾 · 产品重构版
+// 核心链路：AI / 语音 / 手动采集 → 销售确认 → 客户全流程沉淀 → 一键全景报告
 
-const $ = (s) => document.querySelector(s);
-const $$ = (s) => document.querySelectorAll(s);
+const $ = (s, root = document) => root.querySelector(s);
+const $$ = (s, root = document) => Array.from(root.querySelectorAll(s));
+const safe = (value) => String(value == null ? "" : value).replace(/[&<>\"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+const icon = (name, className = "") => `<i data-lucide="${name}"${className ? ` class="${className}"` : ""}></i>`;
 
 let customers = [];
-let current = null;
-let filterStage = "all";
-let filterGrade = "all";
-let searchKw = "";
-let ffMethod = "phone";      // 当前跟进表单选的沟通方式
-let editingNoteId = null;    // 正在编辑的跟进记录 id
-let ffAttachBuf = [];        // 当前跟进表单暂存的附件
+let reportCustomer = null;
+let toastTimer = null;
 
-// ---------- 初始化 ----------
-document.addEventListener("DOMContentLoaded", async () => {
+const state = {
+  page: "today",
+  customerId: null,
+  customerTab: "overview",
+  query: "",
+  stageFilter: "all",
+  aiDraft: null,
+  recording: false,
+};
+
+const NAV_ITEMS = [
+  { key: "today", label: "今日", icon: "house" },
+  { key: "customers", label: "客户", icon: "building-2" },
+  { key: "tasks", label: "待办", icon: "circle-check" },
+  { key: "analytics", label: "分析", icon: "chart-no-axes-column-increasing" },
+];
+
+document.addEventListener("DOMContentLoaded", init);
+
+async function init() {
   initTheme();
-  // 先完成 CloudBase 启动（演示模式下瞬间放行；云端模式下会先登录+拉数据）
   try {
-    if (typeof CloudAuth !== "undefined" && CloudAuth.boot) {
-      await CloudAuth.boot();
-    }
-  } catch (e) {
-    console.warn("[init] CloudAuth.boot failed:", e);
-    // boot 失败也不白屏：继续以本地数据渲染
+    if (typeof CloudAuth !== "undefined" && CloudAuth.boot) await CloudAuth.boot();
+  } catch (error) {
+    console.warn("Cloud boot unavailable, using local data", error);
   }
-  customers = CRM.load();
-  renderGradeFilter();
-  renderStageFilter();
-  renderList();
-  renderTopbarStats();
-  renderHero();
-  bindGlobal();
-});
-
-function bindGlobal() {
-  $("#newBtn").addEventListener("click", createCustomer);
-  const emptyNew = $("#emptyNewBtn");
-  if (emptyNew) emptyNew.addEventListener("click", createCustomer); // 空状态新建按钮已合并到顶栏，存在才绑
-  $("#statBtn").addEventListener("click", toggleDashboard);
-  $("#themeSwitch").addEventListener("click", toggleTheme);
-  $$(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.tab)));
-  $("#searchInput").addEventListener("input", e => { searchKw = e.target.value.trim().toLowerCase(); renderList(); });
-  bindLightbox();
+  customers = CRM.load().map(ensureCustomerShape);
+  bindAppEvents();
+  renderApp();
 }
 
-// ---------- 明暗主题 ----------
+function ensureCustomerShape(customer) {
+  customer.fields ||= {};
+  FIELD_DEFS.forEach(def => customer.fields[def.key] ||= { v: "" });
+  customer.notes ||= [];
+  customer.assets ||= [];
+  customer.orgChain ||= [];
+  customer.painPoints ||= [];
+  customer.solution ||= [];
+  customer.funnel ||= { reached: 0, connected: 0, meeting: 0, proposal: 0, won: 0 };
+  customer.stageHistory ||= [{ stage: customer.stage || "lead", date: customer.notes.at(-1)?.date || todayStr(), note: "当前阶段" }];
+  customer.notes.forEach(note => { if (typeof note.taskDone !== "boolean") note.taskDone = false; });
+  return customer;
+}
+
+function persist(message) {
+  CRM.save(customers);
+  if (message) toast(message);
+}
+
 function initTheme() {
-  const saved = localStorage.getItem(THEME_KEY) || "dark";
-  document.documentElement.setAttribute("data-theme", saved);
-}
-function toggleTheme() {
-  const cur = document.documentElement.getAttribute("data-theme") || "dark";
-  const next = cur === "dark" ? "light" : "dark";
-  document.documentElement.setAttribute("data-theme", next);
-  localStorage.setItem(THEME_KEY, next);
-  toast(next === "dark" ? "已切换到深色科技模式" : "已切换到浅色清爽模式");
+  const saved = localStorage.getItem(THEME_KEY) || "light";
+  document.documentElement.dataset.theme = saved;
 }
 
-function persist() { CRM.save(customers); renderTopbarStats(); }
+function bindAppEvents() {
+  document.addEventListener("click", handleAction);
+  document.addEventListener("change", handleChange);
+  document.addEventListener("submit", handleSubmit);
 
-// ---------- 全局数据条（顶部）----------
-function renderTopbarStats() {
-  const el = $("#topbarStats");
-  if (!el) return;
-  const today = todayStr();
-  let todo = 0, overdue = 0;
-  customers.forEach(c => (c.notes||[]).forEach(n => { if (n.next && n.nextDate) { todo++; if (n.nextDate < today) overdue++; } }));
-  const sCount = customers.filter(c => c.grade === "S").length;
-  const active = customers.filter(c => ["contact","meeting","proposal"].includes(c.stage)).length;
-  el.innerHTML = `
-    <div class="tb-stat"><span class="tb-num">${customers.length}</span><span class="tb-lbl">客户</span></div>
-    <div class="tb-stat"><span class="tb-num accent">${active}</span><span class="tb-lbl">跟进中</span></div>
-    <div class="tb-stat"><span class="tb-num warn">${todo}</span><span class="tb-lbl">待办</span></div>
-    <div class="tb-stat"><span class="tb-num ${overdue?'danger':''}">${overdue}</span><span class="tb-lbl">逾期</span></div>`;
-}
-
-// ---------- 空状态：数据概览仪表盘 ----------
-function renderHero() {
-  const today = todayStr();
-  const total = customers.length;
-  const won = customers.filter(c => c.stage === "won").length;
-  const active = customers.filter(c => ["contact","meeting","proposal"].includes(c.stage)).length;
-  let allTodos = [];
-  customers.forEach(c => (c.notes||[]).forEach(n => { if (n.next && n.nextDate) allTodos.push({ c, n }); }));
-  const overdue = allTodos.filter(t => t.n.nextDate < today).length;
-
-  $("#heroStats").innerHTML = [
-    ["客户总数", total, ""],
-    ["跟进中", active, "accent"],
-    ["待办跟进", allTodos.length, "warn"],
-    ["已逾期", overdue, overdue ? "danger" : ""],
-    ["已成交", won, "ok"],
-  ].map(([lbl, num, cls]) => `
-    <div class="hero-stat ${cls}">
-      <div class="hs-num">${num}</div>
-      <div class="hs-lbl">${lbl}</div>
-    </div>`).join("");
-
-  // 待办清单
-  allTodos.sort((a, b) => (a.n.nextDate||"").localeCompare(b.n.nextDate||""));
-  const near = allTodos.slice(0, 6);
-  $("#heroTodoCount").textContent = allTodos.length ? `${allTodos.length} 项` : "";
-  $("#heroTodoList").innerHTML = near.length ? near.map(({ c, n }) => {
-    const od = n.nextDate < today, td = n.nextDate === today;
-    const tag = od ? "逾期" : td ? "今天" : n.nextDate;
-    return `<div class="hero-todo-item ${od?'overdue':td?'today':''}" data-id="${c.id}">
-      <span class="hti-date">${tag}</span>
-      <span class="hti-text">${esc(n.next)}</span>
-      <span class="hti-cust">${esc(c.name)}</span>
-    </div>`;
-  }).join("") : `<div class="hero-empty">暂无待办。进入客户档案记录跟进，填写「下一步 + 提醒日期」，这里会自动汇总。</div>`;
-  $$("#heroTodoList .hero-todo-item").forEach(el => el.addEventListener("click", () => selectCustomer(el.dataset.id)));
-
-  // 等级分布
-  const maxG = Math.max(1, ...GRADES.map(g => customers.filter(c => c.grade === g.key).length));
-  $("#heroGradeDist").innerHTML = GRADES.map(g => {
-    const n = customers.filter(c => c.grade === g.key).length;
-    return `<div class="hgd-row"><span class="hgd-badge" style="background:${g.color}">${g.key}</span>
-      <div class="hgd-bar-wrap"><div class="hgd-bar" style="width:${n/maxG*100}%;background:${g.color}"></div></div>
-      <span class="hgd-n">${n}</span></div>`;
-  }).join("");
-
-  // 阶段分布
-  const maxS = Math.max(1, ...CRM_STAGES.map(s => customers.filter(c => c.stage === s.key).length));
-  $("#heroStageDist").innerHTML = CRM_STAGES.map(s => {
-    const n = customers.filter(c => c.stage === s.key).length;
-    return `<div class="hgd-row"><span class="hgd-slbl">${s.label}</span>
-      <div class="hgd-bar-wrap"><div class="hgd-bar" style="width:${n/maxS*100}%;background:${s.color}"></div></div>
-      <span class="hgd-n">${n}</span></div>`;
-  }).join("");
-}
-
-function toast(msg) {
-  const el = $("#toast");
-  el.textContent = msg;
-  el.classList.remove("hidden");
-  clearTimeout(el._t);
-  el._t = setTimeout(() => el.classList.add("hidden"), 1800);
-}
-
-// ===================================================================
-// 左侧：多维筛选 + 客户列表
-// ===================================================================
-function renderGradeFilter() {
-  const el = $("#gradeFilter");
-  const all = `<button class="gf-btn ${filterGrade==='all'?'active':''}" data-g="all">全部</button>`;
-  el.innerHTML = all + GRADES.map(g =>
-    `<button class="gf-btn ${filterGrade===g.key?'active':''}" data-g="${g.key}" style="--gc:${g.color}"><b>${g.key}</b></button>`
-  ).join("");
-  el.querySelectorAll(".gf-btn").forEach(b => b.addEventListener("click", () => {
-    filterGrade = b.dataset.g; renderGradeFilter(); renderList();
-  }));
-}
-
-function renderStageFilter() {
-  const el = $("#stageFilter");
-  const all = `<button class="sf-btn ${filterStage==='all'?'active':''}" data-s="all">全部</button>`;
-  el.innerHTML = all + CRM_STAGES.map(s =>
-    `<button class="sf-btn ${filterStage===s.key?'active':''}" data-s="${s.key}" style="--sc:${s.color}">${s.label}</button>`
-  ).join("");
-  el.querySelectorAll(".sf-btn").forEach(b => b.addEventListener("click", () => {
-    filterStage = b.dataset.s; renderStageFilter(); renderList();
-  }));
-}
-
-function matchFilter(c) {
-  if (filterStage !== "all" && c.stage !== filterStage) return false;
-  if (filterGrade !== "all" && c.grade !== filterGrade) return false;
-  if (searchKw) {
-    const hay = (c.name + " " + (c.fields.industry && c.fields.industry.v || "")).toLowerCase();
-    if (!hay.includes(searchKw)) return false;
-  }
-  return true;
-}
-
-function renderList() {
-  const list = $("#customerList");
-  const shown = customers.filter(matchFilter);
-  $("#custCount").textContent = shown.length;
-  if (!shown.length) {
-    list.innerHTML = `<div class="list-empty">没有符合条件的客户</div>`;
-    return;
-  }
-  list.innerHTML = shown.map(c => {
-    const st = CRM_STAGES.find(s => s.key === c.stage) || CRM_STAGES[0];
-    const gm = gradeMeta(c.grade);
-    const nextTodo = getNextTodo(c);
-    return `
-    <div class="cust-item ${current && current.id===c.id?'active':''}" data-id="${c.id}">
-      <div class="ci-avatar" style="background:linear-gradient(135deg, ${c.color}, ${shade(c.color,-18)})">${esc(c.logo || c.name[0])}</div>
-      <div class="ci-info">
-        <div class="ci-name-row">
-          <span class="ci-name">${esc(c.name)}</span>
-          <span class="ci-grade" style="background:${gm.color}">${gm.key}</span>
-        </div>
-        <div class="ci-meta">
-          <span class="ci-stage-dot" style="background:${st.color}"></span>${st.label}
-          ${c.fields.industry && c.fields.industry.v ? '<span class="ci-sep">·</span>'+esc(c.fields.industry.v) : ""}
-        </div>
-        ${nextTodo ? `<div class="ci-todo">⏰ ${esc(nextTodo)}</div>` : ""}
-      </div>
-    </div>`;
-  }).join("");
-  list.querySelectorAll(".cust-item").forEach(el =>
-    el.addEventListener("click", () => selectCustomer(el.dataset.id)));
-}
-
-// 颜色加深工具（生成头像渐变）
-function shade(hex, pct) {
-  const h = hex.replace("#", "");
-  const n = parseInt(h.length === 3 ? h.split("").map(x=>x+x).join("") : h, 16);
-  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-  r = Math.max(0, Math.min(255, r + Math.round(255 * pct / 100)));
-  g = Math.max(0, Math.min(255, g + Math.round(255 * pct / 100)));
-  b = Math.max(0, Math.min(255, b + Math.round(255 * pct / 100)));
-  return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-}
-
-// 取客户最近一条待办（下次跟进）
-function getNextTodo(c) {
-  const withNext = (c.notes || []).filter(n => n.next && n.nextDate);
-  if (!withNext.length) return "";
-  withNext.sort((a, b) => (a.nextDate || "").localeCompare(b.nextDate || ""));
-  const t = withNext[withNext.length - 1];
-  return `${t.nextDate} ${t.next}`;
-}
-
-// ===================================================================
-// 客户 CRUD
-// ===================================================================
-const PALETTE = ["#6366f1", "#0ea5a4", "#3b82f6", "#8b5cf6", "#f59e0b", "#ec4899", "#0052d9", "#14b8a6"];
-
-function createCustomer() {
-  const c = {
-    id: uid(), name: "新客户", logo: "新",
-    color: PALETTE[customers.length % PALETTE.length],
-    stage: "lead", grade: "B", aiSuggestScore: 0,
-    fields: {}, orgChain: [], painPoints: [], solution: [],
-    aiScoreReason: [], funnel: { reached: 0, connected: 0, meeting: 0, proposal: 0, won: 0 },
-    notes: [], assets: [],
-  };
-  FIELD_DEFS.forEach(d => c.fields[d.key] = { v: "" });
-  customers.unshift(c);
-  persist(); renderList(); selectCustomer(c.id);
-  switchTab("profile");
-  toast("已新建客户，先设定重点等级并完善情报");
-}
-
-function selectCustomer(id) {
-  current = customers.find(c => c.id === id);
-  if (!current) return;
-  renderList();
-  $("#emptyState").classList.add("hidden");
-  $("#dashboard").classList.add("hidden");
-  $("#workspace").classList.remove("hidden");
-  editingNoteId = null;
-  renderWorkspace();
-  switchTab("followup");
-}
-
-function deleteCurrent() {
-  if (!current) return;
-  customers = customers.filter(c => c.id !== current.id);
-  persist();
-  current = null;
-  $("#workspace").classList.add("hidden");
-  $("#emptyState").classList.remove("hidden");
-  renderList();
-  renderHero();
-  toast("客户已删除");
-}
-
-// ===================================================================
-// 工作区渲染
-// ===================================================================
-function renderWorkspace() {
-  const c = current;
-  renderAvatar();
-  $("#custNameInput").value = c.name;
-  $("#custNameInput").oninput = e => {
-    c.name = e.target.value || "未命名"; c.logo = c.name[0];
-    renderAvatar(); persist(); renderList();
-  };
-  $("#wsIndustry").textContent = (c.fields.industry && c.fields.industry.v) || "未填行业";
-  const st = CRM_STAGES.find(s => s.key === c.stage) || CRM_STAGES[0];
-  $("#wsStageMini").innerHTML = `<span class="dot" style="background:${st.color}"></span>${st.label}`;
-  renderKeyInfo();
-  $("#delBtn").onclick = () => confirmModal(`确定删除「${c.name}」？此操作不可撤销。`, deleteCurrent);
-  renderGradeDropdown();
-  renderStageBar();
-  renderFollowup();
-  renderOrgTree();
-  renderAssets();
-  renderProfile();
-  renderScript();
-  renderFunnel();
-  renderRaidFile();
-}
-
-function renderAvatar() {
-  const c = current;
-  const el = $("#custAvatar");
-  el.style.background = `linear-gradient(135deg, ${c.color}, ${shade(c.color,-20)})`;
-  el.textContent = c.logo || c.name[0];
-}
-
-// 名字/头像旁的关键情报 chip：成立时间 / 团队规模 / 融资情况 / 活跃·营收
-// 只展示有值的字段；点击任意 chip 跳到「客户情报」Tab 编辑
-function renderKeyInfo() {
-  const c = current;
-  const el = $("#wsKeyInfo");
-  if (!el) return;
-  const KEY_CHIPS = [
-    { key: "founded", icon: "📅", label: "成立" },
-    { key: "staff",   icon: "👥", label: "规模" },
-    { key: "funding", icon: "💰", label: "融资" },
-    { key: "dau",     icon: "📈", label: "活跃" },
-    { key: "revenue", icon: "💴", label: "营收" },
-  ];
-  const chips = KEY_CHIPS
-    .map(k => ({ ...k, v: (c.fields[k.key] && c.fields[k.key].v || "").trim() }))
-    .filter(k => k.v);
-  if (!chips.length) {
-    el.innerHTML = `<span class="ws-ki-empty">关键情报未填 · 去「客户情报」补充</span>`;
-    el.querySelector(".ws-ki-empty").onclick = () => switchTab("profile");
-    return;
-  }
-  el.innerHTML = chips.map(k =>
-    `<span class="ws-ki-chip" data-key="${k.key}" title="${esc(k.label)}：${esc(k.v)}（点击编辑）">
-      <span class="ws-ki-ic">${k.icon}</span><span class="ws-ki-v">${esc(k.v)}</span>
-    </span>`).join("");
-  el.querySelectorAll(".ws-ki-chip").forEach(chip =>
-    chip.addEventListener("click", () => switchTab("profile")));
-}
-
-// 重点等级下拉（销售手动）
-function renderGradeDropdown() {
-  const c = current;
-  const gm = gradeMeta(c.grade);
-  const el = $("#gradeDropdown");
-  el.innerHTML = `
-    <button class="gd-trigger" id="gdTrigger" style="--gc:${gm.color}">
-      <span class="gd-badge" style="background:${gm.color}">${gm.key}</span>
-      <span class="gd-text">${esc(gm.label.split("·")[1] ? gm.label.split("·")[1].trim() : gm.label)}</span>
-      <span class="gd-arrow">▾</span>
-    </button>
-    <div class="gd-menu hidden" id="gdMenu">
-      ${GRADES.map(g => `<div class="gd-item ${c.grade===g.key?'sel':''}" data-g="${g.key}">
-        <span class="gd-badge" style="background:${g.color}">${g.key}</span>
-        <div><div class="gd-item-t">${esc(g.label)}</div><div class="gd-item-d">${esc(g.desc)}</div></div>
-      </div>`).join("")}
-    </div>`;
-  const trigger = $("#gdTrigger"), menu = $("#gdMenu");
-  trigger.onclick = (e) => { e.stopPropagation(); menu.classList.toggle("hidden"); };
-  document.addEventListener("click", () => menu.classList.add("hidden"), { once: true });
-  menu.querySelectorAll(".gd-item").forEach(it => it.addEventListener("click", () => {
-    c.grade = it.dataset.g; persist(); renderGradeDropdown(); renderList();
-    toast(`重点等级已设为 ${gradeMeta(c.grade).label}`);
-  }));
-}
-
-// 阶段推进条
-function renderStageBar() {
-  const c = current;
-  const el = $("#stageBar");
-  const mainStages = CRM_STAGES.filter(s => s.key !== "lost");
-  const curIdx = mainStages.findIndex(s => s.key === c.stage);
-  el.innerHTML = mainStages.map((s, i) => {
-    const done = curIdx >= 0 && i <= curIdx && c.stage !== "lost";
-    const isCur = s.key === c.stage;
-    return `<button class="sb-step ${done?'done':''} ${isCur?'cur':''}" data-s="${s.key}" style="--sc:${s.color}">
-      <span class="sb-dot"></span><span class="sb-lbl">${s.label}</span>
-    </button>`;
-  }).join("") + `<button class="sb-lost ${c.stage==='lost'?'active':''}" data-s="lost">流失</button>`;
-  el.querySelectorAll("[data-s]").forEach(b => b.addEventListener("click", () => {
-    c.stage = b.dataset.s; persist(); renderStageBar(); renderList();
-    const st = CRM_STAGES.find(s=>s.key===c.stage);
-    $("#wsStageMini").innerHTML = `<span class="dot" style="background:${st.color}"></span>${st.label}`;
-    toast(`阶段更新为「${st.label}」`);
-  }));
-}
-
-// ===================================================================
-// 模块① 跟进记录（核心）
-// ===================================================================
-function renderFollowup() {
-  const c = current;
-  if (!c.notes) c.notes = [];
-  renderMethodPicker();
-  renderContactOptions();
-  bindFollowupForm();
-  resetFollowupForm();
-  renderTodoBar();
-  renderNoteTimeline();
-}
-
-// 跟进表单附件缓冲区渲染
-function renderFfAttach() {
-  const el = $("#ffAttachList");
-  if (!el) return;
-  el.innerHTML = ffAttachBuf.map((a, i) => a.dataUrl
-    ? `<div class="ffa-thumb"><img src="${a.dataUrl}" alt=""><button class="ffa-rm" data-i="${i}">×</button></div>`
-    : `<div class="ffa-file"><span>📄 ${esc(a.name)}</span><button class="ffa-rm" data-i="${i}">×</button></div>`
-  ).join("");
-  el.querySelectorAll(".ffa-rm").forEach(b => b.addEventListener("click", () => {
-    ffAttachBuf.splice(+b.dataset.i, 1); renderFfAttach();
-  }));
-}
-function bindFfAttachInput() {
-  const inp = $("#ffAttachInput");
-  if (!inp || inp._bound) return;
-  inp._bound = true;
-  inp.addEventListener("change", async e => {
-    const files = Array.from(e.target.files || []);
-    for (const f of files) {
-      const meta = await AssetEngine.readFile(f);
-      ffAttachBuf.push({ id: uid("fa"), name: meta.name, dataUrl: meta.dataUrl, isImage: meta.isImage });
+  $("#globalSearch").addEventListener("input", event => {
+    state.query = event.target.value.trim().toLowerCase();
+    if (state.query) {
+      state.page = "customers";
+      state.customerId = null;
     }
-    inp.value = "";
-    renderFfAttach();
+    renderApp();
+  });
+
+  document.addEventListener("keydown", event => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      $("#globalSearch").focus();
+    }
+    if (event.key === "Escape") {
+      closeModal();
+      closeReport();
+    }
   });
 }
 
-function renderMethodPicker() {
-  const el = $("#ffMethods");
-  el.innerHTML = CONTACT_METHODS.map(m =>
-    `<button class="mth-btn ${ffMethod===m.key?'active':''}" data-m="${m.key}" style="--mc:${m.color}">
-      <span class="mth-ico">${m.icon}</span>${m.label}
+async function handleAction(event) {
+  const trigger = event.target.closest("[data-action]");
+  if (!trigger) { closeChoiceMenus(); return; }
+  const action = trigger.dataset.action;
+
+  if (action === "nav") return navigate(trigger.dataset.page);
+  if (action === "go-today") return navigate("today");
+  if (action === "theme") return toggleTheme();
+  if (action === "new-customer") return openNewCustomer();
+  if (action === "manual-entry") return openManualEntry(trigger.dataset.customer || state.customerId);
+  if (action === "focus-copilot") return focusCopilot();
+  if (action === "analyze-ai") return analyzeCopilot();
+  if (action === "voice") return startVoiceCapture(trigger);
+  if (action === "confirm-ai") return confirmAIDraft();
+  if (action === "discard-ai") return discardAIDraft();
+  if (action === "open-customer") return openCustomer(trigger.dataset.id);
+  if (action === "customer-tab") return switchCustomerTab(trigger.dataset.tab);
+  if (action === "back-customers") { state.customerId = null; return renderApp(); }
+  if (action === "complete-task") return completeTask(trigger.dataset.customer, trigger.dataset.note);
+  if (action === "open-report") return openReport(trigger.dataset.id || state.customerId);
+  if (action === "close-report") return closeReport();
+  if (action === "export-pdf") return window.print();
+  if (action === "export-word") return exportWordReport();
+  if (action === "close-modal") return closeModal();
+  if (action === "add-contact") return openContactForm(trigger.dataset.customer || state.customerId);
+  if (action === "add-pain") return openPainForm(trigger.dataset.customer || state.customerId);
+  if (action === "add-solution") return openSolutionForm(trigger.dataset.customer || state.customerId);
+  if (action === "remove-pain") return removePain(trigger.dataset.customer, Number(trigger.dataset.index));
+  if (action === "remove-contact") return removeContact(trigger.dataset.customer, trigger.dataset.contact);
+  if (action === "toggle-choice") return toggleChoiceMenu(trigger);
+  if (action === "set-stage") { closeChoiceMenus(); return updateCustomerStage(trigger.dataset.customer, trigger.dataset.value); }
+  if (action === "set-grade") { closeChoiceMenus(); return updateCustomerGrade(trigger.dataset.customer, trigger.dataset.value); }
+  if (action === "filter-stage") { state.stageFilter = trigger.dataset.value; return renderApp(); }
+  if (action === "reset-filters") { state.query = ""; state.stageFilter = "all"; $("#globalSearch").value = ""; return renderApp(); }
+}
+
+function handleChange(event) {
+  const target = event.target;
+  if (target.id === "stageFilter") {
+    state.stageFilter = target.value;
+    return renderApp();
+  }
+  if (target.matches("[data-customer-stage]")) return updateCustomerStage(target.dataset.customerStage, target.value);
+  if (target.matches("[data-customer-grade]")) return updateCustomerGrade(target.dataset.customerGrade, target.value);
+  if (target.matches("[data-intel-field]")) return updateIntelField(target);
+  if (target.id === "aiTargetSelect" && state.aiDraft) {
+    state.aiDraft.customerId = target.value;
+    renderAIDraft();
+  }
+}
+
+async function handleSubmit(event) {
+  if (!event.target.matches("[data-form]")) return;
+  event.preventDefault();
+  const type = event.target.dataset.form;
+  if (type === "new-customer") return submitNewCustomer(event.target);
+  if (type === "manual-entry") return submitManualEntry(event.target);
+  if (type === "contact") return submitContact(event.target);
+  if (type === "pain") return submitPain(event.target);
+  if (type === "solution") return submitSolution(event.target);
+}
+
+function navigate(page) {
+  state.page = page;
+  state.customerId = null;
+  state.customerTab = "overview";
+  renderApp();
+  $("#pageRoot").focus({ preventScroll: true });
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function renderApp() {
+  renderNavigation();
+  const root = $("#pageRoot");
+  if (state.page === "today") root.innerHTML = renderToday();
+  if (state.page === "customers") root.innerHTML = state.customerId ? renderCustomerDetail(getCustomer(state.customerId)) : renderCustomers();
+  if (state.page === "tasks") root.innerHTML = renderTasks();
+  if (state.page === "analytics") root.innerHTML = renderAnalytics();
+  if (state.aiDraft && state.page === "today") renderAIDraft();
+  refreshIcons();
+}
+
+function renderNavigation() {
+  const taskCount = getTasks().filter(task => !task.done).length;
+  const html = NAV_ITEMS.map(item => `
+    <button class="nav-item ${state.page === item.key ? "active" : ""}" data-action="nav" data-page="${item.key}">
+      <span class="nav-icon">${icon(item.icon)}</span><span>${item.label}</span>${item.key === "tasks" && taskCount ? `<em>${taskCount}</em>` : ""}
     </button>`).join("");
-  el.querySelectorAll(".mth-btn").forEach(b => b.addEventListener("click", () => {
-    ffMethod = b.dataset.m; renderMethodPicker(); updatePlaceLabel();
-  }));
-  updatePlaceLabel();
+  $("#primaryNav").innerHTML = html;
+  $("#mobileNav").innerHTML = html;
+  $("#themeToggle").dataset.action = "theme";
 }
 
-function updatePlaceLabel() {
-  const lbl = $("#ffPlaceLabel"), wrap = $("#ffPlaceWrap"), input = $("#ffPlace");
-  if (ffMethod === "visit") { lbl.textContent = "拜访地点"; input.placeholder = "如：客户公司 A 座 15 楼会议室"; wrap.classList.remove("hidden"); }
-  else if (ffMethod === "meeting") { lbl.textContent = "会议链接 / 房间号"; input.placeholder = "腾讯会议号或链接"; wrap.classList.remove("hidden"); }
-  else if (ffMethod === "phone" || ffMethod === "wechat" || ffMethod === "email" || ffMethod === "other") { lbl.textContent = "补充信息（可选）"; input.placeholder = "如：拨打的号码 / 邮件主题"; wrap.classList.remove("hidden"); }
-}
-
-function renderContactOptions() {
-  const opts = (current.orgChain || []).map(o => `<option value="${esc(o.name)}${o.role?'（'+esc(o.role)+'）':''}">`).join("");
-  $("#contactOptions").innerHTML = opts;
-}
-
-function bindFollowupForm() {
-  $("#saveNoteBtn").onclick = saveNote;
-  $("#clearNoteBtn").onclick = resetFollowupForm;
-  bindFfAttachInput();
-}
-
-function resetFollowupForm() {
-  editingNoteId = null;
-  ffMethod = "phone";
-  ffAttachBuf = [];
-  renderMethodPicker();
-  $("#ffDate").value = nowDateTimeLocal();
-  $("#ffContact").value = "";
-  $("#ffPlace").value = "";
-  $("#ffContent").value = "";
-  $("#ffNext").value = "";
-  $("#ffNextDate").value = "";
-  $("#ffEditing").classList.add("hidden");
-  $("#saveNoteBtn").textContent = "保存跟进";
-  renderFfAttach();
-}
-
-function nowDateTimeLocal() {
-  const d = new Date();
-  const p = n => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-function saveNote() {
-  const c = current;
-  const dateRaw = $("#ffDate").value;
-  const content = $("#ffContent").value.trim();
-  if (!content) { toast("请填写沟通内容"); $("#ffContent").focus(); return; }
-  const date = dateRaw ? dateRaw.replace("T", " ") : nowDateTime();
-  const rec = {
-    id: editingNoteId || uid("n"),
-    method: ffMethod,
-    date,
-    contact: $("#ffContact").value.trim(),
-    place: $("#ffPlace").value.trim(),
-    content,
-    next: $("#ffNext").value.trim(),
-    nextDate: $("#ffNextDate").value || "",
-    attachments: ffAttachBuf.slice(),
-  };
-  if (editingNoteId) {
-    const idx = c.notes.findIndex(n => n.id === editingNoteId);
-    if (idx >= 0) c.notes[idx] = rec;
-    toast("跟进记录已更新");
-  } else {
-    c.notes.push(rec);
-    toast("跟进记录已保存");
-  }
-  persist();
-  resetFollowupForm();
-  renderTodoBar();
-  renderNoteTimeline();
-  renderList();
-}
-
-function editNote(id) {
-  const n = current.notes.find(x => x.id === id);
-  if (!n) return;
-  editingNoteId = id;
-  ffMethod = n.method || "phone";
-  ffAttachBuf = (n.attachments || []).slice();
-  renderMethodPicker();
-  renderFfAttach();
-  $("#ffDate").value = (n.date || "").replace(" ", "T").slice(0, 16) || nowDateTimeLocal();
-  $("#ffContact").value = n.contact || "";
-  $("#ffPlace").value = n.place || "";
-  $("#ffContent").value = n.content || "";
-  $("#ffNext").value = n.next || "";
-  $("#ffNextDate").value = n.nextDate || "";
-  $("#ffEditing").classList.remove("hidden");
-  $("#saveNoteBtn").textContent = "更新跟进";
-  $(".followup-form-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
-  switchTab("followup");
-}
-
-function delNote(id) {
-  current.notes = current.notes.filter(n => n.id !== id);
-  persist(); renderTodoBar(); renderNoteTimeline(); renderList();
-  toast("已删除该条跟进");
-}
-
-// 待办提醒条：汇总所有"下次跟进"
-function renderTodoBar() {
-  const c = current;
-  const todos = (c.notes || []).filter(n => n.next && n.nextDate)
-    .sort((a, b) => (a.nextDate || "").localeCompare(b.nextDate || ""));
-  const el = $("#todoBar");
-  if (!todos.length) {
-    el.innerHTML = `<div class="todo-empty">暂无待办。记录跟进时填写「下一步 + 提醒日期」，这里会汇总你的待办清单。</div>`;
-    return;
-  }
-  const today = todayStr();
-  el.innerHTML = `<div class="todo-title">📌 待办跟进</div>` + todos.map(t => {
-    const overdue = t.nextDate < today;
-    const isToday = t.nextDate === today;
-    const cls = overdue ? "overdue" : isToday ? "today" : "";
-    const tag = overdue ? "已逾期" : isToday ? "今天" : t.nextDate;
-    return `<div class="todo-item ${cls}">
-      <span class="todo-date">${tag}</span>
-      <span class="todo-text">${esc(t.next)}</span>
-      ${t.contact ? `<span class="todo-contact">@${esc(t.contact)}</span>` : ""}
-      <button class="todo-done" data-id="${t.id}" title="完成，清除提醒">✓</button>
-    </div>`;
-  }).join("");
-  el.querySelectorAll(".todo-done").forEach(b => b.addEventListener("click", () => {
-    const n = c.notes.find(x => x.id === b.dataset.id);
-    if (n) { n.next = ""; n.nextDate = ""; persist(); renderTodoBar(); renderNoteTimeline(); renderList(); toast("已标记完成"); }
-  }));
-}
-
-function renderNoteTimeline() {
-  const c = current;
-  $("#noteTotal").textContent = c.notes.length ? `共 ${c.notes.length} 次` : "";
-  const el = $("#noteTimeline");
-  if (!c.notes.length) {
-    el.innerHTML = `<div class="tl-empty">还没有跟进记录。<br>每次和客户沟通后记一笔，形成完整的客户档案。</div>`;
-    return;
-  }
-  const sorted = c.notes.slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  el.innerHTML = sorted.map(n => {
-    const m = methodMeta(n.method);
-    return `<div class="ntl-item">
-      <div class="ntl-icon" style="background:${m.color}">${m.icon}</div>
-      <div class="ntl-body">
-        <div class="ntl-top">
-          <span class="ntl-method" style="color:${m.color}">${m.label}</span>
-          ${n.contact ? `<span class="ntl-contact">${esc(n.contact)}</span>` : ""}
-          <span class="ntl-date">${esc(n.date)}</span>
-          <span class="ntl-ops">
-            <button class="ntl-edit" data-id="${n.id}">编辑</button>
-            <button class="ntl-del" data-id="${n.id}">删除</button>
-          </span>
-        </div>
-        ${n.place ? `<div class="ntl-place">📍 ${esc(n.place)}</div>` : ""}
-        <div class="ntl-content">${esc(n.content)}</div>
-        ${(n.attachments && n.attachments.length) ? `<div class="ntl-attach">${n.attachments.map(a => a.dataUrl
-          ? `<img class="ntl-att-img" src="${a.dataUrl}" data-src="${a.dataUrl}" alt="">`
-          : `<span class="ntl-att-file">📄 ${esc(a.name)}</span>`).join("")}</div>` : ""}
-        ${n.next ? `<div class="ntl-next"><span class="ntl-next-tag">下一步</span>${esc(n.next)}${n.nextDate?`<span class="ntl-next-date">📅 ${esc(n.nextDate)}</span>`:""}</div>` : ""}
-      </div>
-    </div>`;
-  }).join("");
-  el.querySelectorAll(".ntl-edit").forEach(b => b.addEventListener("click", () => editNote(b.dataset.id)));
-  el.querySelectorAll(".ntl-del").forEach(b => b.addEventListener("click", () => confirmModal("删除这条跟进记录？", () => delNote(b.dataset.id))));
-  el.querySelectorAll(".ntl-att-img").forEach(img => img.addEventListener("click", () => openLightbox(img.dataset.src)));
-}
-
-// ===================================================================
-// 模块② 组织架构树（销售自建 + 联系方式）
-// ===================================================================
-function renderOrgTree() {
-  const c = current;
-  if (!c.orgChain) c.orgChain = [];
-  const el = $("#orgTree");
-  $("#addRootBtn").onclick = () => {
-    c.orgChain.push({ id: uid("o"), pid: null, name: "姓名", role: "职位", level: 1, phone: "", wechat: "", email: "", note: "", photo: "" });
-    persist(); renderOrgTree(); renderContactOptions();
-  };
-  if (!c.orgChain.length) {
-    el.innerHTML = `<div class="org-empty">还没有组织架构。点上方「添加高层」开始搭建对方的决策关系图，把关键人的联系方式也记下来。</div>`;
-    return;
-  }
-  const roots = c.orgChain.filter(n => !n.pid || !c.orgChain.find(p => p.id === n.pid));
-  el.innerHTML = `<div class="org-tree-inner">${roots.map(r => renderOrgNode(r, c.orgChain)).join("")}</div>`;
-  bindOrgNodes();
-}
-
-function renderOrgNode(node, all) {
-  const children = all.filter(n => n.pid === node.id);
-  const levelColor = node.level === 1 ? "#e34d59" : node.level === 2 ? "#0052d9" : "#0d9488";
-  const contacts = [];
-  if (node.phone)  contacts.push(`<span class="oc-item">☎ ${esc(node.phone)}</span>`);
-  if (node.wechat) contacts.push(`<span class="oc-item">💬 ${esc(node.wechat)}</span>`);
-  if (node.email)  contacts.push(`<span class="oc-item">✉ ${esc(node.email)}</span>`);
-  return `<div class="org-branch">
-    <div class="org-card" data-id="${node.id}" style="--lc:${levelColor}">
-      <div class="org-card-head">
-        <div class="org-avatar ${node.photo?'has-photo':''}" data-photo-id="${node.id}" style="background:${levelColor}" title="点击上传/更换照片">
-          ${node.photo ? `<img src="${node.photo}" alt="">` : esc((node.name||"?")[0])}
-          <span class="org-avatar-cam">📷</span>
-        </div>
-        <div class="org-card-main">
-          <div class="org-name">${esc(node.name||"未命名")}</div>
-          <div class="org-role">${esc(node.role||"职位未填")}</div>
-        </div>
-        <div class="org-card-ops">
-          <button class="org-edit" data-id="${node.id}" title="编辑">✎</button>
-          <button class="org-del" data-id="${node.id}" title="删除">×</button>
-        </div>
-      </div>
-      ${contacts.length ? `<div class="org-contacts">${contacts.join("")}</div>` : ""}
-      ${node.note ? `<div class="org-note">${esc(node.note)}</div>` : ""}
-      <button class="org-add-child" data-id="${node.id}">＋ 下属</button>
-    </div>
-    ${children.length ? `<div class="org-children">${children.map(ch => renderOrgNode(ch, all)).join("")}</div>` : ""}
-  </div>`;
-}
-
-function bindOrgNodes() {
-  const c = current;
-  $$("#orgTree .org-add-child").forEach(b => b.addEventListener("click", () => {
-    const pid = b.dataset.id;
-    const parent = c.orgChain.find(n => n.id === pid);
-    const lv = parent ? Math.min(3, (parent.level || 1) + 1) : 2;
-    c.orgChain.push({ id: uid("o"), pid, name: "姓名", role: "职位", level: lv, phone: "", wechat: "", email: "", note: "", photo: "" });
-    persist(); renderOrgTree(); renderContactOptions();
-  }));
-  $$("#orgTree .org-del").forEach(b => b.addEventListener("click", () => {
-    const id = b.dataset.id;
-    // 删除节点及其所有下属
-    const toDel = new Set([id]);
-    let changed = true;
-    while (changed) { changed = false; c.orgChain.forEach(n => { if (n.pid && toDel.has(n.pid) && !toDel.has(n.id)) { toDel.add(n.id); changed = true; } }); }
-    confirmModal("删除该联系人及其所有下属节点？", () => {
-      c.orgChain = c.orgChain.filter(n => !toDel.has(n.id));
-      persist(); renderOrgTree(); renderContactOptions(); toast("已删除");
-    });
-  }));
-  $$("#orgTree .org-edit").forEach(b => b.addEventListener("click", () => openOrgEdit(b.dataset.id)));
-  // 头像点击上传照片
-  $$("#orgTree .org-avatar[data-photo-id]").forEach(av => av.addEventListener("click", () => {
-    const id = av.dataset.photoId;
-    const inp = document.createElement("input");
-    inp.type = "file"; inp.accept = "image/*";
-    inp.onchange = async e => {
-      const f = e.target.files[0]; if (!f) return;
-      const meta = await AssetEngine.readFile(f);
-      const node = c.orgChain.find(n => n.id === id);
-      if (node) {
-        node.photo = meta.dataUrl;
-        // 同步进资料库，标为人员照片并关联
-        if (!c.assets) c.assets = [];
-        c.assets.push(AssetEngine.makeAsset("photo", meta, { linkedNodeId: id, caption: `${node.name||""} ${node.role||""}`.trim() }));
-        persist(); renderOrgTree(); toast("照片已上传并关联到该联系人");
-      }
-    };
-    inp.click();
-  }));
-}
-
-function openOrgEdit(id) {
-  const c = current;
-  const n = c.orgChain.find(x => x.id === id);
-  if (!n) return;
-  const m = $("#modal");
-  m.classList.remove("hidden");
-  $("#modalBox").innerHTML = `
-    <div class="modal-title">编辑联系人</div>
-    <div class="org-form">
-      <div class="of-photo-row">
-        <div class="of-photo" id="ofPhoto">${n.photo?`<img src="${n.photo}">`:esc((n.name||'?')[0])}</div>
-        <label class="of-photo-btn"><input type="file" id="ofPhotoInput" accept="image/*" hidden />上传照片</label>
-        ${n.photo?`<button class="of-photo-rm" id="ofPhotoRm">移除</button>`:""}
-      </div>
-      <div class="of-row">
-        <div class="of-field"><label>姓名</label><input id="ofName" value="${esc(n.name)}" /></div>
-        <div class="of-field"><label>职位</label><input id="ofRole" value="${esc(n.role)}" /></div>
-      </div>
-      <div class="of-field"><label>层级</label>
-        <select id="ofLevel">${ORG_LEVELS.map(l=>`<option value="${l.level}" ${n.level===l.level?'selected':''}>${l.label}</option>`).join("")}</select>
-      </div>
-      <div class="of-row">
-        <div class="of-field"><label>电话</label><input id="ofPhone" value="${esc(n.phone)}" placeholder="手机 / 座机" /></div>
-        <div class="of-field"><label>微信</label><input id="ofWechat" value="${esc(n.wechat)}" placeholder="微信号" /></div>
-      </div>
-      <div class="of-field"><label>邮箱</label><input id="ofEmail" value="${esc(n.email)}" placeholder="邮箱地址" /></div>
-      <div class="of-field"><label>备注（态度/影响力/关注点）</label><textarea id="ofNote">${esc(n.note)}</textarea></div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn-ghost" id="ofCancel">取消</button>
-      <button class="btn-primary" id="ofSave">保存</button>
-    </div>`;
-  const close = () => m.classList.add("hidden");
-  $("#ofCancel").onclick = close;
-  $(".modal-mask").onclick = close;
-  let pendingPhoto = n.photo || "";
-  $("#ofPhotoInput").onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
-    const meta = await AssetEngine.readFile(f);
-    pendingPhoto = meta.dataUrl;
-    $("#ofPhoto").innerHTML = `<img src="${meta.dataUrl}">`;
-    // 存进资料库
-    if (!c.assets) c.assets = [];
-    c.assets.push(AssetEngine.makeAsset("photo", meta, { linkedNodeId: n.id, caption: `${n.name||""} ${n.role||""}`.trim() }));
-  };
-  if ($("#ofPhotoRm")) $("#ofPhotoRm").onclick = () => { pendingPhoto = ""; $("#ofPhoto").innerHTML = esc((n.name||"?")[0]); };
-  $("#ofSave").onclick = () => {
-    n.photo = pendingPhoto;
-    n.name = $("#ofName").value.trim() || "未命名";
-    n.role = $("#ofRole").value.trim();
-    n.level = parseInt($("#ofLevel").value) || 2;
-    n.phone = $("#ofPhone").value.trim();
-    n.wechat = $("#ofWechat").value.trim();
-    n.email = $("#ofEmail").value.trim();
-    n.note = $("#ofNote").value.trim();
-    persist(); close(); renderOrgTree(); renderContactOptions(); renderScript(); toast("联系人已保存");
-  };
-}
-
-// ===================================================================
-// 模块③ 资料库（名片 / 聊天记录 / 人员照片 / 附件）
-// ===================================================================
-let assetFilter = "all";
-
-function renderAssets() {
-  const c = current;
-  if (!c.assets) c.assets = [];
-  renderAssetUploaders();
-  bindDropzone();
-  const mb = $("#addMeetingBtn");
-  if (mb) mb.onclick = () => openMeetingModal();
-  renderAssetGallery();
-}
-
-// 顶部分类上传按钮
-function renderAssetUploaders() {
-  const el = $("#assetUploaders");
-  // 会议纪要走独立录入入口（文本），不在这里出图片上传按钮
-  el.innerHTML = ASSET_TYPES.filter(t => t.key !== "meeting").map(t =>
-    `<label class="asset-up-btn" title="${t.desc}">
-      <input type="file" class="asset-up-input" data-type="${t.key}" accept="image/*" ${t.key==='file'?'':'multiple'} hidden />
-      <span class="aub-ico">${t.icon}</span><span class="aub-lbl">上传${t.label}</span>
-    </label>`).join("");
-  el.querySelectorAll(".asset-up-input").forEach(inp => inp.addEventListener("change", async e => {
-    await handleAssetFiles(Array.from(e.target.files || []), inp.dataset.type);
-    inp.value = "";
-  }));
-}
-
-// 拖拽上传
-function bindDropzone() {
-  const dz = $("#dropzone"), inp = $("#dropInput");
-  dz.onclick = () => inp.click();
-  inp.onchange = async e => { await handleAssetFiles(Array.from(e.target.files || []), "chat"); inp.value = ""; };
-  ["dragenter", "dragover"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("dragover"); }));
-  ["dragleave", "drop"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("dragover"); }));
-  dz.addEventListener("drop", async e => {
-    const files = Array.from(e.dataTransfer.files || []);
-    await handleAssetFiles(files, "chat");
-  });
-}
-
-async function handleAssetFiles(files, type) {
-  if (!files.length) return;
-  const c = current;
-  if (!c.assets) c.assets = [];
-  toast(`正在处理 ${files.length} 个文件…`);
-  for (const f of files) {
-    const meta = await AssetEngine.readFile(f);
-    // 智能猜测类型：文件名含"名片/card"归名片
-    let t = type;
-    if (/名片|card/i.test(f.name)) t = "card";
-    c.assets.push(AssetEngine.makeAsset(t, meta));
-  }
-  persist();
-  renderAssetGallery();
-  toast(`已添加 ${files.length} 个素材`);
-}
-
-// 缩略图墙
-function renderAssetGallery() {
-  const c = current;
-  const el = $("#assetsGallery");
-  const list = (c.assets || []).filter(a => assetFilter === "all" || a.type === assetFilter);
-
-  // 分类筛选条
-  const counts = {};
-  (c.assets||[]).forEach(a => counts[a.type] = (counts[a.type]||0) + 1);
-  const filterBar = `<div class="asset-filter">
-    <button class="afl-btn ${assetFilter==='all'?'active':''}" data-t="all">全部 <b>${(c.assets||[]).length}</b></button>
-    ${ASSET_TYPES.map(t => `<button class="afl-btn ${assetFilter===t.key?'active':''}" data-t="${t.key}">${t.icon} ${t.label} <b>${counts[t.key]||0}</b></button>`).join("")}
-  </div>`;
-
-  if (!(c.assets||[]).length) {
-    el.innerHTML = filterBar + `<div class="asset-empty glass-card">
-      <div class="ae-ico">🗂️</div>
-      <div class="ae-t">还没有上传任何资料</div>
-      <div class="ae-d">名片、微信/沟通截图、关键联系人照片、合同报价——把真实素材沉淀在这里，让客户档案有据可依。</div>
-    </div>`;
-    bindAssetFilter();
-    return;
-  }
-
-  // 会议纪要为文本卡，单独渲染（区别于图片卡）
-  const meetingCards = list.filter(a => a.type === "meeting").map(a => {
-    const txt = (a.text || "").trim();
-    const preview = txt.length > 140 ? esc(txt.slice(0, 140)) + "…" : esc(txt) || '<span class="mn-notext">（未录入纪要正文）</span>';
-    return `<div class="meeting-card glass-card" data-id="${a.id}">
-      <div class="mn-head">
-        <div class="mn-title">📝 ${esc(a.name || "会议纪要")}</div>
-        <div class="ac-ops">
-          <button class="ac-op mn-extract" data-id="${a.id}" title="AI 提取要点填入情报">AI 提取要点</button>
-          <button class="ac-op mn-view" data-id="${a.id}" title="查看/编辑全文">全文</button>
-          <button class="ac-op ac-del" data-id="${a.id}" title="删除">×</button>
-        </div>
-      </div>
-      <div class="mn-meta">
-        ${a.meetingDate ? `<span class="mn-tag">🗓 ${esc(a.meetingDate)}</span>` : ""}
-        ${a.attendees ? `<span class="mn-tag">👥 ${esc(a.attendees)}</span>` : ""}
-        <span class="mn-tag mn-time">录于 ${esc(a.createdAt)}</span>
-      </div>
-      <div class="mn-preview">${preview}</div>
-    </div>`;
-  }).join("");
-
-  const cards = list.filter(a => a.type !== "meeting").map(a => {
-    const t = ASSET_TYPES.find(x => x.key === a.type) || ASSET_TYPES[ASSET_TYPES.length - 1];
-    const linked = a.linkedNodeId ? (c.orgChain||[]).find(n => n.id === a.linkedNodeId) : null;
-    const thumb = a.dataUrl
-      ? `<div class="ac-thumb" data-src="${a.dataUrl}"><img src="${a.dataUrl}" alt=""><span class="ac-zoom">🔍</span></div>`
-      : `<div class="ac-thumb ac-file"><span>📄</span><div class="ac-fname">${esc(a.name)}</div></div>`;
-    return `<div class="asset-card glass-card" data-id="${a.id}">
-      ${thumb}
-      <div class="ac-body">
-        <div class="ac-top">
-          <span class="ac-type">${t.icon} ${t.label}</span>
-          <div class="ac-ops">
-            ${a.type==='card' ? `<button class="ac-op ac-recog" data-id="${a.id}" title="尝试识别">识别</button>` : ""}
-            <button class="ac-op ac-link" data-id="${a.id}" title="关联联系人">关联</button>
-            <button class="ac-op ac-del" data-id="${a.id}" title="删除">×</button>
-          </div>
-        </div>
-        <input class="ac-caption" data-id="${a.id}" value="${esc(a.caption)}" placeholder="加一句关键信息标注…" />
-        ${linked ? `<div class="ac-linked">👤 关联：${esc(linked.name)}${linked.role?'（'+esc(linked.role)+'）':''}</div>` : ""}
-        <div class="ac-time">${esc(a.createdAt)}</div>
-      </div>
-    </div>`;
-  }).join("");
-  const meetingBlock = meetingCards ? `<div class="meeting-list">${meetingCards}</div>` : "";
-  const imgBlock = cards ? `<div class="gallery-grid">${cards}</div>` : "";
-  el.innerHTML = filterBar + meetingBlock + imgBlock;
-  bindAssetFilter();
-  bindAssetCards();
-}
-
-function bindAssetFilter() {
-  $$("#assetsGallery .afl-btn").forEach(b => b.addEventListener("click", () => { assetFilter = b.dataset.t; renderAssetGallery(); }));
-}
-
-function bindAssetCards() {
-  const c = current;
-  $$("#assetsGallery .ac-thumb[data-src]").forEach(t => t.addEventListener("click", () => openLightbox(t.dataset.src)));
-  $$("#assetsGallery .ac-caption").forEach(inp => inp.addEventListener("blur", () => {
-    const a = c.assets.find(x => x.id === inp.dataset.id); if (a) { a.caption = inp.value.trim(); persist(); }
-  }));
-  $$("#assetsGallery .ac-del").forEach(b => b.addEventListener("click", () => confirmModal("删除这个素材？", () => {
-    c.assets = c.assets.filter(a => a.id !== b.dataset.id); persist(); renderAssetGallery(); renderOrgTree(); toast("已删除");
-  })));
-  $$("#assetsGallery .ac-link").forEach(b => b.addEventListener("click", () => openLinkPicker(b.dataset.id)));
-  $$("#assetsGallery .ac-recog").forEach(b => b.addEventListener("click", () => recognizeCard(b.dataset.id)));
-  $$("#assetsGallery .mn-view").forEach(b => b.addEventListener("click", () => openMeetingModal(b.dataset.id)));
-  $$("#assetsGallery .mn-extract").forEach(b => b.addEventListener("click", () => openMeetingExtract(b.dataset.id)));
-}
-
-// 关联联系人
-function openLinkPicker(assetId) {
-  const c = current;
-  const a = c.assets.find(x => x.id === assetId); if (!a) return;
-  if (!(c.orgChain||[]).length) { toast("请先在「组织架构」里添加联系人"); return; }
-  const m = $("#modal"); m.classList.remove("hidden");
-  $("#modalBox").innerHTML = `
-    <div class="modal-title">关联到联系人</div>
-    <div class="link-list">
-      ${c.orgChain.map(n => `<div class="link-item ${a.linkedNodeId===n.id?'sel':''}" data-id="${n.id}">
-        <div class="li-av" style="background:${n.level===1?'#e34d59':n.level===2?'#0052d9':'#0d9488'}">${n.photo?`<img src="${n.photo}">`:esc((n.name||'?')[0])}</div>
-        <div><div class="li-name">${esc(n.name)}</div><div class="li-role">${esc(n.role||'')}</div></div>
-      </div>`).join("")}
-    </div>
-    <div class="modal-actions"><button class="btn-ghost" id="lkCancel">取消</button><button class="btn-ghost sm" id="lkClear">清除关联</button></div>`;
-  const close = () => m.classList.add("hidden");
-  $("#lkCancel").onclick = close; $(".modal-mask").onclick = close;
-  $("#lkClear").onclick = () => { a.linkedNodeId = ""; persist(); close(); renderAssetGallery(); };
-  $$("#modalBox .link-item").forEach(it => it.addEventListener("click", () => {
-    a.linkedNodeId = it.dataset.id;
-    // 若是人员照片，顺便设为该联系人头像
-    if (a.type === "photo" && a.dataUrl) { const n = c.orgChain.find(x => x.id === it.dataset.id); if (n) n.photo = a.dataUrl; }
-    persist(); close(); renderAssetGallery(); renderOrgTree(); toast("已关联");
-  }));
-}
-
-// ========== 会议纪要：录入 / 编辑 ==========
-function openMeetingModal(assetId) {
-  const c = current;
-  const a = assetId ? c.assets.find(x => x.id === assetId) : null;
-  const isEdit = !!a;
-  const m = $("#modal"); m.classList.remove("hidden");
-  $("#modalBox").innerHTML = `
-    <div class="modal-title">${isEdit ? "查看 / 编辑会议纪要" : "添加会议纪要"}</div>
-    <div class="mn-form">
-      <div class="mn-form-row">
-        <div class="of-field"><label>纪要标题</label><input id="mnName" value="${esc((a&&a.name)||'')}" placeholder="如：与星澜互娱 CTO 技术选型会" /></div>
-      </div>
-      <div class="mn-form-row two">
-        <div class="of-field"><label>会议日期</label><input type="date" id="mnDate" value="${esc((a&&a.meetingDate)||'')}" /></div>
-        <div class="of-field"><label>参会人（可选）</label><input id="mnAttendees" value="${esc((a&&a.attendees)||'')}" placeholder="如：我方2人；对方 李阔(CTO)、王工" /></div>
-      </div>
-      <div class="of-field">
-        <label>纪要正文</label>
-        <textarea id="mnText" class="mn-textarea" placeholder="把这次会议聊了什么写清楚：客户关注点、异议、达成的决策、下一步计划……写得越具体，AI 越能帮你提取要点填进情报。">${esc((a&&a.text)||'')}</textarea>
-      </div>
-      <div class="mn-upload">
-        <label class="mn-upload-btn">
-          <input type="file" id="mnFileInput" accept="image/*,application/pdf,.doc,.docx,.txt" hidden />
-          📎 上传纪要文件（Word/PDF/图片/截图）
-        </label>
-        <span class="mn-upload-hint" id="mnFileHint">纯前端演示环境无法自动解析文件文字，请把正文粘贴到上方文本框</span>
-      </div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn-ghost" id="mnCancel">取消</button>
-      ${isEdit ? `<button class="btn-primary sm" id="mnExtractNow">保存并 AI 提取要点</button>` : ""}
-      <button class="btn-primary" id="mnSave">${isEdit ? "保存修改" : "保存纪要"}</button>
-    </div>`;
-  const close = () => m.classList.add("hidden");
-  $("#mnCancel").onclick = close; $(".modal-mask").onclick = close;
-
-  // 文件上传：诚实兜底（无法解析正文，提示手动粘贴；图片则作为附图存进纪要预览）
-  $("#mnFileInput").onchange = async e => {
-    const f = (e.target.files || [])[0]; if (!f) return;
-    const hint = $("#mnFileHint");
-    if (/^image\//.test(f.type)) {
-      hint.innerHTML = `已选择图片「${esc(f.name)}」。<b>纯前端演示无法 OCR 识别图片文字</b>，请对照图片把关键内容手动填入上方正文。`;
-    } else {
-      hint.innerHTML = `已选择「${esc(f.name)}」。<b>纯前端演示无法解析 ${/pdf/i.test(f.type)?'PDF':'该文件'}文字</b>，请把正文粘贴到上方文本框（这是诚实原则：解析不了就不假装能）。`;
-    }
-    if (!$("#mnName").value.trim()) $("#mnName").value = f.name.replace(/\.[^.]+$/, "");
-  };
-
-  const collect = () => ({
-    name: $("#mnName").value.trim() || "会议纪要",
-    meetingDate: $("#mnDate").value,
-    attendees: $("#mnAttendees").value.trim(),
-    text: $("#mnText").value.trim(),
-  });
-  const doSave = () => {
-    const data = collect();
-    if (!data.text && !isEdit) { toast("请先填写纪要正文"); return null; }
-    if (isEdit) {
-      Object.assign(a, data);
-    } else {
-      c.assets = c.assets || [];
-      c.assets.push(AssetEngine.makeAsset("meeting", { name: data.name },
-        { text: data.text, meetingDate: data.meetingDate, attendees: data.attendees }));
-    }
-    persist(); renderAssetGallery();
-    return isEdit ? a : c.assets[c.assets.length - 1];
-  };
-
-  $("#mnSave").onclick = () => { if (doSave()) { close(); toast(isEdit ? "已保存" : "纪要已保存"); } };
-  const extractNow = $("#mnExtractNow");
-  if (extractNow) extractNow.onclick = () => { const saved = doSave(); if (saved) { close(); openMeetingExtract(saved.id); } };
-}
-
-// ========== 会议纪要：AI 提取要点 → 逐条采纳填入情报（复用 extract 诚实范式）==========
-function openMeetingExtract(assetId) {
-  const c = current;
-  const a = c.assets.find(x => x.id === assetId); if (!a) return;
-  const m = $("#modal"); m.classList.remove("hidden");
-  $("#modalBox").innerHTML = `
-    <div class="modal-title">AI 提取会议纪要要点</div>
-    <div class="mn-src">📝 ${esc(a.name || "会议纪要")}${a.meetingDate?`　🗓 ${esc(a.meetingDate)}`:""}</div>
-    <div class="mn-extract-box" id="mnExtractBox">
-      <div class="ai-thinking"><span class="mini-spin"></span>AI 正在从纪要中提取可填入情报的字段与要点…</div>
-    </div>
-    <div class="modal-actions"><button class="btn-ghost" id="mnExClose">关闭</button></div>`;
-  const close = () => m.classList.add("hidden");
-  $("#mnExClose").onclick = close; $(".modal-mask").onclick = close;
-
-  const txt = (a.text || "").trim();
-  setTimeout(() => {
-    const box = $("#mnExtractBox");
-    if (!txt) {
-      box.innerHTML = `<div class="ai-honest"><div class="honest-icon">!</div><div><div class="honest-t">这条纪要没有正文</div><div class="honest-c">先点「全文」补上会议内容，AI 才能提取要点。</div></div></div>`;
-      return;
-    }
-    const { found, points } = AIEngine.extractMeeting(txt);
-    const fieldKeys = Object.keys(found);
-    const pointGroups = [
-      { key: "nextSteps", label: "下一步 / 待办", icon: "✅" },
-      { key: "decisions", label: "关键决策", icon: "📌" },
-      { key: "concerns",  label: "客户关注 / 异议", icon: "⚠️" },
-      { key: "relation",  label: "关系进展", icon: "🤝" },
-    ].filter(g => (points[g.key] || []).length);
-
-    if (!fieldKeys.length && !pointGroups.length) {
-      box.innerHTML = `<div class="ai-honest">
-        <div class="honest-icon">!</div>
-        <div>
-          <div class="honest-t">AI 诚实反馈：未能可靠提取到结构化要点</div>
-          <div class="honest-c">纪要里没有出现明确的融资/规模/上云/下一步/决策等关键词。建议把内容写得更具体，或直接在「客户情报」表格里手动补充。</div>
-          <div class="honest-tip"><b>绝不编造</b>：AI 只提取纪要里真实写到的内容，抽不到就如实说，不脑补。</div>
-        </div>
-      </div>`;
-      return;
-    }
-
-    const fieldBlock = fieldKeys.length ? `
-      <div class="mn-ex-sec">
-        <div class="mn-ex-sec-t">🗂 可填入情报字段（${fieldKeys.length}）</div>
-        <div class="extract-list">
-          ${fieldKeys.map(k => {
-            const def = FIELD_DEFS.find(d => d.key === k) || { label: k };
-            return `<div class="ex-item" data-k="${k}">
-              <div class="ex-field">${def.label}</div>
-              <div class="ex-val" contenteditable="true">${esc(found[k])}</div>
-              <button class="ex-adopt" data-k="${k}">采纳</button>
-            </div>`;
-          }).join("")}
-        </div>
-      </div>` : "";
-
-    const pointsBlock = pointGroups.length ? `
-      <div class="mn-ex-sec">
-        <div class="mn-ex-sec-t">📋 会议要点（仅供参考，不自动填表）</div>
-        ${pointGroups.map(g => `
-          <div class="mn-pt-group">
-            <div class="mn-pt-t">${g.icon} ${g.label}</div>
-            <ul class="mn-pt-list">${(points[g.key]||[]).map(s => `<li>${esc(s)}</li>`).join("")}</ul>
-          </div>`).join("")}
-      </div>` : "";
-
-    box.innerHTML = `
-      <div class="mn-ex-lead">AI 从纪要中提取到以下内容，情报字段可逐条确认后填入（要点仅供参考）：</div>
-      ${fieldBlock}
-      ${pointsBlock}
-      ${fieldKeys.length ? `<div class="extract-foot"><button class="btn-primary sm" id="mnAdoptAll">全部采纳字段</button><span class="extract-note">采纳后填入「客户情报」表，仍可编辑</span></div>` : ""}`;
-
-    box.querySelectorAll(".ex-adopt").forEach(b => b.addEventListener("click", () => {
-      const k = b.dataset.k;
-      const v = box.querySelector(`.ex-item[data-k="${k}"] .ex-val`).textContent.trim();
-      adoptField(k, v); b.textContent = "已采纳 ✓"; b.disabled = true;
-    }));
-    const adoptAll = $("#mnAdoptAll");
-    if (adoptAll) adoptAll.addEventListener("click", () => {
-      box.querySelectorAll(".ex-item").forEach(it => adoptField(it.dataset.k, it.querySelector(".ex-val").textContent.trim()));
-      toast("已填入客户情报表");
-    });
-  }, 900);
-}
-
-// 名片识别（诚实兜底）
-function recognizeCard(assetId) {
-  const c = current;
-  const a = c.assets.find(x => x.id === assetId); if (!a) return;
-  const m = $("#modal"); m.classList.remove("hidden");
-  $("#modalBox").innerHTML = `
-    <div class="modal-title">名片识别</div>
-    <div class="recog-thumb">${a.dataUrl?`<img src="${a.dataUrl}">`:'📄'}</div>
-    <div class="recog-status"><span class="mini-spin"></span>正在尝试识别名片信息…</div>`;
-  CRM.recognizeCard ? null : 0;
-  AIEngine.recognizeCard(a).then(res => {
-    if (res.ok && Object.keys(res.fields).length) {
-      // 真识别到（当前环境不会走到）
-      renderRecogForm(a, res.fields);
-    } else {
-      // 诚实兜底：给一个空表单让销售手填
-      renderRecogForm(a, {}, res.message);
-    }
-  });
-}
-
-function renderRecogForm(asset, fields, honestMsg) {
-  const box = $("#modalBox");
-  box.innerHTML = `
-    <div class="modal-title">名片信息确认</div>
-    <div class="recog-row">
-      <div class="recog-thumb sm">${asset.dataUrl?`<img src="${asset.dataUrl}">`:'📄'}</div>
-      <div class="recog-hint">
-        ${honestMsg ? `<div class="ai-honest inline"><div class="honest-icon">!</div><div><div class="honest-t">AI 诚实反馈</div><div class="honest-c">${esc(honestMsg)}</div></div></div>` : `<div class="recog-ok">已识别，请核对：</div>`}
-      </div>
-    </div>
-    <div class="org-form">
-      <div class="of-row">
-        <div class="of-field"><label>姓名</label><input id="rgName" value="${esc(fields.name||'')}" placeholder="对照名片填写" /></div>
-        <div class="of-field"><label>职位</label><input id="rgRole" value="${esc(fields.role||'')}" placeholder="如：CTO" /></div>
-      </div>
-      <div class="of-row">
-        <div class="of-field"><label>电话</label><input id="rgPhone" value="${esc(fields.phone||'')}" /></div>
-        <div class="of-field"><label>微信</label><input id="rgWechat" value="${esc(fields.wechat||'')}" /></div>
-      </div>
-      <div class="of-field"><label>邮箱</label><input id="rgEmail" value="${esc(fields.email||'')}" /></div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn-ghost" id="rgCancel">取消</button>
-      <button class="btn-primary" id="rgCreate">建立为联系人</button>
-    </div>`;
-  const m = $("#modal");
-  const close = () => m.classList.add("hidden");
-  $("#rgCancel").onclick = close; $(".modal-mask").onclick = close;
-  $("#rgCreate").onclick = () => {
-    const c = current;
-    const name = $("#rgName").value.trim();
-    if (!name) { toast("请至少填写姓名"); return; }
-    const node = { id: uid("o"), pid: null, name, role: $("#rgRole").value.trim(), level: 2,
-      phone: $("#rgPhone").value.trim(), wechat: $("#rgWechat").value.trim(), email: $("#rgEmail").value.trim(), note: "由名片建立", photo: "" };
-    c.orgChain.push(node);
-    asset.linkedNodeId = node.id;
-    persist(); close(); renderOrgTree(); renderAssetGallery(); renderContactOptions();
-    toast("已根据名片建立联系人");
-    switchTab("org");
-  };
-}
-
-// ---------- 大图预览 ----------
-function bindLightbox() {
-  $("#lbClose").onclick = closeLightbox;
-  $(".lb-mask").onclick = closeLightbox;
-  document.addEventListener("keydown", e => { if (e.key === "Escape") closeLightbox(); });
-}
-function openLightbox(src) { $("#lbImg").src = src; $("#lightbox").classList.remove("hidden"); }
-function closeLightbox() { $("#lightbox").classList.add("hidden"); $("#lbImg").src = ""; }
-
-// ===================================================================
-// 模块④ 客户情报（可编辑）+ AI 辅助（折叠）
-// ===================================================================
-function renderProfile() {
-  const c = current;
-  const cellHTML = def => {
-    const f = c.fields[def.key] || { v: "" };
-    const empty = !f.v || !f.v.trim();
-    return `
-      <div class="intel-cell ${empty?'is-empty':''}" data-k="${def.key}">
-        <div class="ic-label">${def.label}</div>
-        <div class="ic-value" contenteditable="true" data-k="${def.key}" data-ph="${def.ph}">${esc(f.v)}</div>
-      </div>`;
-  };
-  const publicFields = FIELD_DEFS.filter(d => d.public);
-  const privateFields = FIELD_DEFS.filter(d => !d.public);
-  $("#intelGrid").innerHTML = `
-    <div class="intel-section">
-      <div class="intel-sec-head">
-        <span class="intel-sec-ico" style="background:#e8f1ff;color:#2c6ef2">🌐</span>
-        <div class="intel-sec-meta">
-          <div class="intel-sec-title">网上可获取信息</div>
-          <div class="intel-sec-sub">公开渠道可查，建联前先补齐</div>
-        </div>
-      </div>
-      <div class="intel-cells">${publicFields.map(cellHTML).join("")}</div>
-    </div>
-    <div class="intel-section">
-      <div class="intel-sec-head">
-        <span class="intel-sec-ico" style="background:#fff1e8;color:#ed7b2f">🔍</span>
-        <div class="intel-sec-meta">
-          <div class="intel-sec-title">需要挖出的信息</div>
-          <div class="intel-sec-sub">靠沟通/关系才能拿到，是签单关键</div>
-        </div>
-      </div>
-      <div class="intel-cells">${privateFields.map(cellHTML).join("")}</div>
-    </div>`;
-  $("#intelGrid").querySelectorAll(".ic-value").forEach(el => {
-    el.addEventListener("blur", () => {
-      const k = el.dataset.k;
-      if (!current.fields[k]) current.fields[k] = { v: "" };
-      current.fields[k].v = el.textContent.trim();
-      persist(); renderList();
-      el.parentElement.classList.toggle("is-empty", !current.fields[k].v);
-      if (k === "industry") $("#wsIndustry").textContent = current.fields[k].v || "未填行业";
-    });
-  });
-
-  renderPain();
-  bindAIAssist();
-}
-
-function renderPain() {
-  const c = current;
-  if (!c.painPoints) c.painPoints = [];
-  $("#painList").innerHTML = c.painPoints.length ? c.painPoints.map((p, i) =>
-    `<li data-i="${i}"><span contenteditable="true" class="pain-v" data-i="${i}">${esc(p.v)}</span><button class="pain-del" data-i="${i}">×</button></li>`
-  ).join("") : `<li class="pain-empty">还没有痛点。手动添加，或用下方 AI 辅助给建议。</li>`;
-  $("#painList").querySelectorAll(".pain-v").forEach(el => el.addEventListener("blur", () => { c.painPoints[el.dataset.i].v = el.textContent.trim(); persist(); }));
-  $("#painList").querySelectorAll(".pain-del").forEach(el => el.addEventListener("click", () => { c.painPoints.splice(el.dataset.i, 1); persist(); renderPain(); }));
-  $("#addPainBtn").onclick = () => { c.painPoints.push({ v: "新痛点（点击编辑）" }); persist(); renderPain(); };
-
-  const sol = c.solution && c.solution.length ? c.solution : [];
-  $("#solutionList").innerHTML = sol.length ? sol.map(s =>
-    `<div class="sol-item"><div class="sol-prod">${esc(s.product)}</div><div class="sol-reason">${esc(s.reason)}</div></div>`
-  ).join("") : `<div class="sol-empty">补充痛点后可参考产品匹配建议。</div>`;
-}
-
-function bindAIAssist() {
-  $("#aiToggle").onclick = () => {
-    const body = $("#aiAssistBody");
-    const hidden = body.classList.toggle("hidden");
-    $("#aiToggle").textContent = hidden ? "展开 ▾" : "收起 ▴";
-  };
-  $("#intakeText").value = current._lastIntake || "";
-  $("#intakeText").oninput = e => current._lastIntake = e.target.value;
-  $("#aiExtractBtn").onclick = runExtract;
-  $("#webSearchBtn").onclick = runWebSearch;
-  $("#aiSuggestBtn").onclick = runSuggest;
-  $("#extractResult").classList.add("hidden");
-}
-
-function runExtract() {
-  const raw = $("#intakeText").value.trim();
-  if (!raw) { toast("请先粘贴你了解的信息"); return; }
-  const btn = $("#aiExtractBtn");
-  btn.disabled = true; btn.textContent = "抽取中…";
-  const box = $("#extractResult");
-  box.classList.remove("hidden");
-  box.innerHTML = `<div class="ai-thinking"><span class="mini-spin"></span>AI 正在从文本中抽取结构化字段…</div>`;
-  setTimeout(() => {
-    const { name, found } = AIEngine.extract(raw);
-    if (name && (current.name === "新客户" || !current.name)) {
-      current.name = name; current.logo = name[0];
-      $("#custNameInput").value = name; renderAvatar();
-    }
-    const keys = Object.keys(found);
-    if (!keys.length) {
-      box.innerHTML = `<div class="ai-empty">未能可靠抽取到结构化字段。建议把关键信息写得更明确（融资/规模/DAU/上云情况），或直接在上方情报表格手动填写。</div>`;
-      btn.disabled = false; btn.textContent = "AI 结构化抽取";
-      return;
-    }
-    box.innerHTML = `
-      <div class="extract-head">AI 抽取到 ${keys.length} 项，逐条确认是否采纳：</div>
-      <div class="extract-list">
-        ${keys.map(k => {
-          const def = FIELD_DEFS.find(d => d.key === k) || { label: k };
-          return `<div class="ex-item" data-k="${k}">
-            <div class="ex-field">${def.label}</div>
-            <div class="ex-val" contenteditable="true">${esc(found[k])}</div>
-            <button class="ex-adopt" data-k="${k}">采纳</button>
-          </div>`;
-        }).join("")}
-      </div>
-      <div class="extract-foot">
-        <button class="btn-primary sm" id="adoptAllBtn">全部采纳</button>
-        <span class="extract-note">采纳后填入上方情报表，仍可编辑</span>
-      </div>`;
-    box.querySelectorAll(".ex-adopt").forEach(b => b.addEventListener("click", () => {
-      const k = b.dataset.k;
-      const v = box.querySelector(`.ex-item[data-k="${k}"] .ex-val`).textContent.trim();
-      adoptField(k, v); b.textContent = "已采纳 ✓"; b.disabled = true;
-    }));
-    $("#adoptAllBtn").addEventListener("click", () => {
-      box.querySelectorAll(".ex-item").forEach(it => adoptField(it.dataset.k, it.querySelector(".ex-val").textContent.trim()));
-      toast("已填入情报表");
-    });
-    btn.disabled = false; btn.textContent = "AI 结构化抽取";
-  }, 1000);
-}
-
-function adoptField(key, val) {
-  if (!current.fields[key]) current.fields[key] = { v: "" };
-  current.fields[key].v = val;
-  persist(); renderProfile(); renderList();
-}
-
-function runWebSearch() {
-  const btn = $("#webSearchBtn");
-  btn.disabled = true; btn.textContent = "检索中…";
-  const box = $("#extractResult");
-  box.classList.remove("hidden");
-  box.innerHTML = `<div class="ai-thinking"><span class="mini-spin"></span>正在尝试检索「${esc(current.name)}」的公开信息…</div>`;
-  AIEngine.webSearch(current.name).then(res => {
-    btn.disabled = false; btn.textContent = "尝试联网检索";
-    box.innerHTML = `<div class="ai-honest">
-      <div class="honest-icon">!</div>
-      <div>
-        <div class="honest-t">AI 诚实反馈：未接入授权数据源</div>
-        <div class="honest-c">${esc(res.message)}</div>
-        <div class="honest-tip">设计原则：<b>AI 查不到就说查不到，绝不编造情报</b>。账单结构、决策链、客户关系这些最关键的信息，本来也只有你掌握。</div>
-      </div>
-    </div>`;
-  });
-}
-
-function runSuggest() {
-  const s = AIEngine.suggest(current);
-  const box = $("#extractResult");
-  box.classList.remove("hidden");
-  const gm = gradeMeta(s.suggestGrade);
-  box.innerHTML = `<div class="ai-suggest">
-    <div class="asug-head">
-      <div class="asug-score">${s.score}<small>/100</small></div>
-      <div class="asug-meta">
-        <div class="asug-t">AI 价值参考分</div>
-        <div class="asug-grade">建议等级：<span class="asug-badge" style="background:${gm.color}">${gm.key}</span>（最终由你判断）</div>
-      </div>
-      <button class="btn-ghost sm" id="applySuggestGrade">采纳建议等级</button>
-    </div>
-    <ul class="asug-reasons">${s.reasons.map(r=>`<li>${esc(r)}</li>`).join("")}</ul>
-    ${s.painGuess.length?`<div class="asug-pain"><div class="asug-pain-t">AI 建议关注的痛点（可采纳）：</div>${s.painGuess.map(p=>`<button class="asug-pain-btn" data-p="${esc(p)}">＋ ${esc(p)}</button>`).join("")}</div>`:""}
-  </div>`;
-  $("#applySuggestGrade").onclick = () => { current.grade = s.suggestGrade; persist(); renderGradeDropdown(); renderList(); toast(`已采纳建议等级 ${s.suggestGrade}`); };
-  box.querySelectorAll(".asug-pain-btn").forEach(b => b.addEventListener("click", () => {
-    current.painPoints.push({ v: b.dataset.p }); persist(); renderPain(); b.disabled = true; b.textContent = "已添加 ✓";
-  }));
-}
-
-// ===================================================================
-// 模块④ 话术辅助
-// ===================================================================
-function buildScripts(c) {
-  const painArr = (c.painPoints || []).map(p => p.v).filter(Boolean);
-  const topPain = painArr[0] || "当前业务的降本/提效";
-  const sol = c.solution && c.solution[0];
-  const topSol = sol ? sol.product : "腾讯云整体方案";
-  const topSolReason = sol ? sol.reason : "针对性优化成本与体验";
-  const cto = (c.orgChain || []).find(n => (n.role||"").includes("CTO")) || (c.orgChain||[])[0] || { name: "负责人" };
-  const ind = (c.fields.industry && c.fields.industry.v) || "该行业";
-  const org3 = (c.orgChain||[]).find(n=>n.level===3) || (c.orgChain||[])[2] || cto;
-  const highGrade = c.grade === "S" || c.grade === "A";
-  return {
-    first: [
-      { head: "开场（30 秒价值锚点）", text: `${cto.name}您好，我是腾讯云的销售顾问。我们服务过多家${ind}客户，注意到贵司在「${topPain}」上可能有优化空间。想用 2 分钟同步一个我们为同行落地的思路，您方便吗？` },
-      { head: "价值钩子", text: `针对${ind}，我们有一套方案，比如「${topSol}」可以${topSolReason}。不是单纯卖产品，而是针对贵司痛点做设计。` },
-    ],
-    meeting: [
-      { head: "约见面（不可拒绝的理由）", text: `${cto.name}，我这两天正好在贵司附近。想占用您 20 分钟，当面汇报腾讯云针对${ind}的整体能力和初步方案，顺便请您喝杯咖啡。您周三上午还是周四下午方便？` },
-    ],
-    rejected: [
-      { head: "被拒后 2-3 天再触达", text: `${cto.name}，上次没多打扰您。我整理了一份${ind}同行的降本/提效案例，也许对贵司「${topPain}」有启发，方便加个微信我发您？` },
-      { head: "多点建联提示", text: `（内部提示：若本人持续无响应，切换到「${org3.name}」等其他联系人，一家客户不押注单点。）` },
-    ],
-    objection: [
-      { head: "异议：已在用友商云", text: `理解，迁移要慎重。很多${ind}客户先用腾讯云承接新增业务或高痛点场景（如${topSolReason}），跑通再逐步迁移。可先做小范围 POC，用数据说话。` },
-      { head: "异议：价格敏感", text: highGrade
-        ? `以贵司体量，可走定制商务方案，用「按量转包月+利旧+Serverless 削峰」把整体 TCO 降下来，先做一版成本测算。`
-        : `理解控成本诉求。我们有轻量服务器和云开发等高性价比方案，起步低，随业务平滑升级。` },
-    ],
-  };
-}
-
-function renderScript() {
-  const el = $("#scriptScenes");
-  if (!el) return; // 话术辅助 Tab 已下线，无渲染目标时直接跳过
-  const scripts = buildScripts(current);
-  el.innerHTML = SCRIPT_SCENES.map((s, i) => `<button class="scene-btn ${i===0?'active':''}" data-key="${s.key}">${s.label}</button>`).join("");
-  el.querySelectorAll(".scene-btn").forEach(btn => btn.addEventListener("click", () => {
-    el.querySelectorAll(".scene-btn").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active"); showScript(scripts, btn.dataset.key);
-  }));
-  showScript(scripts, "first");
-}
-
-function showScript(scripts, key) {
-  const blocks = scripts[key] || [];
-  $("#scriptOutput").innerHTML = blocks.map(b => `
-    <div class="script-block">
-      <div class="script-head">${esc(b.head)}</div>
-      <div class="script-text">${esc(b.text)}<button class="copy-btn" onclick="copyText(this)">复制</button></div>
-    </div>`).join("");
-}
-
-function copyText(btn) {
-  const text = btn.parentElement.childNodes[0].textContent;
-  navigator.clipboard?.writeText(text).then(() => { btn.textContent = "已复制 ✓"; setTimeout(() => btn.textContent = "复制", 1500); }).catch(() => { btn.textContent = "已复制 ✓"; });
-}
-
-// ===================================================================
-// 模块⑥ 攻坚档案（重点攻坚客户档案）
-// ===================================================================
-
-// 确保 current.raidFile 结构完整（按 RAID_SECTIONS 补齐空字段）
-function ensureRaidFile(c) {
-  if (!c.raidFile) c.raidFile = {};
-  const rf = c.raidFile;
-  if (!Array.isArray(rf.demands)) rf.demands = [];
-  if (!rf.raidStage) rf.raidStage = "";
-  RAID_SECTIONS.forEach(sec => {
-    if (sec.fields) {
-      if (!rf[sec.key]) rf[sec.key] = {};
-      sec.fields.forEach(f => { if (rf[sec.key][f.key] == null) rf[sec.key][f.key] = ""; });
-    }
-  });
-  if (!Array.isArray(rf.scenes)) rf.scenes = [];
-  if (!Array.isArray(rf.roles)) rf.roles = [];
-  if (!Array.isArray(rf.competitors)) rf.competitors = [];
-  if (!rf.goals) rf.goals = { g1: "", g2: "", g3: "" };
-  return rf;
-}
-
-function raidHasContent(rf) {
-  const flat = JSON.stringify(rf.basic) + JSON.stringify(rf.scenes) + JSON.stringify(rf.roles) +
-    JSON.stringify(rf.dm) + JSON.stringify(rf.competitors) + JSON.stringify(rf.goals) +
-    JSON.stringify(rf.solution) + JSON.stringify(rf.plan) + JSON.stringify(rf.org);
-  return /[\u4e00-\u9fa5A-Za-z0-9]/.test(flat.replace(/[\{\}\[\]":,]/g, ""));
-}
-
-// 可编辑多行文本块
-function raidTextCell(secKey, fieldKey, val, ph) {
-  return `<div class="raid-editable" contenteditable="true" data-sec="${secKey}" data-f="${fieldKey}" data-ph="${esc(ph||"点击填写…")}">${esc(val||"")}</div>`;
-}
-
-function renderRaidFile() {
-  const c = current;
-  const rf = ensureRaidFile(c);
-  const box = $("#raidFile");
-  if (!box) return;
-
-  // —— 头部：客户名 / 沟通时间 / 阶段 / 诉求 快标 ——
-  const demandChips = RAID_DEMANDS.map(d =>
-    `<button class="raid-chip ${rf.demands.includes(d.key)?'on':''}" data-demand="${d.key}">${d.label}</button>`
-  ).join("");
-  const stageChips = RAID_STAGES.map(s =>
-    `<button class="raid-stage-chip ${rf.raidStage===s.key?'on':''}" data-rstage="${s.key}">${s.label}</button>`
-  ).join("");
-
-  const head = `
-    <div class="raid-topbar glass-card no-print-shadow">
-      <div class="raid-top-row">
-        <div class="raid-title-wrap">
-          <div class="raid-doc-title">重点攻坚客户档案</div>
-          <div class="raid-doc-sub">客户：${esc(c.name)}　·　更新时间：${esc(rf.updatedAt||todayStr())}</div>
-        </div>
-        <div class="raid-top-actions">
-          <button class="btn-ghost sm" id="raidPrintBtn">🖨 打印 / 导出 PDF</button>
-        </div>
-      </div>
-      <div class="raid-quick">
-        <div class="raid-quick-block">
-          <div class="raid-quick-lbl">当前阶段（单选）</div>
-          <div class="raid-stage-chips">${stageChips}</div>
-        </div>
-        <div class="raid-quick-block">
-          <div class="raid-quick-lbl">本次沟通诉求（可多选）</div>
-          <div class="raid-chips">${demandChips}</div>
-        </div>
-      </div>
-    </div>`;
-
-  // —— 8 大模块 ——
-  const body = RAID_SECTIONS.map(sec => renderRaidSection(sec, rf, c)).join("");
-
-  box.innerHTML = head + `<div class="raid-body">${body}</div>`;
-
-  bindRaidHead(rf);
-  bindRaidEditables(rf);
-  bindRaidLists(rf, c);
-  $("#raidPrintBtn").onclick = () => window.print();
-}
-
-function renderRaidSection(sec, rf, c) {
-  const hint = sec.hint ? `<span class="raid-sec-hint">${esc(sec.hint)}</span>` : "";
-  const req = sec.required ? `<span class="raid-req">必填</span>` : "";
-  let inner = "";
-
-  // 普通字段
-  if (sec.fields) {
-    inner += sec.fields.map(f => {
-      if (f.type === "attitude") {
-        const cur = (rf[sec.key] && rf[sec.key][f.key]) || "";
-        const opts = RAID_ATTITUDES.map(a =>
-          `<button class="raid-att ${cur===a.key?'on':''}" data-sec="${sec.key}" data-f="${f.key}" data-att="${a.key}" style="--ac:${a.color}">${a.label}</button>`
-        ).join("");
-        return `<div class="raid-field"><div class="raid-field-lbl">${esc(f.label)}</div><div class="raid-att-group">${opts}</div></div>`;
-      }
-      const val = (rf[sec.key] && rf[sec.key][f.key]) || "";
-      return `<div class="raid-field"><div class="raid-field-lbl">${esc(f.label)}</div>${raidTextCell(sec.key, f.key, val, "点击填写…")}</div>`;
-    }).join("");
-  }
-
-  // 业务场景列表
-  if (sec.type === "scenes") {
-    inner += `<div class="raid-list" data-list="scenes">` + rf.scenes.map((s, i) => `
-      <div class="raid-list-item" data-i="${i}">
-        <div class="raid-li-head"><span class="raid-li-idx">场景 ${i+1}</span><button class="raid-li-del" data-list="scenes" data-i="${i}">删除</button></div>
-        <div class="raid-field"><div class="raid-field-lbl">业务名称</div><div class="raid-editable" contenteditable="true" data-list="scenes" data-i="${i}" data-lf="title" data-ph="如：海外发行">${esc(s.title||"")}</div></div>
-        <div class="raid-field"><div class="raid-field-lbl">场景描述</div><div class="raid-editable" contenteditable="true" data-list="scenes" data-i="${i}" data-lf="scene" data-ph="这块业务的具体场景与痛点…">${esc(s.scene||"")}</div></div>
-        <div class="raid-field"><div class="raid-field-lbl">相关链接</div><div class="raid-editable" contenteditable="true" data-list="scenes" data-i="${i}" data-lf="link" data-ph="选填：官网/产品页/资料链接">${esc(s.link||"")}</div></div>
-      </div>`).join("") + `</div>
-      <button class="raid-add" data-add="scenes">＋ 增加业务场景</button>`;
-  }
-
-  // 关键角色列表（决策链模块）
-  if (sec.type === "roles") {
-    inner += `<div class="raid-sub-lbl">关键角色及诉求</div><div class="raid-list" data-list="roles">` + rf.roles.map((r, i) => `
-      <div class="raid-list-item" data-i="${i}">
-        <div class="raid-li-head">
-          <span class="raid-role-name" contenteditable="true" data-list="roles" data-i="${i}" data-lf="name" data-ph="姓名">${esc(r.name||"")}</span>
-          <span class="raid-role-role" contenteditable="true" data-list="roles" data-i="${i}" data-lf="role" data-ph="职位">${esc(r.role||"")}</span>
-          <button class="raid-li-del" data-list="roles" data-i="${i}">删除</button>
-        </div>
-        <div class="raid-field"><div class="raid-field-lbl">诉求 / 痛点</div><div class="raid-editable" contenteditable="true" data-list="roles" data-i="${i}" data-lf="demand" data-ph="他最在意什么？痛点是什么？">${esc(r.demand||"")}</div></div>
-      </div>`).join("") + `</div>
-      <button class="raid-add" data-add="roles">＋ 增加关键角色</button>`;
-  }
-
-  // 外部竞对列表
-  if (sec.type === "competitors") {
-    inner += `<div class="raid-sub-lbl">外部竞对</div><div class="raid-list" data-list="competitors">` + rf.competitors.map((cp, i) => `
-      <div class="raid-list-item" data-i="${i}">
-        <div class="raid-li-head"><span class="raid-role-name" contenteditable="true" data-list="competitors" data-i="${i}" data-lf="name" data-ph="友商名称">${esc(cp.name||"")}</span><button class="raid-li-del" data-list="competitors" data-i="${i}">删除</button></div>
-        <div class="raid-field"><div class="raid-field-lbl">覆盖业务</div><div class="raid-editable" contenteditable="true" data-list="competitors" data-i="${i}" data-lf="coverage" data-ph="它覆盖了客户哪块业务？">${esc(cp.coverage||"")}</div></div>
-        <div class="raid-two">
-          <div class="raid-field"><div class="raid-field-lbl">优势</div><div class="raid-editable" contenteditable="true" data-list="competitors" data-i="${i}" data-lf="pros" data-ph="对方强在哪">${esc(cp.pros||"")}</div></div>
-          <div class="raid-field"><div class="raid-field-lbl">劣势</div><div class="raid-editable" contenteditable="true" data-list="competitors" data-i="${i}" data-lf="cons" data-ph="可攻击的短板">${esc(cp.cons||"")}</div></div>
-        </div>
-      </div>`).join("") + `</div>
-      <button class="raid-add" data-add="competitors">＋ 增加竞对</button>`;
-  }
-
-  // 三段目标
-  if (sec.type === "goals") {
-    const g = rf.goals;
-    inner += `
-      <div class="raid-field"><div class="raid-field-lbl">第一目标（3 个月内）</div>${raidTextCell("goals","g1",g.g1,"3 个月内要拿下什么？")}</div>
-      <div class="raid-field"><div class="raid-field-lbl">第二目标（6 个月）</div>${raidTextCell("goals","g2",g.g2,"6 个月内的推进目标")}</div>
-      <div class="raid-field"><div class="raid-field-lbl">第三目标（长期布局）</div>${raidTextCell("goals","g3",g.g3,"长期战略布局")}</div>`;
-  }
+function renderToday() {
+  const tasks = getTasks().filter(task => !task.done);
+  const overdue = tasks.filter(task => task.overdue);
+  const priority = tasks.sort(taskPriority).slice(0, 4);
+  const stale = customers
+    .map(customer => ({ customer, days: daysSince(lastActivityDate(customer)) }))
+    .filter(item => item.days >= 14 && ["S", "A"].includes(item.customer.grade))
+    .sort((a, b) => b.days - a.days);
 
   return `
-    <div class="raid-section glass-card">
-      <div class="raid-sec-head">
-        <span class="raid-sec-no">${sec.no}</span>
-        <span class="raid-sec-title">${esc(sec.title)}</span>${req}${hint}
+    <div class="page today-page">
+      <header class="today-command">
+        <div><p class="eyebrow">${formatLongDate(new Date())}</p><h1>早上好，先推进最重要的客户</h1><p>小企会整理信息，你负责确认和决策。</p></div>
+        <button class="td-button td-button--outline" data-action="manual-entry">${icon("square-pen")} 手动记录</button>
+      </header>
+      <section class="ai-assistant-card" id="copilotCard">
+        <span class="qq-penguin qq-penguin--assistant" aria-hidden="true"><img src="assets/qq-penguin-reference.png" alt="" /></span>
+        <div class="ai-assistant-copy"><span>QQ 企鹅 AI 助手</span><h2>告诉小企刚刚发生了什么</h2><p>会议、电话、微信和材料都能整理为客户推进记录。</p></div>
+        <div class="ai-compose">${renderCopilotComposer()}</div>
+        <div id="aiDraft"></div>
+      </section>
+      <div class="today-layout">
+        <section class="today-action-list">
+          <div class="td-panel">${renderTodayActions(priority, overdue)}</div>
+        </section>
+        <aside class="account-signal-list">
+          <div class="td-panel">${renderCustomerSignals(stale)}</div>
+        </aside>
       </div>
-      <div class="raid-sec-body">${inner}</div>
     </div>`;
 }
 
-// 头部诉求/阶段快标交互
-function bindRaidHead(rf) {
-  $$("#raidFile .raid-chip").forEach(btn => btn.onclick = () => {
-    const k = btn.dataset.demand;
-    const idx = rf.demands.indexOf(k);
-    if (idx >= 0) rf.demands.splice(idx, 1); else rf.demands.push(k);
-    btn.classList.toggle("on");
-    touchRaid(rf);
+function renderCopilotComposer() {
+  return `<div class="copilot-compose">
+    <textarea id="copilotInput" rows="3" placeholder="例如：刚和星澜互娱王工通了电话，对方担心海外延迟。下周三发 GAAP 对比方案，并提醒我跟进。"></textarea>
+    <div class="compose-actions">
+      <label class="attach-button" title="附加资料"><input id="copilotFiles" type="file" multiple hidden />${icon("paperclip")} 资料</label>
+      <button class="voice-button" data-action="voice" aria-label="语音输入">${icon("mic")} 语音</button>
+      <span class="compose-hint">AI 只提取明确出现的信息</span>
+      <button class="primary-button" data-action="analyze-ai">识别并整理 ${icon("arrow-right")}</button>
+    </div>
+  </div>`;
+}
+
+function renderTodayActions(priority, overdue) {
+  return `<div class="section-heading"><div><p class="eyebrow">NEXT ACTION</p><h2>优先行动</h2></div><button class="text-button" data-action="nav" data-page="tasks">${overdue.length ? `${overdue.length} 项逾期 · ` : ""}查看全部 →</button></div>
+    <div class="priority-list">
+      ${priority.length ? priority.map(renderPriorityTask).join("") : emptyState("所有待办都处理完了", "可以记录一次新的客户触达。")}
+    </div>`;
+}
+
+function renderCustomerSignals(stale) {
+  return `<div class="section-heading"><div><p class="eyebrow">ACCOUNT PULSE</p><h2>客户脉搏</h2></div><button class="text-button" data-action="nav" data-page="customers">全部客户 →</button></div>
+    ${renderAccountPulse(stale)}`;
+}
+
+function metricCard(label, value, hint, tone) {
+  return `<article class="metric-card ${tone}"><div class="metric-top"><span>${label}</span><i></i></div><strong>${value}</strong><small>${hint}</small></article>`;
+}
+
+function renderPriorityTask(task) {
+  return `<article class="priority-item">
+    <button class="task-check" data-action="complete-task" data-customer="${task.customer.id}" data-note="${task.note.id}" aria-label="完成待办"></button>
+    <button class="priority-main" data-action="open-customer" data-id="${task.customer.id}">
+      <span class="priority-title">${safe(task.text)}</span>
+      <span class="priority-meta"><b class="grade-dot grade-${task.customer.grade}">${task.customer.grade}</b>${safe(task.customer.name)} · ${safe(task.note.contact || "未指定联系人")}</span>
+    </button>
+    <span class="date-chip ${task.overdue ? "overdue" : task.today ? "today" : ""}">${task.overdue ? `逾期 ${Math.abs(task.days)} 天` : task.today ? "今天" : formatShortDate(task.date)}</span>
+  </article>`;
+}
+
+function renderAccountPulse(stale) {
+  const top = stale.slice(0, 3);
+  if (!top.length) {
+    const recent = customers.slice(0, 3).map(customer => ({ customer, days: daysSince(lastActivityDate(customer)) }));
+    return `<div class="pulse-list">${recent.map(item => renderPulseItem(item, false)).join("")}</div>`;
+  }
+  return `<div class="pulse-alert">${icon("clock-alert")}<div><b>${top.length} 个重点客户需要重新触达</b><p>超过两周没有新增推进记录</p></div></div><div class="pulse-list">${top.map(item => renderPulseItem(item, true)).join("")}</div>`;
+}
+
+function renderPulseItem(item, stale) {
+  const next = getNextTask(item.customer);
+  return `<button class="pulse-item" data-action="open-customer" data-id="${item.customer.id}">
+    ${avatar(item.customer)}<span><b>${safe(item.customer.name)}</b><small>${stageLabel(item.customer.stage)} · ${stale ? `${item.days} 天未更新` : (next ? `下一步：${safe(next.text)}` : "暂无待办")}</small></span>${icon("chevron-right")}
+  </button>`;
+}
+
+function renderCustomers() {
+  const filtered = customers.filter(customer => {
+    const haystack = [customer.name, customer.fields.industry?.v, ...customer.orgChain.map(x => x.name)].join(" ").toLowerCase();
+    return (!state.query || haystack.includes(state.query)) && (state.stageFilter === "all" || customer.stage === state.stageFilter);
   });
-  $$("#raidFile .raid-stage-chip").forEach(btn => btn.onclick = () => {
-    rf.raidStage = (rf.raidStage === btn.dataset.rstage) ? "" : btn.dataset.rstage;
-    $$("#raidFile .raid-stage-chip").forEach(b => b.classList.toggle("on", b.dataset.rstage === rf.raidStage));
-    touchRaid(rf);
-  });
-  // 合作态度按钮
-  $$("#raidFile .raid-att").forEach(btn => btn.onclick = () => {
-    const sec = btn.dataset.sec, f = btn.dataset.f, v = btn.dataset.att;
-    if (!rf[sec]) rf[sec] = {};
-    rf[sec][f] = (rf[sec][f] === v) ? "" : v;
-    btn.parentElement.querySelectorAll(".raid-att").forEach(b => b.classList.toggle("on", b.dataset.att === rf[sec][f]));
-    touchRaid(rf);
+  return `<div class="page customers-page">
+    <section class="page-heading">
+      <div><p class="eyebrow">ACCOUNT WORKSPACE</p><h1>客户</h1><p>围绕下一步行动管理客户，而不是维护静态名单。</p></div>
+      <button class="primary-button" data-action="new-customer">${icon("plus")} 新建客户</button>
+    </section>
+    <section class="filter-bar">
+      <div class="filter-summary"><b>${filtered.length}</b> 个客户</div>
+      <div class="stage-filter-chips"><span>阶段</span><button class="${state.stageFilter === "all" ? "active" : ""}" data-action="filter-stage" data-value="all">全部</button>${CRM_STAGES.map(s => `<button class="${state.stageFilter === s.key ? "active" : ""}" data-action="filter-stage" data-value="${s.key}">${s.label}</button>`).join("")}</div>
+      ${(state.query || state.stageFilter !== "all") ? `<button class="text-button" data-action="reset-filters">清除筛选</button>` : ""}
+    </section>
+    <section class="customer-table panel">
+      <div class="table-head"><span>客户</span><span>阶段</span><span>关键联系人</span><span>下一步</span><span>最近更新</span><span></span></div>
+      <div class="table-body">${filtered.length ? filtered.map(renderCustomerRow).join("") : emptyState("没有匹配的客户", "换一个关键词或清除筛选。")}</div>
+    </section>
+  </div>`;
+}
+
+function renderCustomerRow(customer) {
+  const next = getNextTask(customer);
+  const keyContact = customer.orgChain.find(p => /CEO|CTO|总监|负责人|VP/.test(p.role || "")) || customer.orgChain[0];
+  return `<article class="customer-row">
+    <button class="customer-cell identity-cell" data-action="open-customer" data-id="${customer.id}">${avatar(customer)}<span><b>${safe(customer.name)}</b><small>${safe(customer.fields.industry?.v || "行业未填写")} · ${customer.grade} 级</small></span></button>
+    <span><b class="stage-pill stage-${customer.stage}">${stageLabel(customer.stage)}</b></span>
+    <span class="muted-cell">${keyContact ? `<b>${safe(keyContact.name)}</b><small>${safe(keyContact.role)}</small>` : "待补充"}</span>
+    <span class="next-cell ${next?.overdue ? "danger-text" : ""}">${next ? `<b>${safe(next.text)}</b><small>${next.overdue ? "已逾期" : formatShortDate(next.date)}</small>` : "暂无待办"}</span>
+    <span class="muted-cell">${formatRelative(lastActivityDate(customer))}</span>
+    <span class="row-actions"><button class="report-mini" data-action="open-report" data-id="${customer.id}">${icon("file-text")} 生成报告</button><button class="arrow-button" data-action="open-customer" data-id="${customer.id}" aria-label="打开客户">${icon("chevron-right")}</button></span>
+  </article>`;
+}
+
+function openCustomer(id) {
+  state.page = "customers";
+  state.customerId = id;
+  state.customerTab = "overview";
+  renderApp();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function switchCustomerTab(tab) {
+  state.customerTab = tab;
+  renderApp();
+  const anchor = $(".customer-tabs");
+  if (anchor && window.scrollY > anchor.offsetTop) anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderCustomerDetail(customer) {
+  if (!customer) return renderCustomers();
+  const next = getNextTask(customer);
+  const tabs = [
+    ["overview", "作战概览"], ["timeline", "推进记录"], ["relations", "关键关系"], ["intel", "情报与证据"],
+  ];
+  return `<div class="page customer-detail">
+    <button class="back-link" data-action="back-customers">${icon("arrow-left")} 返回客户列表</button>
+    <section class="customer-hero">
+      <div class="customer-title-group">${avatar(customer, "large")}<div><div class="title-line"><h1>${safe(customer.name)}</h1><b class="grade-badge grade-${customer.grade}">${customer.grade}</b></div><p>${safe(customer.fields.industry?.v || "行业未填写")} · 最近更新 ${formatRelative(lastActivityDate(customer))}</p></div></div>
+      <div class="customer-hero-actions"><button class="secondary-button" data-action="manual-entry" data-customer="${customer.id}">${icon("square-pen")} 手动记录</button><button class="report-button" data-action="open-report" data-id="${customer.id}"><span>${icon("file-text")}</span><b>生成全景报告</b><small>汇总全部客户信息</small></button></div>
+    </section>
+    <section class="customer-control-bar">
+      ${renderChoiceControl(customer, "stage")}
+      <div class="stage-track">${CRM_STAGES.filter(s => s.key !== "lost").map((s, i) => `<span class="${stageIndex(customer.stage) >= i ? "done" : ""} ${customer.stage === s.key ? "current" : ""}"><i></i>${s.label}</span>`).join("")}</div>
+      ${renderChoiceControl(customer, "grade")}
+    </section>
+    ${next ? `<section class="next-action-banner ${next.overdue ? "overdue" : ""}"><span class="next-icon">${icon("move-right")}</span><div><small>${next.overdue ? "当前最紧急 · 已逾期" : "下一步行动"}</small><b>${safe(next.text)}</b><p>${safe(next.note.contact || "未指定联系人")} · ${formatShortDate(next.date)}</p></div><button class="primary-button" data-action="complete-task" data-customer="${customer.id}" data-note="${next.note.id}">${icon("check")} 标记完成</button></section>` : ""}
+    <nav class="customer-tabs">${tabs.map(([key,label]) => `<button class="${state.customerTab === key ? "active" : ""}" data-action="customer-tab" data-tab="${key}">${label}</button>`).join("")}</nav>
+    <section class="customer-tab-content">${renderCustomerTab(customer)}</section>
+  </div>`;
+}
+
+function renderChoiceControl(customer, type) {
+  const isStage = type === "stage";
+  const options = isStage ? CRM_STAGES : GRADES;
+  const value = isStage ? customer.stage : customer.grade;
+  const current = options.find(item => item.key === value) || options[0];
+  const action = isStage ? "set-stage" : "set-grade";
+  const label = isStage ? "销售阶段" : "客户优先级";
+  const visual = isStage
+    ? `<span class="choice-dot stage-dot-${safe(current.key)}"></span>`
+    : `<span class="choice-grade grade-${safe(current.key)}">${safe(current.key)}</span>`;
+  return `<div class="choice-field"><span class="choice-label">${label}</span><div class="choice-control">
+    <button class="choice-trigger" data-action="toggle-choice" aria-haspopup="listbox" aria-expanded="false">${visual}<b>${safe(current.label)}</b>${icon("chevron-down")}</button>
+    <div class="choice-menu" role="listbox">${options.map(item => {
+      const itemVisual = isStage ? `<span class="choice-dot stage-dot-${safe(item.key)}"></span>` : `<span class="choice-grade grade-${safe(item.key)}">${safe(item.key)}</span>`;
+      return `<button class="choice-option ${item.key === value ? "selected" : ""}" role="option" aria-selected="${item.key === value}" data-action="${action}" data-customer="${customer.id}" data-value="${safe(item.key)}">${itemVisual}<span>${safe(item.label)}</span>${item.key === value ? icon("check") : ""}</button>`;
+    }).join("")}</div>
+  </div></div>`;
+}
+
+function renderCustomerTab(customer) {
+  if (state.customerTab === "timeline") return renderTimeline(customer);
+  if (state.customerTab === "relations") return renderRelations(customer);
+  if (state.customerTab === "intel") return renderIntelligence(customer);
+  return renderOverview(customer);
+}
+
+function renderOverview(customer) {
+  const recent = [...customer.notes].sort((a,b) => String(b.date).localeCompare(String(a.date))).slice(0, 3);
+  const contacts = customer.orgChain.slice(0, 3);
+  const completeness = profileCompleteness(customer);
+  return `<div class="overview-grid">
+    <section class="panel overview-summary wide-panel">
+      <div class="section-heading"><div><p class="eyebrow">ACCOUNT BRIEF</p><h2>作战摘要</h2></div><span class="health-score">档案完整度 ${completeness}%</span></div>
+      <div class="brief-grid">
+        <div><small>核心机会</small><p>${safe(customer.painPoints[0]?.v || "尚未明确核心痛点")}</p></div>
+        <div><small>关系进展</small><p>${safe(customer.fields.relation?.v || "尚未补充客户关系")}</p></div>
+        <div><small>上云现状</small><p>${safe(customer.fields.cloudStatus?.v || "尚未了解上云现状")}</p></div>
+        <div><small>推荐切入</small><p>${safe(customer.solution[0]?.product || "待确认客户痛点后匹配方案")}</p></div>
+      </div>
+      ${customer.raidFile?.plan?.action ? `<div class="strategy-callout"><span>策略</span><p>${safe(customer.raidFile.plan.action)}</p></div>` : ""}
+    </section>
+    <section class="panel">
+      <div class="section-heading"><h2>关键关系</h2><button class="text-button" data-action="customer-tab" data-tab="relations">查看关系图 →</button></div>
+      <div class="contact-stack">${contacts.length ? contacts.map(renderCompactContact).join("") : emptyState("还没有联系人", "先添加一个关键人。")}</div>
+      <button class="soft-button full" data-action="add-contact" data-customer="${customer.id}">${icon("user-plus")} 添加联系人</button>
+    </section>
+    <section class="panel wide-panel">
+      <div class="section-heading"><h2>最近推进</h2><button class="text-button" data-action="customer-tab" data-tab="timeline">查看全部 ${icon("arrow-right")}</button></div>
+      <div class="mini-timeline">${recent.length ? recent.map(note => renderMiniTimeline(note)).join("") : emptyState("还没有推进记录", "记录第一次沟通。")}</div>
+    </section>
+    <section class="panel">
+      <div class="section-heading"><h2>痛点与方案</h2><button class="text-button" data-action="customer-tab" data-tab="intel">编辑 →</button></div>
+      <div class="tag-list">${customer.painPoints.slice(0,3).map(p => `<span>${safe(p.v)}</span>`).join("") || `<span class="empty-tag">待补充痛点</span>`}</div>
+      <div class="solution-preview">${customer.solution.slice(0,2).map(s => `<article><b>${safe(s.product)}</b><small>${safe(s.reason)}</small></article>`).join("") || `<p class="muted">补充痛点后再匹配方案。</p>`}</div>
+    </section>
+  </div>`;
+}
+
+function renderCompactContact(person) {
+  return `<article class="compact-contact"><span class="person-avatar">${safe(person.name?.[0] || "人")}</span><div><b>${safe(person.name)}</b><small>${safe(person.role || "职位未填写")}</small></div><span class="relation-state">${person.note ? "已建联" : "待确认"}</span></article>`;
+}
+
+function renderMiniTimeline(note) {
+  const method = methodMeta(note.method);
+  return `<article><span class="timeline-dot" style="--dot:${method.color}">${icon(methodIconName(note.method))}</span><div><b>${safe(note.content)}</b><small>${safe(method.label)} · ${safe(note.contact || "未指定联系人")} · ${formatDateTime(note.date)}</small></div></article>`;
+}
+
+function renderTimeline(customer) {
+  const notes = [...customer.notes].sort((a,b) => String(b.date).localeCompare(String(a.date)));
+  return `<div class="content-layout">
+    <section class="panel timeline-panel">
+      <div class="section-heading"><div><p class="eyebrow">PROGRESS JOURNEY</p><h2>全流程客户推进记录</h2></div><button class="primary-button" data-action="manual-entry" data-customer="${customer.id}">${icon("plus")} 记录推进</button></div>
+      <div class="full-timeline">${notes.length ? notes.map(note => renderTimelineItem(customer, note)).join("") : emptyState("还没有推进记录", "电话、会议、微信、材料与阶段变化都会沉淀在这里。")}</div>
+    </section>
+    <aside class="panel timeline-aside"><h3>${icon("workflow")} 推进记录会自动关联</h3><ul><li>联系人与沟通方式</li><li>下一步行动和提醒</li><li>阶段及情报变化</li><li>附件和佐证材料</li></ul><button class="soft-button full" data-action="focus-copilot">${icon("sparkles")} 用 AI 整理记录</button></aside>
+  </div>`;
+}
+
+function renderTimelineItem(customer, note) {
+  const method = methodMeta(note.method);
+  return `<article class="timeline-item">
+    <span class="timeline-marker" style="--dot:${method.color}">${icon(methodIconName(note.method))}</span>
+    <div class="timeline-card"><div class="timeline-head"><span><b>${safe(method.label)}</b>${note.contact ? ` · ${safe(note.contact)}` : ""}</span><time>${formatDateTime(note.date)}</time></div><p>${safe(note.content)}</p>
+      ${note.next ? `<div class="timeline-next ${note.taskDone ? "done" : ""}"><span>${note.taskDone ? "✓ 已完成" : "→ 下一步"}</span><b>${safe(note.next)}</b><time>${formatShortDate(note.nextDate)}</time></div>` : ""}
+      ${note.attachments?.length ? `<div class="attachment-row">${note.attachments.map(a => `<span>${icon("paperclip")} ${safe(a.name)}</span>`).join("")}</div>` : ""}
+    </div>
+  </article>`;
+}
+
+function renderRelations(customer) {
+  const roots = customer.orgChain.filter(person => !person.pid || !customer.orgChain.some(p => p.id === person.pid));
+  return `<section class="panel relations-panel">
+    <div class="section-heading"><div><p class="eyebrow">STAKEHOLDER MAP</p><h2>关键关系与决策链</h2></div><button class="primary-button" data-action="add-contact" data-customer="${customer.id}">${icon("user-plus")} 添加联系人</button></div>
+    <div class="relation-legend"><span><i class="positive"></i>已建联</span><span><i class="neutral"></i>信息不足</span><p>展示汇报关系、影响力和真实接触状态。</p></div>
+    <div class="org-map">${roots.length ? roots.map(root => renderOrgBranch(customer, root, new Set())).join("") : emptyState("还没有关系图", "从决策人或当前对接人开始添加。")}</div>
+  </section>`;
+}
+
+function renderOrgBranch(customer, person, visited) {
+  if (visited.has(person.id)) return "";
+  const nextVisited = new Set(visited); nextVisited.add(person.id);
+  const children = customer.orgChain.filter(p => p.pid === person.id);
+  const built = Boolean(person.phone || person.wechat || person.email || person.note);
+  return `<div class="org-branch"><article class="person-card ${built ? "connected" : ""}"><div class="person-main"><span class="person-avatar large">${safe(person.name?.[0] || "人")}</span><div><b>${safe(person.name)}</b><small>${safe(person.role || "职位未填写")}</small></div><span class="influence-pill">${person.level === 1 ? "决策" : person.level === 2 ? "影响" : "执行"}</span></div><div class="person-contact">${person.phone ? `<span>${icon("phone")} ${safe(person.phone)}</span>` : ""}${person.wechat ? `<span>${icon("message-circle")} ${safe(person.wechat)}</span>` : ""}${person.email ? `<span>${icon("mail")} ${safe(person.email)}</span>` : ""}</div><p>${safe(person.note || "尚未补充关系备注")}</p><button class="remove-link" data-action="remove-contact" data-customer="${customer.id}" data-contact="${person.id}">删除</button></article>${children.length ? `<div class="org-children">${children.map(child => renderOrgBranch(customer, child, nextVisited)).join("")}</div>` : ""}</div>`;
+}
+
+function renderIntelligence(customer) {
+  const publicFields = FIELD_DEFS.filter(d => d.public);
+  const privateFields = FIELD_DEFS.filter(d => !d.public);
+  return `<div class="intel-layout">
+    <section class="panel intelligence-panel">
+      <div class="section-heading"><div><p class="eyebrow">CUSTOMER INTELLIGENCE</p><h2>情报与证据</h2></div><span class="save-hint">修改后自动保存</span></div>
+      <div class="intel-section"><div class="intel-section-title"><span>公开</span><div><b>基础信息</b><small>可通过公开渠道核实</small></div></div><div class="intel-form-grid">${publicFields.map(def => intelField(customer, def)).join("")}</div></div>
+      <div class="intel-section"><div class="intel-section-title private"><span>私有</span><div><b>一线情报</b><small>来自真实沟通，是推进关键</small></div></div><div class="intel-form-grid single">${privateFields.map(def => intelField(customer, def, true)).join("")}</div></div>
+    </section>
+    <aside class="intel-side">
+      <section class="panel"><div class="section-heading"><h2>核心痛点</h2><button class="text-button" data-action="add-pain" data-customer="${customer.id}">＋ 添加</button></div><div class="editable-list">${customer.painPoints.length ? customer.painPoints.map((p,i) => `<article><span>${safe(p.v)}</span><button data-action="remove-pain" data-customer="${customer.id}" data-index="${i}" aria-label="删除痛点">×</button></article>`).join("") : emptyState("尚未记录痛点", "从沟通中持续补充。")}</div></section>
+      <section class="panel"><div class="section-heading"><h2>匹配方案</h2><button class="text-button" data-action="add-solution" data-customer="${customer.id}">＋ 添加</button></div><div class="solution-list">${customer.solution.length ? customer.solution.map(s => `<article><b>${safe(s.product)}</b><p>${safe(s.reason)}</p></article>`).join("") : emptyState("尚未匹配方案", "基于明确痛点再提供方案。")}</div></section>
+      <section class="panel"><div class="section-heading"><h2>证据材料</h2><span>${customer.assets.length}</span></div>${customer.assets.length ? `<div class="asset-list">${customer.assets.slice(0,5).map(a => `<article><span>${icon("file-check-2")}</span><div><b>${safe(a.name)}</b><small>${safe(assetTypeLabel(a.type))} · ${formatRelative(a.createdAt)}</small></div></article>`).join("")}</div>` : emptyState("还没有证据材料", "可在记录推进时上传文件。")}</section>
+    </aside>
+  </div>`;
+}
+
+function intelField(customer, def, multiline = false) {
+  const value = customer.fields[def.key]?.v || "";
+  return `<label class="intel-field ${multiline ? "wide" : ""}"><span>${safe(def.label)}</span>${multiline ? `<textarea rows="3" data-intel-field="${def.key}" data-customer="${customer.id}" placeholder="${safe(def.ph)}">${safe(value)}</textarea>` : `<input data-intel-field="${def.key}" data-customer="${customer.id}" value="${safe(value)}" placeholder="${safe(def.ph)}" />`}</label>`;
+}
+
+function renderTasks() {
+  const tasks = getTasks().sort(taskPriority);
+  const open = tasks.filter(t => !t.done);
+  const done = tasks.filter(t => t.done);
+  return `<div class="page tasks-page">
+    <section class="page-heading"><div><p class="eyebrow">ACTION CENTER</p><h1>待办</h1><p>所有客户的下一步行动集中管理，完成后保留历史。</p></div><button class="primary-button" data-action="manual-entry">${icon("plus")} 新建推进</button></section>
+    <div class="task-summary"><span><b>${open.filter(t => t.overdue).length}</b> 已逾期</span><span><b>${open.filter(t => t.today).length}</b> 今天</span><span><b>${open.filter(t => !t.overdue && !t.today).length}</b> 即将开始</span></div>
+    <section class="panel task-board"><div class="section-heading"><h2>待处理</h2><span>${open.length}</span></div><div class="task-list">${open.length ? open.map(renderTaskRow).join("") : emptyState("没有待处理任务", "新的下一步行动会自动出现在这里。")}</div></section>
+    ${done.length ? `<section class="panel completed-board"><div class="section-heading"><h2>已完成</h2><span>${done.length}</span></div><div class="task-list completed">${done.slice(0,8).map(renderTaskRow).join("")}</div></section>` : ""}
+  </div>`;
+}
+
+function renderTaskRow(task) {
+  return `<article class="task-row ${task.done ? "done" : ""}"><button class="task-check ${task.done ? "checked" : ""}" ${task.done ? "disabled" : `data-action="complete-task" data-customer="${task.customer.id}" data-note="${task.note.id}"`} aria-label="${task.done ? "已完成" : "完成待办"}">${task.done ? "✓" : ""}</button><button class="task-content" data-action="open-customer" data-id="${task.customer.id}"><b>${safe(task.text)}</b><span>${safe(task.customer.name)} · ${safe(task.note.contact || "未指定联系人")}</span></button><b class="grade-dot grade-${task.customer.grade}">${task.customer.grade}</b><time class="${task.overdue && !task.done ? "danger-text" : ""}">${formatShortDate(task.date)}</time></article>`;
+}
+
+function renderAnalytics() {
+  const allNotes = customers.flatMap(customer => customer.notes.map(note => ({ customer, note })));
+  const reached = customers.reduce((sum,c) => sum + Number(c.funnel?.reached || 0), 0);
+  const won = customers.reduce((sum,c) => sum + Number(c.funnel?.won || 0), 0);
+  const conversion = reached ? Math.round(won / reached * 1000) / 10 : 0;
+  const maxStage = Math.max(1, ...CRM_STAGES.map(s => customers.filter(c => c.stage === s.key).length));
+  return `<div class="page analytics-page">
+    <section class="page-heading"><div><p class="eyebrow">PERFORMANCE</p><h1>分析</h1><p>看推进节奏和客户结构，不重复展示无行动价值的数据。</p></div></section>
+    <section class="metric-strip analytics-metrics">${metricCard("客户总数",customers.length,"全部在管客户","blue")}${metricCard("近 30 天跟进",allNotes.filter(x => daysSince(x.note.date) <= 30).length,"真实沟通记录","violet")}${metricCard("整体转化率",`${conversion}%`,"成交 ÷ 触达","green")}${metricCard("S/A 客户",customers.filter(c => ["S","A"].includes(c.grade)).length,"重点投入对象","red")}</section>
+    <div class="analytics-grid"><section class="panel"><div class="section-heading"><div><p class="eyebrow">PIPELINE</p><h2>推进阶段分布</h2></div></div><div class="bar-chart">${CRM_STAGES.map(stage => { const count=customers.filter(c=>c.stage===stage.key).length; return `<div><span>${stage.label}</span><i><b style="width:${count/maxStage*100}%;--bar:${stage.color}"></b></i><strong>${count}</strong></div>`; }).join("")}</div></section><section class="panel"><div class="section-heading"><div><p class="eyebrow">PRIORITY MIX</p><h2>客户优先级</h2></div></div><div class="grade-chart">${GRADES.map(g => `<article style="--grade:${g.color}"><b>${g.key}</b><strong>${customers.filter(c=>c.grade===g.key).length}</strong><small>${safe(g.label.split("·").at(-1).trim())}</small></article>`).join("")}</div></section></div>
+  </div>`;
+}
+
+// ---------- AI 信息收件箱 ----------
+function focusCopilot() {
+  if (state.page !== "today") {
+    state.page = "today";
+    state.customerId = null;
+    renderApp();
+  }
+  requestAnimationFrame(() => {
+    $("#copilotCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    $("#copilotInput")?.focus();
   });
 }
 
-// 普通字段可编辑绑定
-function bindRaidEditables(rf) {
-  $$("#raidFile .raid-editable[data-sec]").forEach(el => {
-    el.addEventListener("blur", () => {
-      const sec = el.dataset.sec, f = el.dataset.f;
-      if (!rf[sec]) rf[sec] = {};
-      rf[sec][f] = el.textContent.trim();
-      touchRaid(rf);
+function analyzeCopilot() {
+  const input = $("#copilotInput");
+  const raw = input?.value.trim();
+  if (!raw) return toast("先输入一段客户信息，或使用语音记录");
+  const extracted = AIEngine.extract(raw);
+  const matched = customers.find(c => raw.includes(c.name)) || customers.find(c => extracted.name && c.name.includes(extracted.name));
+  const method = /微信/.test(raw) ? "wechat" : /邮件/.test(raw) ? "email" : /拜访|上门/.test(raw) ? "visit" : /会议|开会/.test(raw) ? "meeting" : "phone";
+  const contactMatch = raw.match(/(?:和|跟|联系了?|对接人[：:]?)\s*([\u4e00-\u9fa5A-Za-z]{2,10})(?:沟通|聊|通话|开会|说|，|,)/);
+  const nextMatch = raw.match(/(?:下一步|接下来|后续|提醒我)[：:]?([^。；\n]+)/);
+  const date = extractDate(raw);
+  state.aiDraft = {
+    customerId: matched?.id || "",
+    raw,
+    found: extracted.found,
+    method,
+    contact: contactMatch?.[1] || "",
+    next: nextMatch?.[1]?.replace(/(?:并)?提醒我.*$/, "").trim() || "",
+    nextDate: date,
+  };
+  renderAIDraft();
+  $("#aiDraft")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function renderAIDraft() {
+  const host = $("#aiDraft");
+  if (!host || !state.aiDraft) return;
+  const draft = state.aiDraft;
+  const fields = Object.entries(draft.found);
+  host.innerHTML = `<section class="ai-review">
+    <div class="review-head"><div><span class="review-kicker">AI 已整理 · 等待确认</span><h3>准备写入客户档案</h3></div><label>关联客户<div class="modern-select"><select id="aiTargetSelect"><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${draft.customerId === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label></div>
+    <div class="review-items">
+      <label class="review-item main-review"><input class="draft-check" type="checkbox" data-kind="note" checked /><span class="review-check"></span><div><small>新增推进记录 · ${safe(methodMeta(draft.method).label)}</small><b>${safe(draft.raw)}</b>${draft.contact ? `<p>对接人：${safe(draft.contact)}</p>` : ""}</div></label>
+      ${fields.map(([key,value]) => { const def=FIELD_DEFS.find(d=>d.key===key); return `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="field" data-key="${key}" checked /><span class="review-check"></span><div><small>更新情报 · ${safe(def?.label || key)}</small><b>${safe(value)}</b></div></label>`; }).join("")}
+      ${draft.next ? `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="task" checked /><span class="review-check"></span><div><small>创建下一步${draft.nextDate ? ` · ${formatShortDate(draft.nextDate)}` : ""}</small><b>${safe(draft.next)}</b></div></label>` : ""}
+    </div>
+    <div class="review-actions"><button class="text-button" data-action="discard-ai">取消</button><span>所有内容写入后仍可手动修改</span><button class="primary-button" data-action="confirm-ai" ${draft.customerId ? "" : "disabled"}>确认并写入</button></div>
+  </section>`;
+  refreshIcons();
+}
+
+function confirmAIDraft() {
+  const draft = state.aiDraft;
+  if (!draft?.customerId) return toast("请选择要写入的客户");
+  const customer = getCustomer(draft.customerId);
+  const checks = $$(".draft-check", $("#aiDraft"));
+  const isChecked = kind => checks.some(box => box.dataset.kind === kind && box.checked);
+  checks.filter(box => box.dataset.kind === "field" && box.checked).forEach(box => {
+    customer.fields[box.dataset.key] = { v: draft.found[box.dataset.key] };
+  });
+  if (isChecked("note")) {
+    customer.notes.push({
+      id: uid("n"), method: draft.method, date: nowDateTime(), contact: draft.contact,
+      place: "", content: draft.raw, next: isChecked("task") ? draft.next : "",
+      nextDate: isChecked("task") ? draft.nextDate : "", taskDone: false, source: "ai-confirmed", attachments: [],
     });
-  });
-}
-
-// 列表项（scenes/roles/competitors）编辑、增、删
-function bindRaidLists(rf, c) {
-  $$("#raidFile [data-list][data-lf]").forEach(el => {
-    el.addEventListener("blur", () => {
-      const list = el.dataset.list, i = +el.dataset.i, lf = el.dataset.lf;
-      if (rf[list] && rf[list][i]) { rf[list][i][lf] = el.textContent.trim(); touchRaid(rf); }
-    });
-  });
-  $$("#raidFile .raid-li-del").forEach(btn => btn.onclick = () => {
-    const list = btn.dataset.list, i = +btn.dataset.i;
-    rf[list].splice(i, 1); touchRaid(rf); renderRaidFile();
-  });
-  $$("#raidFile .raid-add").forEach(btn => btn.onclick = () => {
-    const list = btn.dataset.add;
-    if (list === "scenes") rf.scenes.push({ title: "", scene: "", link: "" });
-    else if (list === "roles") rf.roles.push({ name: "", role: "", demand: "" });
-    else if (list === "competitors") rf.competitors.push({ name: "", coverage: "", pros: "", cons: "" });
-    touchRaid(rf); renderRaidFile();
-  });
-}
-
-// 保存并刷新更新时间显示
-function touchRaid(rf) {
-  rf.updatedAt = todayStr();
+  }
   persist();
+  state.aiDraft = null;
+  const input = $("#copilotInput"); if (input) input.value = "";
+  renderApp();
+  toast(`已写入「${customer.name}」，可随时手动修改`);
 }
 
-// ===================================================================
-// 模块⑤ 复盘
-// ===================================================================
-function renderFunnel() {
-  const c = current;
-  const f = c.funnel || { reached: 0, connected: 0, meeting: 0, proposal: 0, won: 0 };
-  const stages = [["触达", f.reached, "#0052d9"], ["接通", f.connected, "#366ef4"], ["见面", f.meeting, "#5b8ff9"], ["方案", f.proposal, "#7ba9fb"], ["成交", f.won, "#00a870"]];
-  const max = f.reached || 100;
-  let prev = null;
-  $("#funnelChart").innerHTML = stages.map(([label, val, color]) => {
-    const drop = prev !== null && prev > 0 ? `-${Math.round((1 - val / prev) * 100)}%` : "";
-    prev = val;
-    return `<div class="fn-row"><div class="fn-label">${label}</div><div class="fn-bar-wrap"><div class="fn-bar" data-w="${(val/max*100)}" style="width:0;background:${color}">${val}</div></div><div class="fn-drop">${drop}</div></div>`;
-  }).join("");
-  setTimeout(() => $$("#funnelChart .fn-bar").forEach(bar => bar.style.width = bar.dataset.w + "%"), 100);
+function discardAIDraft() {
+  state.aiDraft = null;
+  const host = $("#aiDraft"); if (host) host.innerHTML = "";
+}
 
-  if (!f.reached) {
-    $("#funnelDiagnosis").innerHTML = `<div class="diag-block tip"><div class="diag-c">该客户暂无跟进漏斗数据。随着跟进推进，这里会诊断最大流失环节并给出 winback 建议。</div></div>`;
-    return;
-  }
-  const arr = [["接通", f.connected/f.reached], ["见面", f.meeting/(f.connected||1)], ["方案", f.proposal/(f.meeting||1)], ["成交", f.won/(f.proposal||1)]];
-  let worst = arr[0]; arr.forEach(a => { if (a[1] < worst[1]) worst = a; });
-  const worstMap = {
-    "接通": "触达→接通流失最大，触达渠道或时段不佳。建议：优化拨打时段、脉脉/邮件预热，多点建联（7-10 人）。",
-    "见面": "接通→见面转化偏低，愿聊但约不出来。建议：强化「不可拒绝的见面理由」，用「20 分钟咖啡+汇报腾讯整体能力」降门槛。",
-    "方案": "见面→方案转化不足。建议：见面后 24h 内发定制方案摘要，锁定 POC 承诺。",
-    "成交": "方案→成交是瓶颈。建议：核对决策链是否漏掉「一票否决」经办人，补齐商务与 TCO 测算。",
+function startVoiceCapture(button) {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Recognition) return toast("当前浏览器暂不支持语音识别，可以直接输入文字");
+  if (state.recording) return;
+  const recognition = new Recognition();
+  recognition.lang = "zh-CN";
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  state.recording = true;
+  button.classList.add("recording");
+  button.innerHTML = `${icon("audio-lines")} 正在听`;
+  refreshIcons();
+  const input = $("#copilotInput");
+  const before = input.value;
+  recognition.onresult = event => {
+    const speech = Array.from(event.results).map(result => result[0].transcript).join("");
+    input.value = `${before}${before ? " " : ""}${speech}`;
   };
-  const winback = (c.grade === "S" || c.grade === "A")
-    ? `${c.name} 价值较高、云支出体量大。winback 抓手：以「降本增效」切入，用「按量转包月+利旧+Serverless 削峰」做 TCO 测算，量化节省直接触达 CTO/财务。`
-    : `${c.name} 为培育型，暂以轻量方案维系。低频持续触达，等其融资/业务上台阶后升级为重点。`;
-  $("#funnelDiagnosis").innerHTML = `
-    <div class="diag-block warn"><div class="diag-t">◆ 最大流失环节：${worst[0]}（转化率 ${Math.round(worst[1]*100)}%）</div><div class="diag-c">${worstMap[worst[0]]}</div></div>
-    <div class="diag-block tip"><div class="diag-t">◆ 整体转化率</div><div class="diag-c">从触达到成交整体 ${f.won}%。行业健康线约 3-8%，${f.won>=3?'处于合理区间，补齐上述环节即可放大结果。':'偏低，先聚焦最大流失环节做专项优化。'}</div></div>
-    <div class="diag-block win"><div class="diag-t">◆ Winback / 二次销售</div><div class="diag-c">${winback}</div></div>`;
+  recognition.onerror = () => toast("没有听清，请再试一次或改用文字输入");
+  recognition.onend = () => {
+    state.recording = false;
+    button.classList.remove("recording");
+    button.innerHTML = `${icon("mic")} 语音`;
+    refreshIcons();
+    input.focus();
+  };
+  recognition.start();
 }
 
-// ===================================================================
-// 数据看板
-// ===================================================================
-function toggleDashboard() {
-  const d = $("#dashboard");
-  if (!d.classList.contains("hidden")) { d.classList.add("hidden"); if (current) $("#workspace").classList.remove("hidden"); else $("#emptyState").classList.remove("hidden"); return; }
-  $("#workspace").classList.add("hidden"); $("#emptyState").classList.add("hidden");
-  d.classList.remove("hidden");
-  renderDashboard();
+// ---------- 手动录入 ----------
+function openNewCustomer() {
+  showModal(`<div class="modal-head"><div><p class="eyebrow">NEW ACCOUNT</p><h2 id="modalTitle">新建客户</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="new-customer"><label>客户名称<input name="name" required autofocus placeholder="公司或组织名称" /></label><label>所属行业<input name="industry" placeholder="例如：游戏、零售、SaaS" /></label><fieldset class="choice-fieldset"><legend>重点等级</legend><div class="option-cards grade-options">${GRADES.map(g => `<label><input type="radio" name="grade" value="${g.key}" ${g.key === "B" ? "checked" : ""}/><span class="grade-option grade-${g.key}">${g.key}</span><b>${safe(g.label.split("·").at(-1).trim())}</b></label>`).join("")}</div></fieldset><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("arrow-right")} 创建并进入档案</button></div></form>`);
 }
 
-function renderDashboard() {
-  const total = customers.length;
-  const byStage = CRM_STAGES.map(s => ({ ...s, n: customers.filter(c => c.stage === s.key).length }));
-  const byGrade = GRADES.map(g => ({ ...g, n: customers.filter(c => c.grade === g.key).length }));
-  const won = customers.filter(c => c.stage === "won").length;
-  const active = customers.filter(c => ["contact","meeting","proposal"].includes(c.stage)).length;
-  const maxStage = Math.max(1, ...byStage.map(s => s.n));
-  // 待办统计
+function submitNewCustomer(form) {
+  const data = new FormData(form);
+  const name = String(data.get("name") || "").trim();
+  if (!name) return;
+  const customer = ensureCustomerShape({ id: uid(), name, logo: name[0], color: customerColor(customers.length), stage: "lead", grade: data.get("grade") || "B", fields: {}, notes: [], assets: [], orgChain: [], painPoints: [], solution: [] });
+  customer.fields.industry.v = String(data.get("industry") || "").trim();
+  customers.unshift(customer);
+  persist(); closeModal(); openCustomer(customer.id); toast("客户已创建，可手动填写或交给 AI 整理信息");
+}
+
+function openManualEntry(customerId) {
+  const selected = customerId || state.customerId || "";
+  showModal(`<div class="modal-head"><div><p class="eyebrow">PROGRESS ENTRY</p><h2 id="modalTitle">手动记录客户推进</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="manual-entry"><label>关联客户<div class="modern-select"><select name="customerId" required><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${selected === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><fieldset class="choice-fieldset"><legend>沟通方式</legend><div class="option-cards method-options">${CONTACT_METHODS.map((m,i) => `<label><input type="radio" name="method" value="${m.key}" ${i===0?"checked":""}/><span>${icon(methodIconName(m.key))}</span><b>${safe(m.label)}</b></label>`).join("")}</div></fieldset><label>沟通时间<input type="datetime-local" name="date" value="${toLocalInput(new Date())}" /></label><label>对接人<input name="contact" placeholder="姓名或职位" /></label><label>沟通内容<textarea name="content" rows="5" required placeholder="记录对方态度、需求、异议和重要事实"></textarea></label><div class="form-row"><label>下一步行动<input name="next" placeholder="例如：发送方案、预约拜访" /></label><label>提醒日期<input type="date" name="nextDate" /></label></div><label class="file-field">${icon("paperclip")} 佐证材料<input type="file" name="files" multiple /><small>支持图片和常见文件；材料会关联到本次推进记录</small></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存推进记录</button></div></form>`);
+}
+
+async function submitManualEntry(form) {
+  const data = new FormData(form);
+  const customer = getCustomer(data.get("customerId"));
+  if (!customer) return toast("请选择关联客户");
+  const files = Array.from(form.elements.files.files || []);
+  const attachments = [];
+  for (const file of files) {
+    try {
+      const meta = await AssetEngine.readFile(file);
+      const asset = AssetEngine.makeAsset("file", meta, { caption: "随推进记录上传" });
+      customer.assets.push(asset); attachments.push(asset);
+    } catch (error) { console.warn("Attachment skipped", error); }
+  }
+  customer.notes.push({ id: uid("n"), method: data.get("method"), date: normalizeDateInput(data.get("date")), contact: String(data.get("contact") || "").trim(), place: "", content: String(data.get("content") || "").trim(), next: String(data.get("next") || "").trim(), nextDate: String(data.get("nextDate") || ""), taskDone: false, source: "manual", attachments });
+  persist(); closeModal();
+  if (state.customerId === customer.id) state.customerTab = "timeline";
+  renderApp(); toast("客户推进记录已保存");
+}
+
+function openContactForm(customerId) {
+  const customer = getCustomer(customerId);
+  if (!customer) return;
+  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">添加关键联系人</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><div class="form-row"><label>姓名<input name="name" required /></label><label>职位<input name="role" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options"><label><input type="radio" name="level" value="1"/><span>${icon("crown")}</span><b>决策层</b></label><label><input type="radio" name="level" value="2" checked/><span>${icon("users")}</span><b>影响层</b></label><label><input type="radio" name="level" value="3"/><span>${icon("wrench")}</span><b>执行层</b></label></div></fieldset><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.map(p => `<option value="${p.id}">${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><div class="form-row"><label>电话<input name="phone" /></label><label>微信<input name="wechat" /></label></div><label>邮箱<input name="email" type="email" /></label><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点、建联情况"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("user-plus")} 保存联系人</button></div></form>`);
+}
+
+function submitContact(form) {
+  const data = new FormData(form); const customer = getCustomer(data.get("customerId")); if (!customer) return;
+  customer.orgChain.push({ id: uid("o"), pid: data.get("pid") || null, name: String(data.get("name") || "").trim(), role: String(data.get("role") || "").trim(), level: Number(data.get("level") || 2), phone: String(data.get("phone") || "").trim(), wechat: String(data.get("wechat") || "").trim(), email: String(data.get("email") || "").trim(), note: String(data.get("note") || "").trim(), photo: "" });
+  persist(); closeModal(); renderApp(); toast("联系人已加入关系图");
+}
+
+function openPainForm(customerId) {
+  showSimpleTextForm("pain", customerId, "添加客户痛点", "痛点描述", "记录客户明确表达的业务问题或顾虑");
+}
+
+function openSolutionForm(customerId) {
+  const customer = getCustomer(customerId); if (!customer) return;
+  showModal(`<div class="modal-head"><div><p class="eyebrow">SOLUTION</p><h2 id="modalTitle">添加匹配方案</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="solution"><input type="hidden" name="customerId" value="${customer.id}" /><label>产品或方案<input name="product" required placeholder="例如：全球应用加速 GAAP" /></label><label>匹配理由<textarea name="reason" rows="4" required placeholder="它解决客户的哪个明确痛点？"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存方案</button></div></form>`);
+}
+
+function showSimpleTextForm(type, customerId, title, label, placeholder) {
+  const customer=getCustomer(customerId); if(!customer) return;
+  showModal(`<div class="modal-head"><div><p class="eyebrow">CUSTOMER INTELLIGENCE</p><h2 id="modalTitle">${title}</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="${type}"><input type="hidden" name="customerId" value="${customer.id}" /><label>${label}<textarea name="value" rows="4" required placeholder="${placeholder}"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存</button></div></form>`);
+}
+
+function submitPain(form) { const data=new FormData(form), customer=getCustomer(data.get("customerId")); if(!customer)return; customer.painPoints.push({v:String(data.get("value")||"").trim()}); persist(); closeModal(); renderApp(); toast("痛点已保存"); }
+function submitSolution(form) { const data=new FormData(form), customer=getCustomer(data.get("customerId")); if(!customer)return; customer.solution.push({product:String(data.get("product")||"").trim(),reason:String(data.get("reason")||"").trim()}); persist(); closeModal(); renderApp(); toast("方案已保存"); }
+
+function removePain(customerId, index) { const c=getCustomer(customerId); if(!c?.painPoints[index])return; c.painPoints.splice(index,1); persist(); renderApp(); }
+function removeContact(customerId, contactId) { const c=getCustomer(customerId); if(!c)return; c.orgChain = c.orgChain.filter(p=>p.id!==contactId); c.orgChain.forEach(p=>{if(p.pid===contactId)p.pid=null;}); persist(); renderApp(); toast("联系人已删除，下属已移到顶层"); }
+
+function updateCustomerStage(customerId, stage) {
+  const customer=getCustomer(customerId); if(!customer || customer.stage===stage)return;
+  customer.stage=stage; customer.stageHistory.push({stage,date:nowDateTime(),note:"手动更新阶段"}); persist("客户阶段已更新"); renderApp();
+}
+function updateCustomerGrade(customerId, grade) { const customer=getCustomer(customerId); if(!customer)return; customer.grade=grade; persist("客户优先级已更新"); renderApp(); }
+function updateIntelField(target) { const customer=getCustomer(target.dataset.customer); if(!customer)return; customer.fields[target.dataset.intelField] = {v:target.value.trim()}; persist(); toast("情报已保存"); }
+
+// ---------- 全景报告 ----------
+function openReport(customerId) {
+  const customer = getCustomer(customerId);
+  if (!customer) return;
+  reportCustomer = customer;
+  $("#reportDocument").innerHTML = buildReport(customer);
+  $("#reportStatus").textContent = `生成于 ${formatDateTime(nowDateTime())} · 可继续返回档案修改`;
+  $("#reportLayer").classList.remove("hidden");
+  document.body.classList.add("report-open");
+  refreshIcons();
+  window.scrollTo({ top: 0 });
+}
+
+function closeReport() {
+  $("#reportLayer").classList.add("hidden");
+  document.body.classList.remove("report-open");
+  reportCustomer = null;
+}
+
+function buildReport(customer) {
+  const notes=[...customer.notes].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const tasks=getTasks(customer).filter(t=>!t.done);
+  const publicFields=FIELD_DEFS.filter(d=>d.public);
+  const privateFields=FIELD_DEFS.filter(d=>!d.public);
+  const raid=customer.raidFile || {};
+  const reportRow=(label,value)=>`<div class="report-field"><span>${safe(label)}</span><p>${safe(value || "未填写")}</p></div>`;
+  return `<header class="report-cover"><div class="report-brand"><span>Y</span> 云销副驾</div><p class="report-type">客户全景报告 / ACCOUNT 360</p><h1>${safe(customer.name)}</h1><div class="report-cover-meta"><span>${customer.grade} 级客户</span><span>${stageLabel(customer.stage)}</span><span>${safe(customer.fields.industry?.v || "行业未填写")}</span></div><p class="report-date">报告生成日期：${formatLongDate(new Date())}</p></header>
+  <section class="report-section report-executive"><div class="report-section-title"><span>01</span><h2>执行摘要</h2></div><div class="report-summary-grid">${reportRow("下一步行动",tasks[0]?.text || raid.plan?.action)}${reportRow("核心机会",customer.painPoints[0]?.v)}${reportRow("关系进展",customer.fields.relation?.v)}${reportRow("推荐切入",customer.solution[0]?.product)}</div></section>
+  <section class="report-section"><div class="report-section-title"><span>02</span><h2>客户基本面</h2></div><div class="report-data-grid">${publicFields.map(d=>reportRow(d.label,customer.fields[d.key]?.v)).join("")}</div></section>
+  <section class="report-section"><div class="report-section-title"><span>03</span><h2>一线私有情报</h2></div><div class="report-data-grid single">${privateFields.map(d=>reportRow(d.label,customer.fields[d.key]?.v)).join("")}</div></section>
+  <section class="report-section"><div class="report-section-title"><span>04</span><h2>关键关系与组织架构</h2></div>${customer.orgChain.length?`<table class="report-table"><thead><tr><th>姓名</th><th>职位 / 层级</th><th>联系方式</th><th>关系备注</th></tr></thead><tbody>${customer.orgChain.map(p=>`<tr><td><b>${safe(p.name)}</b></td><td>${safe(p.role)} / ${p.level===1?"决策层":p.level===2?"影响层":"执行层"}</td><td>${safe([p.phone,p.wechat,p.email].filter(Boolean).join(" · ") || "未填写")}</td><td>${safe(p.note || "未填写")}</td></tr>`).join("")}</tbody></table>`:reportEmpty("尚未建立关键关系")}</section>
+  <section class="report-section"><div class="report-section-title"><span>05</span><h2>痛点、竞对与方案</h2></div><div class="report-two-col"><div><h3>核心痛点</h3>${reportList(customer.painPoints.map(p=>p.v))}<h3>外部竞对</h3>${reportList((raid.competitors||[]).map(c=>`${c.name}：${c.coverage}；优势 ${c.pros}；劣势 ${c.cons}`))}</div><div><h3>匹配方案</h3>${customer.solution.length?customer.solution.map(s=>`<article class="report-solution"><b>${safe(s.product)}</b><p>${safe(s.reason)}</p></article>`).join(""):reportEmpty("尚未匹配方案")}<h3>商务 / 技术策略</h3><p class="report-paragraph">${safe(raid.solution?.biz || "未填写")}</p><p class="report-paragraph">${safe(raid.solution?.tech || "未填写")}</p></div></div></section>
+  <section class="report-section page-break"><div class="report-section-title"><span>06</span><h2>全流程客户推进记录</h2></div>${notes.length?`<div class="report-timeline">${notes.map(note=>`<article><time>${formatDateTime(note.date)}</time><div><b>${safe(methodMeta(note.method).label)}${note.contact?` · ${safe(note.contact)}`:""}</b><p>${safe(note.content)}</p>${note.next?`<small>${note.taskDone?"已完成":"下一步"}：${safe(note.next)} · ${formatShortDate(note.nextDate)}</small>`:""}</div></article>`).join("")}</div>`:reportEmpty("尚无推进记录")}</section>
+  <section class="report-section"><div class="report-section-title"><span>07</span><h2>阶段历史与当前待办</h2></div><div class="report-two-col"><div><h3>阶段历史</h3>${reportList((customer.stageHistory||[]).map(h=>`${formatDateTime(h.date)} · ${stageLabel(h.stage)} · ${h.note||""}`))}</div><div><h3>当前待办</h3>${reportList(tasks.map(t=>`${formatShortDate(t.date)} · ${t.text}${t.note.contact?` · ${t.note.contact}`:""}`))}</div></div></section>
+  <section class="report-section"><div class="report-section-title"><span>08</span><h2>阶段目标与攻坚计划</h2></div><div class="report-data-grid single">${reportRow("3 个月目标",raid.goals?.g1)}${reportRow("6 个月目标",raid.goals?.g2)}${reportRow("长期布局",raid.goals?.g3)}${reportRow("下一步攻坚动作",raid.plan?.action)}${reportRow("需要支持事项",raid.plan?.support)}</div></section>
+  <section class="report-section"><div class="report-section-title"><span>09</span><h2>材料与证据索引</h2></div>${customer.assets.length?`<table class="report-table"><thead><tr><th>材料名称</th><th>类型</th><th>关联说明</th><th>录入时间</th></tr></thead><tbody>${customer.assets.map(a=>`<tr><td>${safe(a.name)}</td><td>${safe(assetTypeLabel(a.type))}</td><td>${safe(a.caption||"未填写")}</td><td>${formatDateTime(a.createdAt)}</td></tr>`).join("")}</tbody></table>`:reportEmpty("尚无材料附件")}</section>
+  <footer class="report-footer"><b>云销副驾 · 客户全景报告</b><p>本报告由客户档案实时汇总生成。AI 提取内容均经销售确认；未填写项明确保留，不进行虚构补全。</p></footer>`;
+}
+
+function reportList(items) { return items.filter(Boolean).length ? `<ul class="report-list">${items.filter(Boolean).map(item=>`<li>${safe(item)}</li>`).join("")}</ul>` : reportEmpty("暂无内容"); }
+function reportEmpty(text) { return `<p class="report-empty">${safe(text)}</p>`; }
+
+function exportWordReport() {
+  if (!reportCustomer) return;
+  const styles = `body{font-family:Arial,'Microsoft YaHei',sans-serif;color:#162033;line-height:1.6;margin:36px}.report-cover{padding:40px 0;border-bottom:3px solid #2864dc}.report-cover h1{font-size:34px}.report-section{margin:32px 0}.report-section-title{display:flex;gap:12px;align-items:center;border-bottom:1px solid #ccd5e3}.report-section-title span{color:#2864dc;font-weight:bold}.report-data-grid,.report-summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.report-field{border:1px solid #dce2ea;padding:12px}.report-field span{color:#69758a;font-size:12px}.report-table{width:100%;border-collapse:collapse}.report-table th,.report-table td{border:1px solid #dce2ea;padding:8px;text-align:left}.report-two-col{display:grid;grid-template-columns:1fr 1fr;gap:24px}.report-footer{margin-top:50px;border-top:1px solid #dce2ea;padding-top:16px;color:#69758a}`;
+  const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${styles}</style></head><body>${$("#reportDocument").innerHTML}</body></html>`;
+  const blob = new Blob(["\ufeff", doc], { type: "application/msword" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a"); link.href=url; link.download=`${reportCustomer.name}_客户全景报告_${todayStr()}.doc`; link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000); toast("Word 报告已导出");
+}
+
+// ---------- 数据计算 ----------
+function getCustomer(id) { return customers.find(customer => customer.id === id); }
+function getTasks(onlyCustomer) {
+  const scope = onlyCustomer ? [onlyCustomer] : customers;
   const today = todayStr();
-  let todoCount = 0, overdueCount = 0;
-  customers.forEach(c => (c.notes||[]).forEach(n => { if (n.next && n.nextDate) { todoCount++; if (n.nextDate < today) overdueCount++; } }));
-
-  // ===== 工作推进节奏：基于全部客户的跟进记录（note.date）做时间维度统计 =====
-  const pace = computePace();
-
-  $("#dashboard").innerHTML = `
-    <div class="dash-head">销售数据看板<button class="btn-ghost sm" id="closeDash">返回</button></div>
-    <div class="dash-cards">
-      <div class="dash-card"><div class="dc-num">${total}</div><div class="dc-lbl">客户总数</div></div>
-      <div class="dash-card"><div class="dc-num">${active}</div><div class="dc-lbl">跟进中</div></div>
-      <div class="dash-card"><div class="dc-num">${todoCount}</div><div class="dc-lbl">待办跟进</div></div>
-      <div class="dash-card ${overdueCount?'warn':''}"><div class="dc-num">${overdueCount}</div><div class="dc-lbl">已逾期</div></div>
-    </div>
-
-    <!-- 工作推进节奏 · 时间维度汇总卡 -->
-    <div class="dash-section-title">📈 我的工作推进节奏<span class="dss-sub">基于全部客户的跟进记录汇总</span></div>
-    <div class="dash-cards pace-cards">
-      <div class="dash-card pace-card">
-        <div class="dc-num">${pace.thisWeek}<span class="pc-unit">次</span></div>
-        <div class="dc-lbl">本周跟进${paceDelta(pace.thisWeek, pace.lastWeek)}</div>
-      </div>
-      <div class="dash-card pace-card">
-        <div class="dc-num">${pace.thisMonth}<span class="pc-unit">次</span></div>
-        <div class="dc-lbl">本月跟进${paceDelta(pace.thisMonth, pace.lastMonth)}</div>
-      </div>
-      <div class="dash-card pace-card">
-        <div class="dc-num">${pace.touchedThisWeek}<span class="pc-unit">家</span></div>
-        <div class="dc-lbl">本周触达客户</div>
-      </div>
-      <div class="dash-card pace-card">
-        <div class="dc-num">${pace.weekAvg}<span class="pc-unit">次</span></div>
-        <div class="dc-lbl">近8周周均</div>
-      </div>
-    </div>
-
-    <div class="grid-2">
-      <!-- 近 8 周跟进量趋势 -->
-      <div class="card"><div class="card-title">近 8 周跟进量趋势<span class="card-tag-soft">看节奏起伏</span></div>
-        <div class="trend-chart">
-          ${pace.weeks.map(w => `
-            <div class="tc-col" title="${w.label}：${w.n} 次跟进">
-              <div class="tc-bar-wrap">
-                <div class="tc-bar ${w.isCurrent?'cur':''}" style="height:${w.n/pace.weekMax*100}%"></div>
-              </div>
-              <div class="tc-n">${w.n||''}</div>
-              <div class="tc-lbl">${w.short}</div>
-            </div>`).join("")}
-        </div>
-        <div class="dash-tip">${pace.trendTip}</div>
-      </div>
-
-      <!-- 沟通方式分布 -->
-      <div class="card"><div class="card-title">沟通方式分布<span class="card-tag-soft">你的触达结构</span></div>
-        ${pace.methodTotal ? `<div class="method-dist">
-          ${pace.methods.map(m => `<div class="md-row">
-            <div class="md-lbl"><span class="md-ic" style="color:${m.color}">${m.icon}</span>${esc(m.label)}</div>
-            <div class="md-bar-wrap"><div class="md-bar" style="width:${m.n/pace.methodMax*100}%;background:${m.color}"></div></div>
-            <div class="md-n">${m.n}<span class="md-pct">${Math.round(m.n/pace.methodTotal*100)}%</span></div>
-          </div>`).join("")}
-        </div>` : `<div class="dash-empty">暂无跟进记录，去客户页添加第一条跟进吧。</div>`}
-      </div>
-    </div>
-
-    <!-- 待办日历热力（未来 14 天） -->
-    <div class="card"><div class="card-title">待办日历热力<span class="card-tag-soft">未来 14 天 · 提前看忙闲</span></div>
-      <div class="todo-heat">
-        ${pace.todoDays.map(d => `<div class="th-cell l${d.level} ${d.isToday?'today':''} ${d.overdue?'overdue':''}" title="${d.label}：${d.n} 项待办">
-          <div class="th-date">${d.dd}</div>
-          <div class="th-dot">${d.n||''}</div>
-          <div class="th-wd">${d.wd}</div>
-        </div>`).join("")}
-      </div>
-      <div class="dash-tip">${pace.todoTip}</div>
-    </div>
-
-    <div class="dash-section-title">👥 客户结构</div>
-    <div class="grid-2">
-      <div class="card"><div class="card-title">推进阶段分布</div>
-        <div class="dash-bars">${byStage.map(s => `<div class="db-row"><div class="db-lbl">${s.label}</div><div class="db-bar-wrap"><div class="db-bar" style="width:${s.n/maxStage*100}%;background:${s.color}"></div></div><div class="db-n">${s.n}</div></div>`).join("")}</div>
-      </div>
-      <div class="card"><div class="card-title">重点等级分布</div>
-        <div class="dash-grades">${byGrade.map(x => `<div class="dg-item" style="--gc:${x.color}"><div class="dg-g" style="color:${x.color}">${x.key}</div><div class="dg-n">${x.n}</div><div class="dg-l">${esc(x.label.split("·")[1]?x.label.split("·")[1].trim():x.label)}</div></div>`).join("")}</div>
-        <div class="dash-tip">把资源优先压在 S / A 级客户上，B / C 级保持低频触达。抓高价值、不平均用力。</div>
-      </div>
-    </div>`;
-  $("#closeDash").onclick = toggleDashboard;
-}
-
-// 环比小标签（次数对比上一周期）
-function paceDelta(cur, prev) {
-  if (prev === 0 && cur === 0) return '';
-  if (prev === 0) return ` <span class="pc-delta up">新增</span>`;
-  const diff = cur - prev;
-  if (diff === 0) return ` <span class="pc-delta flat">持平</span>`;
-  const pct = Math.round(Math.abs(diff) / prev * 100);
-  return diff > 0
-    ? ` <span class="pc-delta up">↑${pct}%</span>`
-    : ` <span class="pc-delta down">↓${pct}%</span>`;
-}
-
-// ---- 时间维度统计核心：把所有客户的 notes 按时间聚合 ----
-function computePace() {
-  // 收集全部跟进记录（含所属客户），date 形如 "2026-06-20 14:30"
-  const allNotes = [];
-  customers.forEach(c => (c.notes || []).forEach(n => {
-    if (n.date) allNotes.push({ ...n, _cust: c.id });
+  return scope.flatMap(customer => customer.notes.filter(note => note.next && note.nextDate).map(note => {
+    const diff = dateDiff(today, note.nextDate);
+    return { customer, note, text: note.next, date: note.nextDate, done: Boolean(note.taskDone), overdue: !note.taskDone && note.nextDate < today, today: !note.taskDone && note.nextDate === today, days: diff };
   }));
+}
+function getNextTask(customer) { return getTasks(customer).filter(t=>!t.done).sort(taskPriority)[0] || null; }
+function taskPriority(a,b) { if(a.done!==b.done)return a.done?1:-1; const grade={S:0,A:1,B:2,C:3}; if(a.overdue!==b.overdue)return a.overdue?-1:1; if(a.date!==b.date)return String(a.date).localeCompare(String(b.date)); return grade[a.customer.grade]-grade[b.customer.grade]; }
+function completeTask(customerId,noteId) { const c=getCustomer(customerId), note=c?.notes.find(n=>n.id===noteId); if(!note)return; note.taskDone=true; note.completedAt=nowDateTime(); persist(); renderApp(); toast("已完成，历史记录已保留"); }
+function getNotesThisWeek() { const start=new Date(); const day=(start.getDay()+6)%7; start.setDate(start.getDate()-day); start.setHours(0,0,0,0); return customers.flatMap(c=>c.notes).filter(n=>parseDate(n.date)>=start); }
+function lastActivityDate(customer) { return [...customer.notes].map(n=>n.date).filter(Boolean).sort().at(-1) || customer.stageHistory?.at(-1)?.date || todayStr(); }
+function profileCompleteness(customer) { const fieldCount=FIELD_DEFS.filter(d=>customer.fields[d.key]?.v?.trim()).length; const total=FIELD_DEFS.length+4; const bonus=[customer.notes.length,customer.orgChain.length,customer.painPoints.length,customer.assets.length].filter(Boolean).length; return Math.round((fieldCount+bonus)/total*100); }
+function stageIndex(stage) { return CRM_STAGES.filter(s=>s.key!=="lost").findIndex(s=>s.key===stage); }
+function stageLabel(stage) { return CRM_STAGES.find(s=>s.key===stage)?.label || "未设置"; }
+function assetTypeLabel(type) { return ASSET_TYPES.find(t=>t.key===type)?.label || "其他附件"; }
+function customerColor(index) { return ["#2864dc","#7357d9","#0f9f78","#dc6754","#d28b21"][index%5]; }
+function avatar(customer,size="") { return `<span class="customer-avatar ${size}" style="--avatar:${safe(customer.color||"#2864dc")}">${safe(customer.logo||customer.name?.[0]||"客")}</span>`; }
+function dateDiff(from,to) { const a=parseDate(from),b=parseDate(to); return Math.round((b-a)/86400000); }
+function daysSince(date) { const d=parseDate(date); return d ? Math.max(0,Math.floor((new Date()-d)/86400000)) : 0; }
+function parseDate(value) { if(!value)return null; const normalized=String(value).replace(" ","T"); const d=new Date(normalized); return Number.isNaN(d.getTime())?null:d; }
+function formatShortDate(value) { const d=parseDate(value); if(!d)return "未排期"; return `${d.getMonth()+1}月${d.getDate()}日`; }
+function formatDateTime(value) { const d=parseDate(value); if(!d)return safe(value||""); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; }
+function formatLongDate(date) { return `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日 · 星期${"日一二三四五六"[date.getDay()]}`; }
+function formatRelative(value) { const days=daysSince(value); if(days===0)return "今天"; if(days===1)return "昨天"; if(days<30)return `${days} 天前`; return formatShortDate(value); }
+function toLocalInput(date) { const p=n=>String(n).padStart(2,"0"); return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`; }
+function normalizeDateInput(value) { return String(value||"").replace("T"," ") || nowDateTime(); }
+function extractDate(text) { const iso=text.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/); if(iso)return `${iso[1]}-${String(iso[2]).padStart(2,"0")}-${String(iso[3]).padStart(2,"0")}`; const md=text.match(/(\d{1,2})月(\d{1,2})[日号]?/); if(md)return `${new Date().getFullYear()}-${String(md[1]).padStart(2,"0")}-${String(md[2]).padStart(2,"0")}`; return ""; }
 
-  const now = new Date();
-  const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  // 周一为一周起点
-  const weekStart = (d) => {
-    const x = startOfDay(d);
-    const wd = (x.getDay() + 6) % 7; // 周一=0
-    x.setDate(x.getDate() - wd);
-    return x;
-  };
-  const parseDate = s => {
-    const p = String(s).slice(0, 10).split("-");
-    return p.length === 3 ? new Date(+p[0], +p[1]-1, +p[2]) : null;
-  };
-
-  const curWeekStart = weekStart(now);
-  const lastWeekStart = new Date(curWeekStart); lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-  const curMonth = now.getMonth(), curYear = now.getFullYear();
-  const lastMonthDate = new Date(curYear, curMonth - 1, 1);
-
-  let thisWeek = 0, lastWeek = 0, thisMonth = 0, lastMonth = 0;
-  const touchedSet = new Set();
-  allNotes.forEach(n => {
-    const d = parseDate(n.date); if (!d) return;
-    if (d >= curWeekStart) { thisWeek++; touchedSet.add(n._cust); }
-    else if (d >= lastWeekStart && d < curWeekStart) lastWeek++;
-    if (d.getFullYear() === curYear && d.getMonth() === curMonth) thisMonth++;
-    else if (d.getFullYear() === lastMonthDate.getFullYear() && d.getMonth() === lastMonthDate.getMonth()) lastMonth++;
+// ---------- 通用 UI ----------
+function methodIconName(method) {
+  return ({ phone:"phone", wechat:"message-circle", email:"mail", visit:"map-pin", meeting:"presentation", other:"notebook-pen" })[method] || "message-square";
+}
+function refreshIcons() {
+  if (!window.lucide?.createIcons) return;
+  requestAnimationFrame(() => window.lucide.createIcons({ attrs: { "stroke-width": 1.8 } }));
+}
+function toggleChoiceMenu(trigger) {
+  const control = trigger.closest(".choice-control");
+  const opening = !control.classList.contains("open");
+  closeChoiceMenus(control);
+  control.classList.toggle("open", opening);
+  trigger.setAttribute("aria-expanded", String(opening));
+}
+function closeChoiceMenus(except) {
+  $$(".choice-control.open").forEach(control => {
+    if (control === except) return;
+    control.classList.remove("open");
+    control.querySelector(".choice-trigger")?.setAttribute("aria-expanded", "false");
   });
-
-  // 近 8 周柱状
-  const weeks = [];
-  for (let i = 7; i >= 0; i--) {
-    const ws = new Date(curWeekStart); ws.setDate(ws.getDate() - i * 7);
-    const we = new Date(ws); we.setDate(we.getDate() + 7);
-    const n = allNotes.filter(x => { const d = parseDate(x.date); return d && d >= ws && d < we; }).length;
-    weeks.push({
-      n,
-      isCurrent: i === 0,
-      label: `${ws.getMonth()+1}/${ws.getDate()} 当周`,
-      short: i === 0 ? "本周" : `${ws.getMonth()+1}/${ws.getDate()}`,
-    });
-  }
-  const weekMax = Math.max(1, ...weeks.map(w => w.n));
-  const week8Total = weeks.reduce((s, w) => s + w.n, 0);
-  const weekAvg = Math.round(week8Total / 8 * 10) / 10;
-
-  // 趋势提示
-  let trendTip;
-  if (week8Total === 0) trendTip = "近 8 周还没有跟进记录，先动起来 —— 保持稳定的触达节奏是转化的前提。";
-  else if (thisWeek === 0) trendTip = "本周还没有跟进动作，别让节奏断档，安排一两次触达把势头接上。";
-  else if (thisWeek >= weekAvg) trendTip = `本周 ${thisWeek} 次，达到或高于周均 ${weekAvg} 次，节奏保持得不错，继续。`;
-  else trendTip = `本周 ${thisWeek} 次，低于周均 ${weekAvg} 次，留意别让跟进强度掉下来。`;
-
-  // 沟通方式分布
-  const methodCount = {};
-  allNotes.forEach(n => { methodCount[n.method] = (methodCount[n.method] || 0) + 1; });
-  const methods = CONTACT_METHODS
-    .map(m => ({ ...m, n: methodCount[m.key] || 0 }))
-    .filter(m => m.n > 0)
-    .sort((a, b) => b.n - a.n);
-  const methodTotal = methods.reduce((s, m) => s + m.n, 0);
-  const methodMax = Math.max(1, ...methods.map(m => m.n));
-
-  // 待办日历热力：未来 14 天，按 nextDate 聚合
-  const todoByDate = {};
-  customers.forEach(c => (c.notes || []).forEach(n => {
-    if (n.next && n.nextDate) todoByDate[n.nextDate] = (todoByDate[n.nextDate] || 0) + 1;
-  }));
-  const WD = ["日","一","二","三","四","五","六"];
-  const todoDays = [];
-  const today0 = startOfDay(now);
-  for (let i = 0; i < 14; i++) {
-    const d = new Date(today0); d.setDate(d.getDate() + i);
-    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    const n = todoByDate[key] || 0;
-    const level = n === 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : 3;
-    todoDays.push({
-      n, level, dd: d.getDate(), wd: WD[d.getDay()],
-      isToday: i === 0,
-      overdue: false,
-      label: `${d.getMonth()+1}/${d.getDate()}`,
-    });
-  }
-  const next14Total = todoDays.reduce((s, d) => s + d.n, 0);
-  const busiest = todoDays.reduce((a, b) => b.n > a.n ? b : a, todoDays[0]);
-  let todoTip;
-  if (next14Total === 0) todoTip = "未来两周暂无已排期的待办，记得在跟进记录里设置「下一步 + 提醒日期」，别靠脑子记。";
-  else todoTip = `未来两周共 ${next14Total} 项待办，最忙是 ${busiest.label}（${busiest.n} 项），提前把重点客户的准备工作排上。`;
-
-  return {
-    thisWeek, lastWeek, thisMonth, lastMonth,
-    touchedThisWeek: touchedSet.size,
-    weeks, weekMax, weekAvg, trendTip,
-    methods, methodTotal, methodMax,
-    todoDays, todoTip,
-  };
 }
-
-// ===================================================================
-// Tab / 弹窗
-// ===================================================================
-function switchTab(tab) {
-  $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
-  $$(".tab-pane").forEach(p => p.classList.toggle("active", p.dataset.pane === tab));
-}
-
-function confirmModal(text, onOk) {
-  const m = $("#modal");
-  m.classList.remove("hidden");
-  $("#modalBox").innerHTML = `
-    <div class="modal-title">请确认</div>
-    <div class="modal-text">${esc(text)}</div>
-    <div class="modal-actions">
-      <button class="btn-ghost" id="mCancel">取消</button>
-      <button class="btn-danger" id="mOk">确定</button>
-    </div>`;
-  $("#mCancel").onclick = () => m.classList.add("hidden");
-  $(".modal-mask").onclick = () => m.classList.add("hidden");
-  $("#mOk").onclick = () => { m.classList.add("hidden"); onOk && onOk(); };
-}
+function toggleTheme() { const next=document.documentElement.dataset.theme==="dark"?"light":"dark"; document.documentElement.dataset.theme=next; localStorage.setItem(THEME_KEY,next); }
+function showModal(content) { $("#modalPanel").innerHTML=content; $("#modalLayer").classList.remove("hidden"); document.body.classList.add("modal-open"); refreshIcons(); requestAnimationFrame(()=>$("#modalPanel input[autofocus]")?.focus()); }
+function closeModal() { $("#modalLayer").classList.add("hidden"); document.body.classList.remove("modal-open"); }
+function toast(message) { const el=$("#toast"); clearTimeout(toastTimer); el.textContent=message; el.classList.remove("hidden"); toastTimer=setTimeout(()=>el.classList.add("hidden"),2600); }
+function emptyState(title,copy) { return `<div class="empty-state"><span>·</span><b>${safe(title)}</b><p>${safe(copy)}</p></div>`; }

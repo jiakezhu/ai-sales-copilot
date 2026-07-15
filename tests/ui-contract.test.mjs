@@ -55,3 +55,13 @@ test("application shell preserves every runtime hook consumed by app.js", () => 
     assert.match(html, new RegExp(`id=["']${id}["']`), `missing runtime hook #${id}`);
   }
 });
+
+test("Today page is ordered as AI, actions, then customer signals", () => {
+  const js = read("app.js");
+  const ai = js.indexOf('class="ai-assistant-card"');
+  const actions = js.indexOf('class="today-action-list"');
+  const signals = js.indexOf('class="account-signal-list"');
+  assert.ok(ai > 0 && actions > ai && signals > actions);
+  assert.match(js, /告诉小企刚刚发生了什么/);
+  assert.doesNotMatch(js, /class="metric-strip"/);
+});
