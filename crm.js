@@ -244,7 +244,7 @@ const AssetEngine = {
         url = (tmp && tmp.fileList && tmp.fileList[0] && tmp.fileList[0].tempFileURL) || "";
       } catch (e) {}
       return {
-        dataUrl: url, fileID, isImage: this.isImage(file),
+        dataUrl: url, fileID, cloudPath, isImage: this.isImage(file),
         name: file.name, size: file.size, mime: file.type,
       };
     } catch (e) {
@@ -297,6 +297,10 @@ const AssetEngine = {
       type,                 // card | chat | photo | file
       name: meta.name || "未命名",
       dataUrl: meta.dataUrl || "",
+      fileID: meta.fileID || meta.fileId || meta.cloudFileID || "",
+      cloudPath: meta.cloudPath || meta.cloudRef || meta.storagePath || "",
+      fileUrl: meta.fileUrl || "",
+      url: meta.url || "",
       isImage: !!meta.isImage,
       mime: meta.mime || "",
       size: meta.size || 0,

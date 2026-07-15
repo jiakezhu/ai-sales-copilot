@@ -487,6 +487,8 @@ function renderIntelligence(customer) {
 
 function evidenceOpenTarget(asset) {
   const url = String(asset?.dataUrl || asset?.fileUrl || asset?.url || "").trim();
+  const cloudRef = String(asset?.fileID || asset?.fileId || asset?.cloudFileID || asset?.cloudPath || asset?.cloudRef || asset?.storagePath || (/^cloud:\/\//i.test(url) ? url : "")).trim();
+  if (cloudRef) return { kind: "cloud", url: cloudRef };
   if (/^https?:\/\/[^\s<>"']+$/i.test(url)) {
     const image = Boolean(asset?.isImage) || /\.(?:png|jpe?g|gif|webp)(?:[?#]|$)/i.test(url);
     return { kind: image ? "preview" : "open", url };
@@ -494,8 +496,6 @@ function evidenceOpenTarget(asset) {
   if (/^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/=\s]+$/i.test(url)) return { kind: "preview", url };
   if (trustedEvidenceBlobUrls.has(url) && /^blob:https?:\/\/[^\s<>"']+$/i.test(url)) return { kind: "preview", url };
   if (url) return { kind: "unsafe", url: "" };
-  const cloudRef = String(asset?.fileID || asset?.cloudPath || "").trim();
-  if (cloudRef) return { kind: "cloud", url: cloudRef };
   return { kind: "unavailable", url: "" };
 }
 

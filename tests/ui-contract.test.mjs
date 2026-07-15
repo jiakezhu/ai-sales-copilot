@@ -159,6 +159,19 @@ function loadEvidenceOpenApi({ cloudEnabled = false, getTempFileURL } = {}) {
   return { api: context.__evidenceApi, opened, toastMessages };
 }
 
+function loadAssetEngineApi({ uploadFile, getTempFileURL }) {
+  const sandbox = {
+    console,
+    CLOUD_ENABLED: true,
+    CLOUDBASE_CONFIG: { STORAGE_DIR: "evidence" },
+    CloudAuth: { _uid() { return "user-1"; }, app: { uploadFile, getTempFileURL } },
+    CONTACT_METHODS: [{ key: "other" }], GRADES: [],
+    setTimeout, clearTimeout,
+  };
+  vm.runInNewContext(`${read("crm.js")}\n;globalThis.__assetEngine = AssetEngine;`, sandbox);
+  return sandbox.__assetEngine;
+}
+
 function reportSection(html, title) {
   return html.match(new RegExp(`<section[^>]*>\\s*<div class="report-section-title"><h2>${title}</h2></div>[\\s\\S]*?</section>`))?.[0] || "";
 }
@@ -1105,6 +1118,43 @@ test("cloud evidence resolves to a temporary https URL and reports unavailable f
   await failure.api.openEvidenceAsset("c1", "cloud");
   assert.deepEqual(failure.opened, []);
   assert.match(failure.toastMessages.at(-1), /云端材料暂时无法打开/);
+});
+
+test("cloud upload metadata survives makeAsset and always refreshes before evidence open", async () => {
+  const uploadTempCalls = [];
+  const engine = loadAssetEngineApi({
+    uploadFile: async ({ cloudPath }) => ({ fileID: "cloud://bucket/uploaded.pdf", cloudPath }),
+    getTempFileURL: async ({ fileList }) => {
+      uploadTempCalls.push(...fileList);
+      return { fileList: [{ tempFileURL: "https://expired.example.com/uploaded.pdf" }] };
+    },
+  });
+  const meta = await engine._uploadToCloud({ name: "uploaded.pdf", size: 42, type: "application/pdf" });
+  const asset = engine.makeAsset("file", meta, { caption: "云端证据" });
+  assert.equal(asset.fileID, "cloud://bucket/uploaded.pdf");
+  assert.match(asset.cloudPath, /^evidence\/user-1\//);
+  assert.equal(asset.dataUrl, "https://expired.example.com/uploaded.pdf");
+
+  const refreshCalls = [];
+  const harness = loadEvidenceOpenApi({ cloudEnabled: true, getTempFileURL: async ({ fileList }) => {
+    refreshCalls.push(...fileList);
+    return { fileList: [{ tempFileURL: "https://fresh.example.com/uploaded.pdf" }] };
+  } });
+  harness.api.setCustomers([{ id: "c1", assets: [{ ...asset, id: "a1" }] }]);
+  await harness.api.openEvidenceAsset("c1", "a1");
+  assert.deepEqual(refreshCalls, ["cloud://bucket/uploaded.pdf"]);
+  assert.deepEqual(harness.opened, ["https://fresh.example.com/uploaded.pdf"]);
+  assert.equal(harness.opened.includes("https://expired.example.com/uploaded.pdf"), false);
+
+  const cloudPathAsset = engine.makeAsset("file", { cloudPath: "evidence/user-1/path-only.pdf", dataUrl: "https://expired.example.com/path.pdf", name: "path.pdf" });
+  assert.equal(cloudPathAsset.cloudPath, "evidence/user-1/path-only.pdf");
+  assert.equal(harness.api.evidenceOpenTarget(cloudPathAsset).kind, "cloud");
+  harness.api.setCustomers([{ id: "c1", assets: [{ ...cloudPathAsset, id: "path" }] }]);
+  await harness.api.openEvidenceAsset("c1", "path");
+  assert.deepEqual(refreshCalls, ["cloud://bucket/uploaded.pdf", "evidence/user-1/path-only.pdf"]);
+  assert.deepEqual(harness.opened, ["https://fresh.example.com/uploaded.pdf", "https://fresh.example.com/uploaded.pdf"]);
+  assert.equal(harness.api.evidenceOpenTarget({ id: "old", dataUrl: "https://legacy.example.com/local.pdf" }).kind, "open");
+  assert.equal(harness.api.evidenceOpenTarget({ id: "local", name: "local.pdf", size: 10 }).kind, "unavailable");
 });
 
 test("final UI contract restores linear CRUD actions, complete evidence, and pinned Lucide SRI", () => {
