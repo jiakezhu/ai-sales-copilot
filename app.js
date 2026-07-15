@@ -785,6 +785,7 @@ function updateIntelField(target) { const customer=getCustomer(target.dataset.cu
 // ---------- 全景报告 ----------
 const WORD_REPORT_STYLES = `
   @page { size: A4; margin: 18mm 17mm; }
+  * { box-sizing: border-box; }
   body { margin: 0; color: #172b4d; font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; font-size: 10.5pt; line-height: 1.65; widows: 2; orphans: 2; }
   .report-heading { padding-bottom: 18pt; border-bottom: 2.25pt solid #0052d9; }
   .report-heading > p { margin: 0; color: #0052d9; font-size: 9pt; font-weight: 700; letter-spacing: 1pt; }
@@ -805,10 +806,6 @@ const WORD_REPORT_STYLES = `
   .report-progress b { font-size: 9.5pt; }
   .report-progress p { margin: 3pt 0; }
   .report-progress small { color: #0052d9; font-size: 8.5pt; }
-  table { width: 100%; border-collapse: collapse; page-break-inside: avoid; }
-  th, td { padding: 6pt; border: .75pt solid #dfe3e8; text-align: left; vertical-align: top; }
-  th { background: #f3f6f9; }
-  .page-break { page-break-before: always; }
 `;
 
 function openReport(customerId) {

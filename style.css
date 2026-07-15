@@ -292,9 +292,6 @@ h3 { font-size:14px; }
 .report-progress b{font-size:11px}
 .report-progress p{margin:4px 0;font-size:11px;line-height:1.6}
 .report-progress small{color:#0052d9;font-size:10px}
-.report-document table{width:100%;border-collapse:collapse;font-size:11px;break-inside:avoid-page}
-.report-document th,.report-document td{padding:9px;border:1px solid #dfe3e8;text-align:left;vertical-align:top}
-.report-document th{background:#f3f6f9}
 
 
 /* Responsive */
@@ -367,8 +364,7 @@ h3 { font-size:14px; }
   .no-print { display:none!important; }
   .report-document { width:100%!important;min-height:0!important;margin:0!important;padding:0!important;box-shadow:none!important; }
   .report-heading,.report-section-title { break-after:avoid-page; }
-  .report-field,.report-progress article,.report-document li,.report-document table { break-inside:avoid-page; }
-  .report-section.page-break { break-before:page; }
+  .report-field,.report-progress article,.report-document li { break-inside:avoid-page; }
 }
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.001ms!important;transition-duration:.001ms!important}.ai-assistant-card.assistant-listening .qq-penguin--assistant{animation:none}}

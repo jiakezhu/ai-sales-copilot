@@ -297,7 +297,7 @@
       + section("客户基本信息与情报", profile)
       + section("组织与关键关系", organization)
       + section("痛点、竞品与匹配方案", market)
-      + section("全流程客户推进记录", progress, "page-break")
+      + section("全流程客户推进记录", progress)
       + section("当前未完成行动", pending)
       + section("阶段历史、目标与攻坚计划", execution)
       + section("材料与证据索引", evidence);

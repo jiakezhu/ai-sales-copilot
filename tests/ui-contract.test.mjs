@@ -579,6 +579,18 @@ test("report markup exposes one professional hierarchy without legacy decoration
   assert.doesNotMatch(report, /report-cover|report-brand|report-empty|report-footer/);
 });
 
+test("a minimal report flows naturally without forcing progress onto a new page", () => {
+  const report = ReportBuilder.build({
+    name: "客户辛",
+    notes: [{ date: "2026-07-16", method: "phone", content: "确认需求" }],
+  }, reportContext);
+
+  assert.match(report, /全流程客户推进记录/);
+  assert.doesNotMatch(report, /page-break/);
+  assert.doesNotMatch(read("style.css"), /\.report-section\.page-break|break-before:\s*page/i);
+  assert.doesNotMatch(read("app.js").match(/const WORD_REPORT_STYLES = `([\s\S]*?)`;/)?.[1] || "", /page-break-before:\s*always/i);
+});
+
 test("report styles are content-first, A4 printable, dark-safe, and mobile readable", () => {
   const css = read("style.css");
 
@@ -613,8 +625,16 @@ test("Word export mirrors the preview hierarchy with professional Chinese pagina
   assert.match(styles, /font-size:\s*10\.5pt/);
   assert.match(styles, /line-height:\s*1\.65/);
   assert.match(styles, /widows:\s*2;\s*orphans:\s*2/);
+  assert.match(styles, /\*\s*\{[^}]*box-sizing:\s*border-box/i);
   assert.match(styles, /\.report-heading[\s\S]*\.report-field-grid[\s\S]*\.report-progress/);
   assert.match(styles, /page-break-inside:\s*avoid/);
+});
+
+test("report styles do not carry table rules when the builder emits no tables", () => {
+  assert.doesNotMatch(read("report.js"), /<table\b/i);
+  assert.doesNotMatch(read("style.css"), /\.report-document\s+table|\.report-document\s+th|\.report-document\s+td/i);
+  const wordStyles = read("app.js").match(/const WORD_REPORT_STYLES = `([\s\S]*?)`;/)?.[1] || "";
+  assert.doesNotMatch(wordStyles, /(?:^|\n)\s*table\s*\{|(?:^|\n)\s*th\s*,\s*td\s*\{/i);
 });
 
 test("report filters only standalone placeholder sentinels and preserves real statements", () => {
