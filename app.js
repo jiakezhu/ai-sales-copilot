@@ -88,13 +88,14 @@ function bindAppEvents() {
     if (event.key === "Escape") {
       closeModal();
       closeReport();
+      closeRowMenus();
     }
   });
 }
 
 async function handleAction(event) {
   const trigger = event.target.closest("[data-action]");
-  if (!trigger) { closeChoiceMenus(); return; }
+  if (!trigger) { closeChoiceMenus(); closeRowMenus(); return; }
   const action = trigger.dataset.action;
 
   if (action === "nav") return navigate(trigger.dataset.page);
@@ -122,6 +123,7 @@ async function handleAction(event) {
   if (action === "remove-pain") return removePain(trigger.dataset.customer, Number(trigger.dataset.index));
   if (action === "remove-contact") return removeContact(trigger.dataset.customer, trigger.dataset.contact);
   if (action === "toggle-choice") return toggleChoiceMenu(trigger);
+  if (action === "toggle-row-menu") return closeRowMenus(trigger.closest("details"));
   if (action === "set-stage") { closeChoiceMenus(); return updateCustomerStage(trigger.dataset.customer, trigger.dataset.value); }
   if (action === "set-grade") { closeChoiceMenus(); return updateCustomerGrade(trigger.dataset.customer, trigger.dataset.value); }
   if (action === "filter-stage") { state.stageFilter = trigger.dataset.value; return renderApp(); }
@@ -293,7 +295,7 @@ function renderCustomers() {
       <div class="stage-filter-chips"><span>阶段</span><button class="${state.stageFilter === "all" ? "active" : ""}" data-action="filter-stage" data-value="all">全部</button>${CRM_STAGES.map(s => `<button class="${state.stageFilter === s.key ? "active" : ""}" data-action="filter-stage" data-value="${s.key}">${s.label}</button>`).join("")}</div>
       ${(state.query || state.stageFilter !== "all") ? `<button class="text-button" data-action="reset-filters">清除筛选</button>` : ""}
     </section>
-    <section class="customer-table panel">
+    <section class="td-panel customer-worktable">
       <div class="table-head"><span>客户</span><span>阶段</span><span>关键联系人</span><span>下一步</span><span>最近更新</span><span></span></div>
       <div class="table-body">${filtered.length ? filtered.map(renderCustomerRow).join("") : emptyState("没有匹配的客户", "换一个关键词或清除筛选。")}</div>
     </section>
@@ -305,11 +307,11 @@ function renderCustomerRow(customer) {
   const keyContact = customer.orgChain.find(p => /CEO|CTO|总监|负责人|VP/.test(p.role || "")) || customer.orgChain[0];
   return `<article class="customer-row">
     <button class="customer-cell identity-cell" data-action="open-customer" data-id="${customer.id}">${avatar(customer)}<span><b>${safe(customer.name)}</b><small>${safe(customer.fields.industry?.v || "行业未填写")} · ${customer.grade} 级</small></span></button>
-    <span><b class="stage-pill stage-${customer.stage}">${stageLabel(customer.stage)}</b></span>
-    <span class="muted-cell">${keyContact ? `<b>${safe(keyContact.name)}</b><small>${safe(keyContact.role)}</small>` : "待补充"}</span>
-    <span class="next-cell ${next?.overdue ? "danger-text" : ""}">${next ? `<b>${safe(next.text)}</b><small>${next.overdue ? "已逾期" : formatShortDate(next.date)}</small>` : "暂无待办"}</span>
-    <span class="muted-cell">${formatRelative(lastActivityDate(customer))}</span>
-    <span class="row-actions"><button class="report-mini" data-action="open-report" data-id="${customer.id}">${icon("file-text")} 生成报告</button><button class="arrow-button" data-action="open-customer" data-id="${customer.id}" aria-label="打开客户">${icon("chevron-right")}</button></span>
+    <span data-label="阶段"><b class="stage-pill stage-${customer.stage}">${stageLabel(customer.stage)}</b></span>
+    <span class="muted-cell" data-label="关键联系人">${keyContact ? `<b>${safe(keyContact.name)}</b><small>${safe(keyContact.role)}</small>` : "待补充"}</span>
+    <span class="next-cell ${next?.overdue ? "danger-text" : ""}" data-label="下一步">${next ? `<b>${safe(next.text)}</b><small>${next.overdue ? "已逾期" : formatShortDate(next.date)}</small>` : "暂无待办"}</span>
+    <span class="muted-cell" data-label="最近更新">${formatRelative(lastActivityDate(customer))}</span>
+    <span class="row-actions"><button class="report-mini" data-action="open-report" data-id="${customer.id}">${icon("file-text")} 生成报告</button><details class="row-more-actions"><summary data-action="toggle-row-menu" aria-label="更多客户操作">${icon("ellipsis")}</summary><button data-action="open-customer" data-id="${customer.id}">${icon("external-link")} 查看客户</button></details></span>
   </article>`;
 }
 
@@ -324,7 +326,7 @@ function openCustomer(id) {
 function switchCustomerTab(tab) {
   state.customerTab = tab;
   renderApp();
-  const anchor = $(".customer-tabs");
+  const anchor = $(".detail-section-nav");
   if (anchor && window.scrollY > anchor.offsetTop) anchor.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -336,17 +338,17 @@ function renderCustomerDetail(customer) {
   ];
   return `<div class="page customer-detail">
     <button class="back-link" data-action="back-customers">${icon("arrow-left")} 返回客户列表</button>
-    <section class="customer-hero">
+    <header class="customer-summary-header">
       <div class="customer-title-group">${avatar(customer, "large")}<div><div class="title-line"><h1>${safe(customer.name)}</h1><b class="grade-badge grade-${customer.grade}">${customer.grade}</b></div><p>${safe(customer.fields.industry?.v || "行业未填写")} · 最近更新 ${formatRelative(lastActivityDate(customer))}</p></div></div>
       <div class="customer-hero-actions"><button class="secondary-button" data-action="manual-entry" data-customer="${customer.id}">${icon("square-pen")} 手动记录</button><button class="report-button" data-action="open-report" data-id="${customer.id}"><span>${icon("file-text")}</span><b>生成全景报告</b><small>汇总全部客户信息</small></button></div>
-    </section>
+    </header>
     <section class="customer-control-bar">
       ${renderChoiceControl(customer, "stage")}
       <div class="stage-track">${CRM_STAGES.filter(s => s.key !== "lost").map((s, i) => `<span class="${stageIndex(customer.stage) >= i ? "done" : ""} ${customer.stage === s.key ? "current" : ""}"><i></i>${s.label}</span>`).join("")}</div>
       ${renderChoiceControl(customer, "grade")}
     </section>
     ${next ? `<section class="next-action-banner ${next.overdue ? "overdue" : ""}"><span class="next-icon">${icon("move-right")}</span><div><small>${next.overdue ? "当前最紧急 · 已逾期" : "下一步行动"}</small><b>${safe(next.text)}</b><p>${safe(next.note.contact || "未指定联系人")} · ${formatShortDate(next.date)}</p></div><button class="primary-button" data-action="complete-task" data-customer="${customer.id}" data-note="${next.note.id}">${icon("check")} 标记完成</button></section>` : ""}
-    <nav class="customer-tabs">${tabs.map(([key,label]) => `<button class="${state.customerTab === key ? "active" : ""}" data-action="customer-tab" data-tab="${key}">${label}</button>`).join("")}</nav>
+    <nav class="detail-section-nav" aria-label="客户档案分区">${tabs.map(([key,label]) => `<button class="${state.customerTab === key ? "active" : ""}" data-action="customer-tab" data-tab="${key}" aria-current="${state.customerTab === key ? "page" : "false"}">${label}</button>`).join("")}</nav>
     <section class="customer-tab-content">${renderCustomerTab(customer)}</section>
   </div>`;
 }
@@ -393,7 +395,7 @@ function renderOverview(customer) {
       ${customer.raidFile?.plan?.action ? `<div class="strategy-callout"><span>策略</span><p>${safe(customer.raidFile.plan.action)}</p></div>` : ""}
     </section>
     <section class="panel">
-      <div class="section-heading"><h2>关键关系</h2><button class="text-button" data-action="customer-tab" data-tab="relations">查看关系图 →</button></div>
+      <div class="section-heading"><h2>关键关系</h2><button class="text-button" data-action="customer-tab" data-tab="relations">查看关系图 ${icon("arrow-right")}</button></div>
       <div class="contact-stack">${contacts.length ? contacts.map(renderCompactContact).join("") : emptyState("还没有联系人", "先添加一个关键人。")}</div>
       <button class="soft-button full" data-action="add-contact" data-customer="${customer.id}">${icon("user-plus")} 添加联系人</button>
     </section>
@@ -402,7 +404,7 @@ function renderOverview(customer) {
       <div class="mini-timeline">${recent.length ? recent.map(note => renderMiniTimeline(note)).join("") : emptyState("还没有推进记录", "记录第一次沟通。")}</div>
     </section>
     <section class="panel">
-      <div class="section-heading"><h2>痛点与方案</h2><button class="text-button" data-action="customer-tab" data-tab="intel">编辑 →</button></div>
+      <div class="section-heading"><h2>痛点与方案</h2><button class="text-button" data-action="customer-tab" data-tab="intel">编辑 ${icon("arrow-right")}</button></div>
       <div class="tag-list">${customer.painPoints.slice(0,3).map(p => `<span>${safe(p.v)}</span>`).join("") || `<span class="empty-tag">待补充痛点</span>`}</div>
       <div class="solution-preview">${customer.solution.slice(0,2).map(s => `<article><b>${safe(s.product)}</b><small>${safe(s.reason)}</small></article>`).join("") || `<p class="muted">补充痛点后再匹配方案。</p>`}</div>
     </section>
@@ -434,7 +436,7 @@ function renderTimelineItem(customer, note) {
   return `<article class="timeline-item">
     <span class="timeline-marker" style="--dot:${method.color}">${icon(methodIconName(note.method))}</span>
     <div class="timeline-card"><div class="timeline-head"><span><b>${safe(method.label)}</b>${note.contact ? ` · ${safe(note.contact)}` : ""}</span><time>${formatDateTime(note.date)}</time></div><p>${safe(note.content)}</p>
-      ${note.next ? `<div class="timeline-next ${note.taskDone ? "done" : ""}"><span>${note.taskDone ? "✓ 已完成" : "→ 下一步"}</span><b>${safe(note.next)}</b><time>${formatShortDate(note.nextDate)}</time></div>` : ""}
+      ${note.next ? `<div class="timeline-next ${note.taskDone ? "done" : ""}"><span>${icon(note.taskDone ? "check" : "arrow-right")} ${note.taskDone ? "已完成" : "下一步"}</span><b>${safe(note.next)}</b><time>${formatShortDate(note.nextDate)}</time></div>` : ""}
       ${note.attachments?.length ? `<div class="attachment-row">${note.attachments.map(a => `<span>${icon("paperclip")} ${safe(a.name)}</span>`).join("")}</div>` : ""}
     </div>
   </article>`;
@@ -467,8 +469,8 @@ function renderIntelligence(customer) {
       <div class="intel-section"><div class="intel-section-title private"><span>私有</span><div><b>一线情报</b><small>来自真实沟通，是推进关键</small></div></div><div class="intel-form-grid single">${privateFields.map(def => intelField(customer, def, true)).join("")}</div></div>
     </section>
     <aside class="intel-side">
-      <section class="panel"><div class="section-heading"><h2>核心痛点</h2><button class="text-button" data-action="add-pain" data-customer="${customer.id}">＋ 添加</button></div><div class="editable-list">${customer.painPoints.length ? customer.painPoints.map((p,i) => `<article><span>${safe(p.v)}</span><button data-action="remove-pain" data-customer="${customer.id}" data-index="${i}" aria-label="删除痛点">×</button></article>`).join("") : emptyState("尚未记录痛点", "从沟通中持续补充。")}</div></section>
-      <section class="panel"><div class="section-heading"><h2>匹配方案</h2><button class="text-button" data-action="add-solution" data-customer="${customer.id}">＋ 添加</button></div><div class="solution-list">${customer.solution.length ? customer.solution.map(s => `<article><b>${safe(s.product)}</b><p>${safe(s.reason)}</p></article>`).join("") : emptyState("尚未匹配方案", "基于明确痛点再提供方案。")}</div></section>
+      <section class="panel"><div class="section-heading"><h2>核心痛点</h2><button class="text-button" data-action="add-pain" data-customer="${customer.id}">${icon("plus")} 添加</button></div><div class="editable-list">${customer.painPoints.length ? customer.painPoints.map((p,i) => `<article><span>${safe(p.v)}</span><button data-action="remove-pain" data-customer="${customer.id}" data-index="${i}" aria-label="删除痛点">${icon("x")}</button></article>`).join("") : emptyState("尚未记录痛点", "从沟通中持续补充。")}</div></section>
+      <section class="panel"><div class="section-heading"><h2>匹配方案</h2><button class="text-button" data-action="add-solution" data-customer="${customer.id}">${icon("plus")} 添加</button></div><div class="solution-list">${customer.solution.length ? customer.solution.map(s => `<article><b>${safe(s.product)}</b><p>${safe(s.reason)}</p></article>`).join("") : emptyState("尚未匹配方案", "基于明确痛点再提供方案。")}</div></section>
       <section class="panel"><div class="section-heading"><h2>证据材料</h2><span>${customer.assets.length}</span></div>${customer.assets.length ? `<div class="asset-list">${customer.assets.slice(0,5).map(a => `<article><span>${icon("file-check-2")}</span><div><b>${safe(a.name)}</b><small>${safe(assetTypeLabel(a.type))} · ${formatRelative(a.createdAt)}</small></div></article>`).join("")}</div>` : emptyState("还没有证据材料", "可在记录推进时上传文件。")}</section>
     </aside>
   </div>`;
@@ -486,25 +488,30 @@ function renderTasks() {
   return `<div class="page tasks-page">
     <section class="page-heading"><div><p class="eyebrow">ACTION CENTER</p><h1>待办</h1><p>所有客户的下一步行动集中管理，完成后保留历史。</p></div><button class="primary-button" data-action="manual-entry">${icon("plus")} 新建推进</button></section>
     <div class="task-summary"><span><b>${open.filter(t => t.overdue).length}</b> 已逾期</span><span><b>${open.filter(t => t.today).length}</b> 今天</span><span><b>${open.filter(t => !t.overdue && !t.today).length}</b> 即将开始</span></div>
-    <section class="panel task-board"><div class="section-heading"><h2>待处理</h2><span>${open.length}</span></div><div class="task-list">${open.length ? open.map(renderTaskRow).join("") : emptyState("没有待处理任务", "新的下一步行动会自动出现在这里。")}</div></section>
-    ${done.length ? `<section class="panel completed-board"><div class="section-heading"><h2>已完成</h2><span>${done.length}</span></div><div class="task-list completed">${done.slice(0,8).map(renderTaskRow).join("")}</div></section>` : ""}
+    <section class="td-panel task-worktable"><div class="section-heading"><h2>待处理</h2><span>${open.length}</span></div><div class="task-list">${open.length ? open.map(renderTaskRow).join("") : emptyState("没有待处理任务", "新的下一步行动会自动出现在这里。")}</div></section>
+    ${done.length ? `<section class="td-panel task-worktable completed-worktable"><div class="section-heading"><h2>已完成</h2><span>${done.length}</span></div><div class="task-list completed">${done.slice(0,8).map(renderTaskRow).join("")}</div></section>` : ""}
   </div>`;
 }
 
 function renderTaskRow(task) {
-  return `<article class="task-row ${task.done ? "done" : ""}"><button class="task-check ${task.done ? "checked" : ""}" ${task.done ? "disabled" : `data-action="complete-task" data-customer="${task.customer.id}" data-note="${task.note.id}"`} aria-label="${task.done ? "已完成" : "完成待办"}">${task.done ? "✓" : ""}</button><button class="task-content" data-action="open-customer" data-id="${task.customer.id}"><b>${safe(task.text)}</b><span>${safe(task.customer.name)} · ${safe(task.note.contact || "未指定联系人")}</span></button><b class="grade-dot grade-${task.customer.grade}">${task.customer.grade}</b><time class="${task.overdue && !task.done ? "danger-text" : ""}">${formatShortDate(task.date)}</time></article>`;
+  return `<article class="task-row ${task.done ? "done" : ""}"><button class="task-check ${task.done ? "checked" : ""}" ${task.done ? "disabled" : `data-action="complete-task" data-customer="${task.customer.id}" data-note="${task.note.id}"`} aria-label="${task.done ? "已完成" : "完成待办"}">${task.done ? icon("check") : ""}</button><button class="task-content" data-action="open-customer" data-id="${task.customer.id}"><b>${safe(task.text)}</b><span>${safe(task.customer.name)} · ${safe(task.note.contact || "未指定联系人")}</span></button><b class="grade-dot grade-${task.customer.grade}">${task.customer.grade}</b><time class="${task.overdue && !task.done ? "danger-text" : ""}">${formatShortDate(task.date)}</time></article>`;
 }
 
 function renderAnalytics() {
-  const allNotes = customers.flatMap(customer => customer.notes.map(note => ({ customer, note })));
-  const reached = customers.reduce((sum,c) => sum + Number(c.funnel?.reached || 0), 0);
-  const won = customers.reduce((sum,c) => sum + Number(c.funnel?.won || 0), 0);
-  const conversion = reached ? Math.round(won / reached * 1000) / 10 : 0;
   const maxStage = Math.max(1, ...CRM_STAGES.map(s => customers.filter(c => c.stage === s.key).length));
+  const stalledPriority = customers
+    .map(customer => ({ customer, days: daysSince(lastActivityDate(customer)) }))
+    .filter(item => item.days >= 14 && ["S", "A"].includes(item.customer.grade))
+    .sort((a, b) => b.days - a.days);
   return `<div class="page analytics-page">
     <section class="page-heading"><div><p class="eyebrow">PERFORMANCE</p><h1>分析</h1><p>看推进节奏和客户结构，不重复展示无行动价值的数据。</p></div></section>
-    <section class="metric-strip analytics-metrics">${metricCard("客户总数",customers.length,"全部在管客户","blue")}${metricCard("近 30 天跟进",allNotes.filter(x => daysSince(x.note.date) <= 30).length,"真实沟通记录","violet")}${metricCard("整体转化率",`${conversion}%`,"成交 ÷ 触达","green")}${metricCard("S/A 客户",customers.filter(c => ["S","A"].includes(c.grade)).length,"重点投入对象","red")}</section>
-    <div class="analytics-grid"><section class="panel"><div class="section-heading"><div><p class="eyebrow">PIPELINE</p><h2>推进阶段分布</h2></div></div><div class="bar-chart">${CRM_STAGES.map(stage => { const count=customers.filter(c=>c.stage===stage.key).length; return `<div><span>${stage.label}</span><i><b style="width:${count/maxStage*100}%;--bar:${stage.color}"></b></i><strong>${count}</strong></div>`; }).join("")}</div></section><section class="panel"><div class="section-heading"><div><p class="eyebrow">PRIORITY MIX</p><h2>客户优先级</h2></div></div><div class="grade-chart">${GRADES.map(g => `<article style="--grade:${g.color}"><b>${g.key}</b><strong>${customers.filter(c=>c.grade===g.key).length}</strong><small>${safe(g.label.split("·").at(-1).trim())}</small></article>`).join("")}</div></section></div>
+    <div class="analytics-workspace">
+      <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">PIPELINE</p><h2>推进阶段分布</h2></div></div><div class="bar-chart">${CRM_STAGES.map(stage => { const count=customers.filter(c=>c.stage===stage.key).length; return `<div><span>${stage.label}</span><i><b style="width:${count/maxStage*100}%;--bar:${stage.color}"></b></i><strong>${count}</strong></div>`; }).join("")}</div></section>
+      <div class="analytics-side">
+        <section class="td-panel stalled-customers"><div class="section-heading"><div><p class="eyebrow">FOLLOW-UP RISK</p><h2>停滞重点客户</h2></div><span>${stalledPriority.length}</span></div>${stalledPriority.length ? `<div class="stalled-list">${stalledPriority.map(item => `<button data-action="open-customer" data-id="${item.customer.id}">${avatar(item.customer)}<span><b>${safe(item.customer.name)}</b><small>${stageLabel(item.customer.stage)} · ${item.days} 天未更新</small></span>${icon("arrow-right")}</button>`).join("")}</div>` : emptyState("重点客户推进正常", "暂时没有超过两周未更新的 S/A 客户。")}</section>
+        <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">GRADE STRUCTURE</p><h2>客户等级结构</h2></div></div><div class="grade-chart">${GRADES.map(g => `<article style="--grade:${g.color}"><b>${g.key}</b><strong>${customers.filter(c=>c.grade===g.key).length}</strong><small>${safe(g.label.split("·").at(-1).trim())}</small></article>`).join("")}</div></section>
+      </div>
+    </div>
   </div>`;
 }
 
@@ -837,6 +844,11 @@ function closeChoiceMenus(except) {
     if (control === except) return;
     control.classList.remove("open");
     control.querySelector(".choice-trigger")?.setAttribute("aria-expanded", "false");
+  });
+}
+function closeRowMenus(except) {
+  $$(".row-more-actions[open]").forEach(menu => {
+    if (menu !== except) menu.removeAttribute("open");
   });
 }
 function toggleTheme() { const next=document.documentElement.dataset.theme==="dark"?"light":"dark"; document.documentElement.dataset.theme=next; localStorage.setItem(THEME_KEY,next); }

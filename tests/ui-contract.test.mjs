@@ -92,3 +92,66 @@ test("outlined TDesign button uses the hover brand token", () => {
   const css = read("style.css");
   assert.match(css, /\.td-button--outline:hover\s*\{[^}]*var\(--td-brand-color-hover\)/);
 });
+
+test("business views use professional workspace classes without mascot imagery", () => {
+  const js = read("app.js");
+  assert.match(js, /customer-worktable/);
+  assert.match(js, /customer-summary-header/);
+  assert.match(js, /detail-section-nav/);
+  assert.match(js, /task-worktable/);
+  assert.match(js, /analytics-workspace/);
+  const businessStart = js.indexOf("function renderCustomers");
+  const aiStart = js.indexOf("function focusCopilot");
+  assert.doesNotMatch(js.slice(businessStart, aiStart), /qq-penguin/);
+});
+
+test("customer and task worktables share TDesign surfaces and remain readable in dark mode", () => {
+  const css = read("style.css");
+  assert.match(css, /\.customer-worktable\s*,\s*\.task-worktable\s*\{[^}]*overflow:\s*hidden[^}]*padding:\s*0/i);
+  assert.match(css, /\.task-worktable\s*>\s*\.section-heading\s*\{[^}]*var\(--td-border\)/i);
+  assert.match(css, /\.task-row\s*\{[^}]*border-bottom:\s*1px solid var\(--td-border\)[^}]*transition:\s*background/i);
+  assert.match(css, /\.task-row:hover\s*\{[^}]*var\(--td-brand-color-light\)[^}]*var\(--td-bg-container\)/i);
+});
+
+test("analytics retains only actionable responsive workspaces", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  const start = js.indexOf("function renderAnalytics");
+  const end = js.indexOf("function renderCopilotComposer", start);
+  const analytics = js.slice(start, end);
+  assert.match(analytics, /推进阶段分布/);
+  assert.match(analytics, /停滞重点客户/);
+  assert.match(analytics, /客户等级结构/);
+  assert.doesNotMatch(analytics, /analytics-metrics|整体转化率|近 30 天跟进/);
+  assert.match(css, /\.analytics-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(0,1\.25fr\)\s+minmax\(280px,\.75fr\)/i);
+  assert.match(css, /@media\s*\(max-width:900px\)[\s\S]*?\.analytics-workspace\s*\{[^}]*grid-template-columns:\s*1fr/i);
+});
+
+test("390px customer cards preserve business priority and detail navigation", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /data-label="阶段"/);
+  assert.match(js, /data-label="下一步"/);
+  assert.match(js, /aria-current="\$\{state\.customerTab === key \? "page" : "false"\}"/);
+  assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.customer-worktable\s*\{[^}]*overflow:\s*visible/i);
+  assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.customer-row\s*>\s*\.next-cell\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/i);
+  assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.detail-section-nav\s*\{[^}]*overflow-x:\s*auto/i);
+});
+
+test("customer row menus close predictably for pointer and keyboard users", () => {
+  const js = read("app.js");
+  assert.match(js, /data-action="toggle-row-menu"/);
+  assert.match(js, /function closeRowMenus\(except\)/);
+  assert.match(js, /if \(action === "toggle-row-menu"\) return closeRowMenus\(trigger\.closest\("details"\)\)/);
+  assert.match(js, /if \(event\.key === "Escape"\)\s*\{[\s\S]*?closeRowMenus\(\)/);
+});
+
+test("business workspace controls expose a visible keyboard focus ring", () => {
+  const css = read("style.css");
+  assert.match(css, /button:focus-visible\s*,\s*summary:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--td-brand-color-hover\)[^}]*outline-offset:\s*2px/i);
+});
+
+test("the final customer menu stays visible inside the clipped worktable", () => {
+  const css = read("style.css");
+  assert.match(css, /\.customer-row:last-child\s+\.row-more-actions\s*>\s*button\s*\{[^}]*top:\s*auto[^}]*bottom:\s*34px/i);
+});
