@@ -783,6 +783,34 @@ function updateCustomerGrade(customerId, grade) { const customer=getCustomer(cus
 function updateIntelField(target) { const customer=getCustomer(target.dataset.customer); if(!customer)return; customer.fields[target.dataset.intelField] = {v:target.value.trim()}; persist(); toast("情报已保存"); }
 
 // ---------- 全景报告 ----------
+const WORD_REPORT_STYLES = `
+  @page { size: A4; margin: 18mm 17mm; }
+  body { margin: 0; color: #172b4d; font-family: "Microsoft YaHei", "PingFang SC", Arial, sans-serif; font-size: 10.5pt; line-height: 1.65; widows: 2; orphans: 2; }
+  .report-heading { padding-bottom: 18pt; border-bottom: 2.25pt solid #0052d9; }
+  .report-heading > p { margin: 0; color: #0052d9; font-size: 9pt; font-weight: 700; letter-spacing: 1pt; }
+  .report-heading h1 { margin: 6pt 0 11pt; font-family: "Songti SC", SimSun, "Microsoft YaHei", serif; font-size: 25pt; line-height: 1.25; }
+  .report-heading > div { margin-top: 4pt; }
+  .report-heading span { display: inline-block; margin: 0 5pt 4pt 0; padding: 3pt 6pt; background: #f2f3f5; font-size: 8.5pt; }
+  .report-section { margin-top: 22pt; }
+  .report-section-title { margin-bottom: 10pt; padding-bottom: 5pt; border-bottom: .75pt solid #dfe3e8; page-break-after: avoid; }
+  .report-section h2 { margin: 0; font-size: 14pt; line-height: 1.4; }
+  .report-field-grid { font-size: 0; }
+  .report-field-grid > div { display: inline-block; width: 46%; margin: 0 2% 7pt 0; padding: 8pt; border-left: 2.25pt solid #d9e1ff; background: #f7f9fc; vertical-align: top; page-break-inside: avoid; font-size: 10.5pt; }
+  .report-field-grid span { color: #66717d; font-size: 8.5pt; }
+  .report-field-grid p { margin: 3pt 0 0; line-height: 1.6; }
+  ul { margin: 0; padding-left: 17pt; }
+  li { margin: 0 0 5pt; page-break-inside: avoid; }
+  .report-progress article { padding: 8pt 0; border-bottom: .75pt solid #edf0f2; page-break-inside: avoid; }
+  .report-progress time { display: block; color: #7a8491; font-size: 8.5pt; }
+  .report-progress b { font-size: 9.5pt; }
+  .report-progress p { margin: 3pt 0; }
+  .report-progress small { color: #0052d9; font-size: 8.5pt; }
+  table { width: 100%; border-collapse: collapse; page-break-inside: avoid; }
+  th, td { padding: 6pt; border: .75pt solid #dfe3e8; text-align: left; vertical-align: top; }
+  th { background: #f3f6f9; }
+  .page-break { page-break-before: always; }
+`;
+
 function openReport(customerId) {
   const customer = getCustomer(customerId);
   if (!customer) return;
@@ -837,7 +865,7 @@ function exportWordReport() {
   const builder = getReportBuilder();
   if (!builder) return reportBuilderUnavailable();
   let doc;
-  try { doc = builder.wrapWord($("#reportDocument").innerHTML); }
+  try { doc = builder.wrapWord($("#reportDocument").innerHTML, WORD_REPORT_STYLES); }
   catch (error) { console.error("Report export unavailable", error); return reportBuilderUnavailable(); }
   if (typeof doc !== "string" || !doc.trim()) return reportBuilderUnavailable();
   const blob = new Blob(["\ufeff", doc], { type: "application/msword" });

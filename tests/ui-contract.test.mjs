@@ -561,17 +561,60 @@ test("report builder is the single source for preview and Word export", () => {
 
   assert.ok(reportScript > 0 && appScript > reportScript);
   assert.match(js, /return builder\.build\(customer,\s*\{/);
-  assert.match(js, /builder\.wrapWord\(\$\("#reportDocument"\)\.innerHTML\)/);
+  assert.match(js, /builder\.wrapWord\(\$\("#reportDocument"\)\.innerHTML,\s*WORD_REPORT_STYLES\)/);
   assert.doesNotMatch(js, /function reportList|function reportEmpty|const reportRow/);
   assert.doesNotMatch(read("report.js"), /云销副驾|企鹅|AI\s*生成|实时汇总|report-footer/);
 });
 
-test("Word wrapper contains exactly the supplied report body", () => {
+test("report markup exposes one professional hierarchy without legacy decoration", () => {
+  const report = ReportBuilder.build({
+    name: "客户庚",
+    fields: { industry: { v: "企业服务" } },
+    notes: [{ date: "2026-07-16", method: "phone", content: "确认采购范围" }],
+  }, reportContext);
+
+  assert.match(report, /^<header class="report-heading">/);
+  assert.match(report, /class="report-field-grid/);
+  assert.match(report, /class="report-progress"/);
+  assert.doesNotMatch(report, /report-cover|report-brand|report-empty|report-footer/);
+});
+
+test("report styles are content-first, A4 printable, dark-safe, and mobile readable", () => {
+  const css = read("style.css");
+
+  assert.match(css, /\.report-heading\s*\{/);
+  assert.match(css, /\.report-field-grid\s*\{/);
+  assert.match(css, /\.report-progress\s+article\s*\{/);
+  assert.match(css, /@page\s*\{\s*size:\s*A4/);
+  assert.match(css, /body\s*>\s*\*\s*\{[^}]*display:\s*none\s*!important/i);
+  assert.match(css, /\.report-layer\s*\{[^}]*display:\s*block\s*!important/i);
+  assert.match(css, /\.no-print\s*\{[^}]*display:\s*none\s*!important/i);
+  assert.match(css, /\.report-document\s*\{[^}]*background:\s*#fff[^}]*color:\s*#172b4d/i);
+  assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-actions\s*\{[^}]*flex-wrap:\s*wrap/i);
+  assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-field-grid\s*\{[^}]*grid-template-columns:\s*1fr/i);
+  assert.doesNotMatch(css, /\.report-brand|\.report-cover|\.report-empty|\.report-footer/);
+});
+
+test("Word wrapper embeds the supplied professional styles around exactly the report body", () => {
   const body = '<section class="report-section"><h2>客户事实</h2></section>';
-  const word = ReportBuilder.wrapWord(body);
+  const styles = "body{font-family:'Microsoft YaHei';margin:20mm}";
+  const word = ReportBuilder.wrapWord(body, styles);
   assert.match(word, /^<!DOCTYPE html>/i);
+  assert.match(word, /<style>body\{font-family:'Microsoft YaHei';margin:20mm\}<\/style>/);
   assert.equal((word.match(/客户事实/g) || []).length, 1);
   assert.doesNotMatch(word, /云销副驾|企鹅|AI\s*生成|实时汇总|report-footer/);
+});
+
+test("Word export mirrors the preview hierarchy with professional Chinese pagination", () => {
+  const styles = read("app.js").match(/const WORD_REPORT_STYLES = `([\s\S]*?)`;/)?.[1] || "";
+
+  assert.match(styles, /@page\s*\{\s*size:\s*A4;\s*margin:\s*18mm 17mm/i);
+  assert.match(styles, /font-family:\s*"Microsoft YaHei",\s*"PingFang SC"/i);
+  assert.match(styles, /font-size:\s*10\.5pt/);
+  assert.match(styles, /line-height:\s*1\.65/);
+  assert.match(styles, /widows:\s*2;\s*orphans:\s*2/);
+  assert.match(styles, /\.report-heading[\s\S]*\.report-field-grid[\s\S]*\.report-progress/);
+  assert.match(styles, /page-break-inside:\s*avoid/);
 });
 
 test("report filters only standalone placeholder sentinels and preserves real statements", () => {

@@ -76,7 +76,7 @@
     const body = facts.map(([label, value]) => value
       ? `<div class="report-field"><span>${escape(label)}</span><p>${escape(value)}</p></div>`
       : "").join("");
-    return body ? `<div class="${className || "report-data-grid"}">${body}</div>` : "";
+    return body ? `<div class="${className || "report-field-grid"}">${body}</div>` : "";
   }
 
   function list(items, className) {
@@ -145,7 +145,7 @@
       clean(source.grade) ? `${clean(source.grade)} 级客户` : "",
       clean(context.reportDate),
     ].filter(Boolean).map(item => `<span>${escape(item)}</span>`).join("");
-    const heading = `<header class="report-cover"><p class="report-type">客户全景报告</p><h1>${escape(name || "客户报告")}</h1>${headingMeta ? `<div class="report-cover-meta">${headingMeta}</div>` : ""}</header>`;
+    const heading = `<header class="report-heading"><p>客户全景报告</p><h1>${escape(name || "客户报告")}</h1>${headingMeta ? `<div>${headingMeta}</div>` : ""}</header>`;
 
     const nextAction = pendingNotes[0] && valueOf(pendingNotes[0].next)
       || valueOf(raid.plan && raid.plan.action);
@@ -154,7 +154,7 @@
       ["核心机会", painPoints[0]],
       ["主要风险", valueOf(raid.dm && raid.dm.concern) || valueOf(raid.plan && raid.plan.support)],
       ["下一步行动", nextAction],
-    ], "report-summary-grid");
+    ], "report-field-grid report-field-grid--summary");
 
     const profileEntries = fieldDefs.map(definition => [
       valueOf(definition && (definition.label || definition.key)),
@@ -257,7 +257,7 @@
       const action = next ? `${note.taskDone ? "已完成" : "未完成"} · 下一步：${next}${nextDate ? ` · ${nextDate}` : ""}` : "";
       return `<article>${when ? `<time>${escape(when)}</time>` : ""}<div>${contextLine ? `<b>${escape(contextLine)}</b>` : ""}${content ? `<p>${escape(content)}</p>` : ""}${action ? `<small>${escape(action)}</small>` : ""}${attachmentCount ? `<p>相关材料：${attachmentCount} 件</p>` : ""}</div></article>`;
     }).filter(Boolean).join("");
-    const progress = progressItems ? `<div class="report-timeline">${progressItems}</div>` : "";
+    const progress = progressItems ? `<div class="report-progress">${progressItems}</div>` : "";
 
     const pendingItems = uniqueRecords(pendingNotes, note => keyOf([
       valueOf(note.next), note.nextDate, valueOf(note.contact),
@@ -303,8 +303,8 @@
       + section("材料与证据索引", evidence);
   }
 
-  function wrapWord(html) {
-    return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head><body>${String(html == null ? "" : html)}</body></html>`;
+  function wrapWord(html, styles) {
+    return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><style>${String(styles == null ? "" : styles)}</style></head><body>${String(html == null ? "" : html)}</body></html>`;
   }
 
   return { build, wrapWord };
