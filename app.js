@@ -786,8 +786,14 @@ function updateIntelField(target) { const customer=getCustomer(target.dataset.cu
 function openReport(customerId) {
   const customer = getCustomer(customerId);
   if (!customer) return;
+  const builder = getReportBuilder();
+  if (!builder) return reportBuilderUnavailable();
+  let reportHtml;
+  try { reportHtml = buildReport(customer, builder); }
+  catch (error) { console.error("Report preview unavailable", error); return reportBuilderUnavailable(); }
+  if (typeof reportHtml !== "string" || !reportHtml.trim()) return reportBuilderUnavailable();
   reportCustomer = customer;
-  $("#reportDocument").innerHTML = buildReport(customer);
+  $("#reportDocument").innerHTML = reportHtml;
   $("#reportStatus").textContent = `${customer.name} · ${formatLongDate(new Date())}`;
   $("#reportLayer").classList.remove("hidden");
   document.body.classList.add("report-open");
@@ -801,8 +807,21 @@ function closeReport() {
   reportCustomer = null;
 }
 
-function buildReport(customer) {
-  return ReportBuilder.build(customer, {
+function getReportBuilder() {
+  const builder = typeof ReportBuilder === "undefined" ? null : ReportBuilder;
+  return builder && typeof builder.build === "function" && typeof builder.wrapWord === "function" ? builder : null;
+}
+
+function reportBuilderUnavailable() {
+  reportCustomer = null;
+  $("#reportLayer")?.classList.add("hidden");
+  document.body.classList.remove("report-open");
+  toast("报告组件未加载，请刷新页面后重试");
+}
+
+function buildReport(customer, builder = getReportBuilder()) {
+  if (!builder) return "";
+  return builder.build(customer, {
     fieldDefs: FIELD_DEFS,
     stages: CRM_STAGES,
     methods: CONTACT_METHODS,
@@ -815,7 +834,12 @@ function buildReport(customer) {
 
 function exportWordReport() {
   if (!reportCustomer) return;
-  const doc = ReportBuilder.wrapWord($("#reportDocument").innerHTML);
+  const builder = getReportBuilder();
+  if (!builder) return reportBuilderUnavailable();
+  let doc;
+  try { doc = builder.wrapWord($("#reportDocument").innerHTML); }
+  catch (error) { console.error("Report export unavailable", error); return reportBuilderUnavailable(); }
+  if (typeof doc !== "string" || !doc.trim()) return reportBuilderUnavailable();
   const blob = new Blob(["\ufeff", doc], { type: "application/msword" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a"); link.href=url; link.download=`${reportCustomer.name}_客户全景报告_${todayStr()}.doc`; link.click();

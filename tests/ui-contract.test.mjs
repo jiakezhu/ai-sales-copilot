@@ -51,6 +51,50 @@ function loadAssistantStateTestApi(card, timers, options = {}) {
   return sandbox.__assistantStateTestApi;
 }
 
+function loadReportIntegrationTestApi(reportBuilder) {
+  const makeClasses = initial => {
+    const values = new Set(initial);
+    return {
+      values,
+      api: {
+        add(value) { values.add(value); },
+        remove(value) { values.delete(value); },
+      },
+    };
+  };
+  const reportLayerClasses = makeClasses(["hidden"]);
+  const toastClasses = makeClasses(["hidden"]);
+  const elements = {
+    "#reportDocument": { innerHTML: "" },
+    "#reportStatus": { textContent: "" },
+    "#reportLayer": { classList: reportLayerClasses.api },
+    "#toast": { textContent: "", classList: toastClasses.api },
+  };
+  const sandbox = {
+    console: { ...console, error() {} },
+    ReportBuilder: reportBuilder,
+    FIELD_DEFS: [], CRM_STAGES: [], CONTACT_METHODS: [], ASSET_TYPES: [],
+    THEME_KEY: "theme",
+    document: {
+      activeElement: null,
+      documentElement: { dataset: { theme: "light" } },
+      body: { classList: makeClasses([]).api },
+      addEventListener() {},
+      querySelector(selector) { return elements[selector] || null; },
+      querySelectorAll() { return []; },
+    },
+    window: { scrollTo() {} },
+    localStorage: { setItem() {} },
+    setTimeout() { return 1; }, clearTimeout() {}, requestAnimationFrame() {},
+  };
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__reportIntegrationTestApi = { openReport, buildReport, exportWordReport, setCustomers(value) { customers = value; }, setReportCustomer(value) { reportCustomer = value; } };`, sandbox);
+  return { api: sandbox.__reportIntegrationTestApi, elements, reportLayerClasses, toastClasses };
+}
+
+function reportSection(html, title) {
+  return html.match(new RegExp(`<section[^>]*>\\s*<div class="report-section-title"><h2>${title}</h2></div>[\\s\\S]*?</section>`))?.[0] || "";
+}
+
 test("Tencent shell uses the supplied QQ penguin and TDesign tokens", () => {
   const html = read("index.html");
   const css = read("style.css");
@@ -445,7 +489,7 @@ test("report omits empty sections and all product-generation copy", () => {
   assert.match(html, /执行摘要/);
   assert.match(html, /全流程客户推进记录/);
   assert.match(html, /当前未完成行动/);
-  assert.doesNotMatch(html, /云销副驾|AI\s*生成|实时汇总|未填写|暂无|待补充|企鹅|营销话术/);
+  assert.doesNotMatch(html, /云销副驾|AI\s*生成|实时汇总|企鹅|营销话术|>(?:未填写|暂无|暂无内容|待补充)</);
   assert.doesNotMatch(html, /关键关系与组织架构|材料与证据索引/);
 });
 
@@ -486,12 +530,13 @@ test("report covers populated customer intelligence without mutating source data
     "远帆科技", "企业服务", "李总", "成本压力", "迁移方案", "确认预算范围", "提交报价",
     "采购向 CFO 汇报", "进入方案评估", "完成测试", "组织技术评审", "会议纪要.pdf",
   ]) assert.match(html, new RegExp(expected));
-  assert.equal((html.match(/成本压力/g) || []).length, 1);
-  assert.equal((html.match(/迁移风险/g) || []).length, 1);
+  assert.equal((html.match(/成本压力/g) || []).length, 2, "summary must not remove the pain point from its core section");
+  assert.match(reportSection(html, "痛点、竞品与匹配方案"), /成本压力/);
+  assert.match(reportSection(html, "客户基本信息与情报"), /迁移风险/);
   assert.equal(JSON.stringify(customer), before);
 });
 
-test("report escapes customer data, suppresses empty values, and avoids cross-section fact repetition", () => {
+test("report escapes customer data and suppresses empty values", () => {
   const repeatedFact = "唯一关系事实";
   const html = ReportBuilder.build({
     name: "<客户&公司>", stage: "", grade: "",
@@ -502,7 +547,7 @@ test("report escapes customer data, suppresses empty values, and avoids cross-se
   }, reportContext);
 
   assert.match(html, /&lt;客户&amp;公司&gt;/);
-  assert.equal((html.match(new RegExp(repeatedFact, "g")) || []).length, 1);
+  assert.equal((html.match(new RegExp(repeatedFact, "g")) || []).length, 2, "summary may reference a fact retained in its core section");
   assert.doesNotMatch(html, />\s*undefined\s*</);
   assert.doesNotMatch(html, /<p><\/p>|<li><\/li>|<td><\/td>/);
   assert.doesNotMatch(html, /全流程客户推进记录|组织与关键关系/);
@@ -515,10 +560,10 @@ test("report builder is the single source for preview and Word export", () => {
   const appScript = html.indexOf('<script src="app.js"></script>');
 
   assert.ok(reportScript > 0 && appScript > reportScript);
-  assert.match(js, /return ReportBuilder\.build\(customer,\s*\{/);
-  assert.match(js, /ReportBuilder\.wrapWord\(\$\("#reportDocument"\)\.innerHTML\)/);
+  assert.match(js, /return builder\.build\(customer,\s*\{/);
+  assert.match(js, /builder\.wrapWord\(\$\("#reportDocument"\)\.innerHTML\)/);
   assert.doesNotMatch(js, /function reportList|function reportEmpty|const reportRow/);
-  assert.doesNotMatch(read("report.js"), /云销副驾|企鹅|AI\s*生成|实时汇总|未填写|暂无|待补充|report-footer/);
+  assert.doesNotMatch(read("report.js"), /云销副驾|企鹅|AI\s*生成|实时汇总|report-footer/);
 });
 
 test("Word wrapper contains exactly the supplied report body", () => {
@@ -527,4 +572,141 @@ test("Word wrapper contains exactly the supplied report body", () => {
   assert.match(word, /^<!DOCTYPE html>/i);
   assert.equal((word.match(/客户事实/g) || []).length, 1);
   assert.doesNotMatch(word, /云销副驾|企鹅|AI\s*生成|实时汇总|report-footer/);
+});
+
+test("report filters only standalone placeholder sentinels and preserves real statements", () => {
+  const html = ReportBuilder.build({
+    name: "客户甲",
+    fields: {
+      industry: { v: "未填写" },
+      relation: { v: "暂无其他同事跟进" },
+      staff: { v: " 待补充。 " },
+    },
+    raidFile: { competitor: { internal: "暂无其他团队撞单" } },
+  }, {
+    ...reportContext,
+    fieldDefs: [
+      { key: "industry", label: "行业", public: true },
+      { key: "relation", label: "客户关系", public: false },
+      { key: "staff", label: "规模", public: true },
+    ],
+  });
+
+  assert.doesNotMatch(html, />\s*(?:未填写|待补充。)\s*</);
+  assert.match(html, /暂无其他同事跟进/);
+  assert.match(html, /暂无其他团队撞单/);
+});
+
+test("deduplication operates on complete facts and records, not shared atomic values", () => {
+  const html = ReportBuilder.build({
+    name: "客户乙",
+    fields: { relation: { v: "已建立技术关系" } },
+    painPoints: ["成本高", "成本高"],
+    orgChain: [
+      { id: "a", name: "甲", role: "CTO", level: 2 },
+      { id: "b", name: "乙", role: "CTO", level: 2 },
+    ],
+    raidFile: {
+      competitors: [
+        { name: "竞品甲", coverage: "核心系统", pros: "稳定" },
+        { name: "竞品乙", coverage: "核心系统", pros: "便宜" },
+        { name: "竞品乙", coverage: "核心系统", pros: "便宜" },
+      ],
+    },
+  }, reportContext);
+  const market = reportSection(html, "痛点、竞品与匹配方案");
+  const organization = reportSection(html, "组织与关键关系");
+
+  assert.equal((market.match(/成本高/g) || []).length, 1);
+  assert.equal((market.match(/竞品乙/g) || []).length, 1);
+  assert.equal((market.match(/核心系统/g) || []).length, 2);
+  assert.match(organization, /甲[\s\S]*CTO/);
+  assert.match(organization, /乙[\s\S]*CTO/);
+});
+
+test("timeline preserves each meaningful note action while pending actions remain aggregated", () => {
+  const html = ReportBuilder.build({
+    name: "客户丙",
+    notes: [
+      { method: "phone", content: "确认预算", next: "提交报价", nextDate: "2026-07-20", taskDone: false },
+      { method: "phone" },
+      { method: "phone", date: "2026-07-18", content: "发送资料", next: "客户确认收件", nextDate: "2026-07-19", taskDone: true },
+    ],
+  }, reportContext);
+  const timeline = reportSection(html, "全流程客户推进记录");
+  const pending = reportSection(html, "当前未完成行动");
+  const summary = reportSection(html, "执行摘要");
+
+  assert.equal((timeline.match(/<article>/g) || []).length, 2);
+  assert.doesNotMatch(timeline, /<time><\/time>/);
+  assert.match(timeline, /确认预算[\s\S]*未完成[\s\S]*提交报价[\s\S]*2026-07-20/);
+  assert.match(timeline, /已完成[\s\S]*客户确认收件/);
+  assert.match(pending, /提交报价/);
+  assert.match(summary, /下一步行动[\s\S]*提交报价/);
+});
+
+test("organization renders pid hierarchy, level labels, and narrative decision chain", () => {
+  const html = ReportBuilder.build({
+    name: "客户丁",
+    orgChain: [
+      { id: "ceo", pid: null, name: "周总", role: "CEO", level: 1 },
+      { id: "cto", pid: "ceo", name: "李总", role: "CTO", level: 2 },
+      { id: "ops", pid: "cto", name: "王工", role: "运维", level: 3 },
+    ],
+    raidFile: { org: { orgDesc: "技术方案由 CTO 牵头" } },
+  }, reportContext);
+  const organization = reportSection(html, "组织与关键关系");
+
+  assert.match(organization, /决策链：周总 → 李总 → 王工/);
+  assert.match(organization, /周总[\s\S]*决策层/);
+  assert.match(organization, /李总[\s\S]*上级：周总/);
+  assert.match(organization, /王工[\s\S]*执行层/);
+  assert.match(organization, /技术方案由 CTO 牵头/);
+});
+
+test("evidence merges customer assets and note attachments with complete-record deduplication", () => {
+  const shared = { name: "纪要.pdf", caption: "预算会", type: "file", createdAt: "2026-07-16" };
+  const html = ReportBuilder.build({
+    name: "客户戊",
+    assets: [shared, { ...shared }],
+    notes: [{ content: "会议结束", attachments: [
+      { ...shared },
+      { ...shared, caption: "技术会" },
+      { name: "截图.png", type: "image" },
+    ] }],
+  }, reportContext);
+  const evidence = reportSection(html, "材料与证据索引");
+
+  assert.equal((evidence.match(/纪要\.pdf/g) || []).length, 2);
+  assert.match(evidence, /预算会/);
+  assert.match(evidence, /技术会/);
+  assert.match(evidence, /截图\.png/);
+});
+
+test("report integration fails safely with a recoverable message when builder API is unavailable", () => {
+  for (const brokenBuilder of [
+    undefined,
+    {},
+    { build() { return ""; } },
+    { build() { throw new Error("broken build"); }, wrapWord() { return ""; } },
+    { build() { return null; }, wrapWord() { return ""; } },
+  ]) {
+    const harness = loadReportIntegrationTestApi(brokenBuilder);
+    harness.api.setCustomers([{ id: "customer-1", name: "客户己" }]);
+    harness.reportLayerClasses.values.delete("hidden");
+
+    assert.doesNotThrow(() => harness.api.openReport("customer-1"));
+    assert.match(harness.elements["#toast"].textContent, /报告组件.*刷新.*重试/);
+    assert.equal(harness.reportLayerClasses.values.has("hidden"), true);
+  }
+});
+
+test("attitude enums are localized and missing customer names do not create empty headings", () => {
+  const html = ReportBuilder.build({
+    raidFile: { dm: { attitude: "positive", coreDemand: "推进试点" } },
+  }, reportContext);
+
+  assert.match(html, /合作态度[\s\S]*积极/);
+  assert.doesNotMatch(html, /positive/);
+  assert.doesNotMatch(html, /<h1>\s*<\/h1>/);
 });
