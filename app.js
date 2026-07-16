@@ -1174,31 +1174,31 @@ function toast(message) { const el=$("#toast"); clearTimeout(toastTimer); el.tex
 function emptyState(title,copy,pose="scratch") { return `<div class="empty-state"><span class="empty-penguin">${penguinSVG(pose)}</span><b>${safe(title)}</b><p>${safe(copy)}</p></div>`; }
 
 // ===================================================================
-// 立体可爱 QQ 企鹅（纯 SVG 手绘，可缩放/多姿态/随主题变色）
-// pose: stand(招牌站姿) / wave(招手) / scratch(挠头,空状态) / search(找东西) / success(比耶)
+// 腾讯 QQ 经典企鹅（纯 SVG 手绘，还原官方造型：水滴身、头顶三竖毛、
+// 黑脸面罩、白肚、红围巾、橙红分片扁嘴、两只橙脚、短圆翅膀）
+// pose: stand(招牌站姿) / wave(招手) / scratch(挠头) / search(找东西) / success(比耶)
 // ===================================================================
 function penguinSVG(pose = "stand") {
-  // 共用的身体：黑背 + 白肚 + 立体高光 + 红围巾 + 橙嘴/脚
-  // 各部件用渐变做立体感，眼睛高光让它显得有神、可爱
   const defs = `
     <defs>
-      <radialGradient id="pgBody" cx="38%" cy="30%" r="80%">
-        <stop offset="0%" stop-color="#4a5568"/>
-        <stop offset="42%" stop-color="#2d3748"/>
-        <stop offset="100%" stop-color="#1a202c"/>
+      <radialGradient id="pgBody" cx="40%" cy="26%" r="82%">
+        <stop offset="0%" stop-color="#3b444f"/>
+        <stop offset="45%" stop-color="#232b34"/>
+        <stop offset="100%" stop-color="#12161c"/>
       </radialGradient>
-      <radialGradient id="pgBelly" cx="42%" cy="34%" r="75%">
+      <radialGradient id="pgBelly" cx="44%" cy="30%" r="78%">
         <stop offset="0%" stop-color="#ffffff"/>
-        <stop offset="70%" stop-color="#f4f7fb"/>
-        <stop offset="100%" stop-color="#dbe3ee"/>
+        <stop offset="72%" stop-color="#f2f6fb"/>
+        <stop offset="100%" stop-color="#d7e0ec"/>
       </radialGradient>
       <linearGradient id="pgBeak" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#ffb64d"/>
-        <stop offset="100%" stop-color="#f08a1d"/>
+        <stop offset="0%" stop-color="#ffbf4a"/>
+        <stop offset="55%" stop-color="#f79a1e"/>
+        <stop offset="100%" stop-color="#e8720f"/>
       </linearGradient>
       <linearGradient id="pgScarf" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#ff6b6b"/>
-        <stop offset="100%" stop-color="#e23a3a"/>
+        <stop offset="0%" stop-color="#ff5a5a"/>
+        <stop offset="100%" stop-color="#d92b2b"/>
       </linearGradient>
       <radialGradient id="pgFloor" cx="50%" cy="50%" r="50%">
         <stop offset="0%" stop-color="rgba(0,0,0,.22)"/>
@@ -1207,82 +1207,97 @@ function penguinSVG(pose = "stand") {
     </defs>`;
 
   // 地面阴影
-  const floor = `<ellipse cx="100" cy="188" rx="52" ry="9" fill="url(#pgFloor)"/>`;
+  const floor = `<ellipse cx="100" cy="190" rx="50" ry="8" fill="url(#pgFloor)"/>`;
 
-  // 左右手臂/脚：不同姿态差异
+  // 头顶三根标志性小竖毛
+  const hair = `
+    <g fill="url(#pgBody)">
+      <path d="M100 16 q-4 -12 2 -14 q6 2 3 15 z"/>
+      <path d="M86 20 q-8 -9 -3 -13 q6 0 8 12 z"/>
+      <path d="M114 20 q8 -9 3 -13 q-6 0 -8 12 z"/>
+    </g>`;
+
   let leftArm, rightArm, feet, eyes, extra = "";
-  // 眼睛（基础：睁眼带高光）
+
+  // 眼睛：QQ 企鹅是大而圆、间距近、黑眼珠带高光
   const eyesOpen = `
     <g>
-      <ellipse cx="82" cy="74" rx="13" ry="15" fill="#fff"/>
-      <ellipse cx="118" cy="74" rx="13" ry="15" fill="#fff"/>
-      <circle cx="85" cy="77" r="6.5" fill="#1a202c"/>
-      <circle cx="115" cy="77" r="6.5" fill="#1a202c"/>
-      <circle cx="87" cy="74" r="2.2" fill="#fff"/>
-      <circle cx="117" cy="74" r="2.2" fill="#fff"/>
+      <ellipse cx="88" cy="70" rx="12" ry="15" fill="#fff"/>
+      <ellipse cx="112" cy="70" rx="12" ry="15" fill="#fff"/>
+      <circle cx="90" cy="72" r="6.6" fill="#12161c"/>
+      <circle cx="110" cy="72" r="6.6" fill="#12161c"/>
+      <circle cx="92" cy="69" r="2.3" fill="#fff"/>
+      <circle cx="112" cy="69" r="2.3" fill="#fff"/>
+      <ellipse cx="80" cy="88" rx="7" ry="4" fill="#ff9d9d" opacity=".55"/>
+      <ellipse cx="120" cy="88" rx="7" ry="4" fill="#ff9d9d" opacity=".55"/>
     </g>`;
-  // 眯眼/开心（success）
   const eyesHappy = `
-    <g fill="none" stroke="#1a202c" stroke-width="3.4" stroke-linecap="round">
-      <path d="M72 76 q10 -10 20 0"/>
-      <path d="M108 76 q10 -10 20 0"/>
+    <g>
+      <g fill="none" stroke="#12161c" stroke-width="3.6" stroke-linecap="round">
+        <path d="M78 72 q10 -11 20 0"/>
+        <path d="M102 72 q10 -11 20 0"/>
+      </g>
+      <ellipse cx="80" cy="88" rx="7" ry="4" fill="#ff9d9d" opacity=".6"/>
+      <ellipse cx="120" cy="88" rx="7" ry="4" fill="#ff9d9d" opacity=".6"/>
     </g>`;
-  // 找东西（search，眼睛看向一侧）
   const eyesSearch = `
     <g>
-      <ellipse cx="82" cy="74" rx="13" ry="15" fill="#fff"/>
-      <ellipse cx="118" cy="74" rx="13" ry="15" fill="#fff"/>
-      <circle cx="89" cy="78" r="6.5" fill="#1a202c"/>
-      <circle cx="123" cy="78" r="6.5" fill="#1a202c"/>
-      <circle cx="91" cy="75" r="2" fill="#fff"/>
-      <circle cx="125" cy="75" r="2" fill="#fff"/>
+      <ellipse cx="88" cy="70" rx="12" ry="15" fill="#fff"/>
+      <ellipse cx="112" cy="70" rx="12" ry="15" fill="#fff"/>
+      <circle cx="94" cy="73" r="6.6" fill="#12161c"/>
+      <circle cx="116" cy="73" r="6.6" fill="#12161c"/>
+      <circle cx="96" cy="70" r="2.1" fill="#fff"/>
+      <circle cx="118" cy="70" r="2.1" fill="#fff"/>
     </g>`;
 
   eyes = eyesOpen;
-  // 默认双手垂放
-  leftArm = `<path class="pg-arm-l" d="M46 96 q-16 22 -6 46 q10 6 16 -6 q-6 -20 6 -40 z" fill="url(#pgBody)"/>`;
-  rightArm = `<path class="pg-arm-r" d="M154 96 q16 22 6 46 q-10 6 -16 -6 q6 -20 -6 -40 z" fill="url(#pgBody)"/>`;
+  // 短圆贴身翅膀（QQ 企鹅翅膀短、贴在身体两侧）
+  leftArm = `<path class="pg-arm-l" d="M48 104 q-16 8 -14 34 q2 12 14 8 q4 -22 4 -44 z" fill="url(#pgBody)"/>`;
+  rightArm = `<path class="pg-arm-r" d="M152 104 q16 8 14 34 q-2 12 -14 8 q-4 -22 -4 -44 z" fill="url(#pgBody)"/>`;
+  // 两只橙色小脚丫（QQ 企鹅是并排两只三趾脚）
   feet = `
-    <path d="M74 176 q-4 12 -18 12 q-8 -1 -3 -9 q9 -6 15 -9 z" fill="url(#pgBeak)"/>
-    <path d="M126 176 q4 12 18 12 q8 -1 3 -9 q-9 -6 -15 -9 z" fill="url(#pgBeak)"/>`;
+    <g fill="url(#pgBeak)">
+      <path d="M74 176 q-14 4 -16 14 q0 6 8 6 q12 0 20 -4 q2 -10 -12 -16 z"/>
+      <path d="M126 176 q14 4 16 14 q0 6 -8 6 q-12 0 -20 -4 q-2 -10 12 -16 z"/>
+      <path d="M70 190 l6 0 M78 190 l6 0" stroke="#c9740f" stroke-width="1.6"/>
+    </g>`;
 
   if (pose === "wave") {
-    // 右手举起招手
-    rightArm = `<g class="pg-wave" style="transform-origin:154px 96px"><path d="M154 96 q30 -6 40 -30 q10 -6 12 6 q-8 26 -40 42 q-14 4 -12 -18 z" fill="url(#pgBody)"/></g>`;
+    rightArm = `<g class="pg-wave" style="transform-origin:152px 104px"><path d="M152 104 q26 -12 34 -34 q6 -8 12 2 q0 24 -30 48 q-14 8 -16 -16 z" fill="url(#pgBody)"/></g>`;
   } else if (pose === "scratch") {
-    // 右手举到头顶挠头，眼睛微微看上
-    rightArm = `<path d="M154 96 q24 -18 30 -44 q8 -6 12 4 q-2 26 -26 52 q-12 8 -16 -12 z" fill="url(#pgBody)"/>`;
-    extra = `<g stroke="#f6ad55" stroke-width="3" stroke-linecap="round" opacity=".9"><path d="M150 34 l6 -10"/><path d="M164 40 l10 -6"/></g>`;
+    rightArm = `<path d="M152 104 q22 -20 26 -46 q6 -8 12 2 q0 26 -22 56 q-12 10 -16 -12 z" fill="url(#pgBody)"/>`;
+    extra = `<g stroke="#f6ad55" stroke-width="3" stroke-linecap="round" opacity=".9"><path d="M150 30 l6 -10"/><path d="M164 36 l10 -6"/></g>`;
   } else if (pose === "search") {
     eyes = eyesSearch;
-    // 手搭凉棚
-    rightArm = `<path d="M154 92 q26 -10 34 -2 q8 6 -2 12 q-18 4 -34 8 q-10 -12 2 -18 z" fill="url(#pgBody)"/>`;
-    extra = `<circle cx="150" cy="60" r="12" fill="none" stroke="#f6ad55" stroke-width="3.4"/><line x1="159" y1="69" x2="170" y2="82" stroke="#f6ad55" stroke-width="4" stroke-linecap="round"/>`;
+    rightArm = `<path d="M152 100 q24 -10 32 -2 q8 6 -2 12 q-16 4 -32 8 q-8 -12 2 -18 z" fill="url(#pgBody)"/>`;
+    extra = `<circle cx="150" cy="56" r="12" fill="none" stroke="#f6ad55" stroke-width="3.4"/><line x1="159" y1="65" x2="170" y2="78" stroke="#f6ad55" stroke-width="4" stroke-linecap="round"/>`;
   } else if (pose === "success") {
     eyes = eyesHappy;
-    rightArm = `<g style="transform-origin:154px 96px"><path d="M154 96 q30 -6 40 -30 q10 -6 12 6 q-8 26 -40 42 q-14 4 -12 -18 z" fill="url(#pgBody)"/></g>`;
-    extra = `<g stroke="#ffd93b" stroke-width="3" stroke-linecap="round"><path d="M40 48 l-10 -8"/><path d="M52 34 l-4 -12"/><path d="M160 30 l6 -12"/></g>`;
+    rightArm = `<g style="transform-origin:152px 104px"><path d="M152 104 q26 -12 34 -34 q6 -8 12 2 q0 24 -30 48 q-14 8 -16 -16 z" fill="url(#pgBody)"/></g>`;
+    extra = `<g stroke="#ffd93b" stroke-width="3" stroke-linecap="round"><path d="M40 46 l-10 -8"/><path d="M52 32 l-4 -12"/><path d="M160 28 l6 -12"/></g>`;
   }
 
   return `<svg class="pg-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
     ${defs}
     ${floor}
+    ${hair}
     ${leftArm}
     ${rightArm}
-    <!-- 身体 -->
-    <path d="M100 20 C60 20 44 58 44 108 C44 158 66 184 100 184 C134 184 156 158 156 108 C156 58 140 20 100 20 Z" fill="url(#pgBody)"/>
-    <!-- 白肚子 -->
-    <path d="M100 62 C74 62 64 92 64 122 C64 154 82 172 100 172 C118 172 136 154 136 122 C136 92 126 62 100 62 Z" fill="url(#pgBelly)"/>
+    <!-- 身体：水滴形，头身一体、无脖子 -->
+    <path d="M100 18 C58 18 46 62 46 112 C46 160 68 186 100 186 C132 186 154 160 154 112 C154 62 142 18 100 18 Z" fill="url(#pgBody)"/>
+    <!-- 白肚/白脸：从下巴一直到腹部，上宽下更宽 -->
+    <path d="M100 52 C76 52 66 78 66 116 C66 152 82 174 100 174 C118 174 134 152 134 116 C134 78 124 52 100 52 Z" fill="url(#pgBelly)"/>
     <!-- 头顶高光 -->
-    <ellipse cx="84" cy="46" rx="20" ry="12" fill="rgba(255,255,255,.18)"/>
+    <ellipse cx="82" cy="44" rx="18" ry="11" fill="rgba(255,255,255,.16)"/>
     ${eyes}
-    <!-- 扁嘴 -->
-    <path d="M88 92 q12 -12 24 0 q-12 10 -24 0 z" fill="url(#pgBeak)"/>
-    <path d="M88 92 q12 8 24 0" fill="none" stroke="#c9740f" stroke-width="1.4"/>
+    <!-- 橙红分片扁嘴（上下两片）-->
+    <path d="M86 88 q14 -9 28 0 q-3 5 -14 6 q-11 -1 -14 -6 z" fill="url(#pgBeak)"/>
+    <path d="M86 88 q14 8 28 0 q-3 8 -14 9 q-11 -1 -14 -9 z" fill="#f79a1e"/>
+    <path d="M86 88 q14 4 28 0" fill="none" stroke="#c9740f" stroke-width="1.4"/>
     <!-- 红围巾 -->
-    <path d="M62 118 q38 20 76 0 q4 12 -6 18 q-32 16 -64 0 q-10 -6 -6 -18 z" fill="url(#pgScarf)"/>
-    <path d="M120 132 q10 22 4 40 q-2 6 -10 4 q-6 -22 -2 -44 z" fill="url(#pgScarf)"/>
-    <path d="M120 132 l-6 20" stroke="rgba(0,0,0,.12)" stroke-width="2" fill="none"/>
+    <path d="M64 118 q36 22 72 0 q5 12 -5 19 q-31 16 -62 0 q-10 -7 -5 -19 z" fill="url(#pgScarf)"/>
+    <path d="M120 133 q10 22 4 42 q-2 6 -11 4 q-6 -23 -2 -46 z" fill="url(#pgScarf)"/>
+    <path d="M120 133 l-6 22" stroke="rgba(0,0,0,.12)" stroke-width="2" fill="none"/>
     ${feet}
     ${extra}
   </svg>`;
