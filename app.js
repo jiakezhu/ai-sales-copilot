@@ -44,8 +44,18 @@ async function init() {
     console.warn("Cloud boot unavailable, using local data", error);
   }
   customers = CRM.load().map(ensureCustomerShape);
+  fillStaticPenguins();
   bindAppEvents();
   renderApp();
+}
+
+// 把 HTML 里 [data-penguin] 占位符填充为对应姿态的 SVG 企鹅
+function fillStaticPenguins() {
+  document.querySelectorAll("[data-penguin]").forEach(el => {
+    if (el.dataset.penguinDone) return;
+    el.innerHTML = penguinSVG(el.dataset.penguin || "stand");
+    el.dataset.penguinDone = "1";
+  });
 }
 
 function ensureCustomerShape(customer) {
@@ -213,12 +223,12 @@ function renderToday() {
   return `
     <div class="page today-page">
       <header class="today-command">
-        <div><p class="eyebrow">${formatLongDate(new Date())}</p><h1>早上好，先推进最重要的客户</h1><p>小企会整理信息，你负责确认和决策。</p></div>
+        <div><p class="eyebrow">${formatLongDate(new Date())}</p><h1>早上好，先推进最重要的客户</h1><p>商务鹅帮你整理信息，你负责确认和决策。</p></div>
         <button class="td-button td-button--outline" data-action="manual-entry">${icon("square-pen")} 手动记录</button>
       </header>
       <section class="ai-assistant-card" id="copilotCard">
-        <span class="qq-penguin qq-penguin--assistant" aria-hidden="true"><img src="assets/qq-penguin-reference.png" alt="" /></span>
-        <div class="ai-assistant-copy"><span>QQ 企鹅 AI 助手</span><h2>告诉小企刚刚发生了什么</h2><p>会议、电话、微信和材料都能整理为客户推进记录。</p></div>
+        <span class="qq-penguin qq-penguin--assistant" aria-hidden="true">${penguinSVG("wave")}</span>
+        <div class="ai-assistant-copy"><span>商务鹅</span><h2>刚发生了什么？说给商务鹅听</h2><p>会议、电话、微信和材料，随口一说就整理成客户推进记录。</p></div>
         <div class="ai-compose">${renderCopilotComposer()}</div>
         <div id="aiDraft"></div>
       </section>
@@ -253,7 +263,7 @@ function copilotFileStatusMarkup() {
 function renderTodayActions(priority, overdue) {
   return `<div class="section-heading"><div><p class="eyebrow">NEXT ACTION</p><h2>优先行动</h2></div><button class="text-button" data-action="nav" data-page="tasks">${overdue.length ? `${overdue.length} 项逾期 · ` : ""}查看全部 →</button></div>
     <div class="priority-list">
-      ${priority.length ? priority.map(renderPriorityTask).join("") : emptyState("所有待办都处理完了", "可以记录一次新的客户触达。")}
+      ${priority.length ? priority.map(renderPriorityTask).join("") : emptyState("所有待办都处理完了", "可以记录一次新的客户触达。", "success")}
     </div>`;
 }
 
@@ -306,7 +316,7 @@ function renderCustomers() {
     </section>
     <section class="td-panel customer-worktable">
       <div class="table-head"><span>客户</span><span>阶段</span><span>关键联系人</span><span>下一步</span><span>最近更新</span><span></span></div>
-      <div class="table-body">${filtered.length ? filtered.map(renderCustomerRow).join("") : emptyState("没有匹配的客户", "换一个关键词或清除筛选。")}</div>
+      <div class="table-body">${filtered.length ? filtered.map(renderCustomerRow).join("") : emptyState("没有匹配的客户", "换一个关键词或清除筛选。", "search")}</div>
     </section>
   </div>`;
 }
@@ -523,7 +533,7 @@ function renderTasks() {
   return `<div class="page tasks-page">
     <section class="page-heading"><div><p class="eyebrow">ACTION CENTER</p><h1>待办</h1><p>所有客户的下一步行动集中管理，完成后保留历史。</p></div><button class="primary-button" data-action="manual-entry">${icon("plus")} 新建推进</button></section>
     <div class="task-summary"><span><b>${open.filter(t => t.overdue).length}</b> 已逾期</span><span><b>${open.filter(t => t.today).length}</b> 今天</span><span><b>${open.filter(t => !t.overdue && !t.today).length}</b> 即将开始</span></div>
-    <section class="td-panel task-worktable"><div class="section-heading"><h2>待处理</h2><span>${open.length}</span></div><div class="task-list">${open.length ? open.map(renderTaskRow).join("") : emptyState("没有待处理任务", "新的下一步行动会自动出现在这里。")}</div></section>
+    <section class="td-panel task-worktable"><div class="section-heading"><h2>待处理</h2><span>${open.length}</span></div><div class="task-list">${open.length ? open.map(renderTaskRow).join("") : emptyState("没有待处理任务", "新的下一步行动会自动出现在这里。", "success")}</div></section>
     ${done.length ? `<section class="td-panel task-worktable completed-worktable"><div class="section-heading"><h2>已完成</h2><span>${done.length}</span></div><div class="task-list completed">${done.slice(0,8).map(renderTaskRow).join("")}</div></section>` : ""}
   </div>`;
 }
@@ -1161,4 +1171,119 @@ function trapDialogFocus(event) {
   return true;
 }
 function toast(message) { const el=$("#toast"); clearTimeout(toastTimer); el.textContent=message; el.classList.remove("hidden"); toastTimer=setTimeout(()=>el.classList.add("hidden"),2600); }
-function emptyState(title,copy) { return `<div class="empty-state"><span>·</span><b>${safe(title)}</b><p>${safe(copy)}</p></div>`; }
+function emptyState(title,copy,pose="scratch") { return `<div class="empty-state"><span class="empty-penguin">${penguinSVG(pose)}</span><b>${safe(title)}</b><p>${safe(copy)}</p></div>`; }
+
+// ===================================================================
+// 立体可爱 QQ 企鹅（纯 SVG 手绘，可缩放/多姿态/随主题变色）
+// pose: stand(招牌站姿) / wave(招手) / scratch(挠头,空状态) / search(找东西) / success(比耶)
+// ===================================================================
+function penguinSVG(pose = "stand") {
+  // 共用的身体：黑背 + 白肚 + 立体高光 + 红围巾 + 橙嘴/脚
+  // 各部件用渐变做立体感，眼睛高光让它显得有神、可爱
+  const defs = `
+    <defs>
+      <radialGradient id="pgBody" cx="38%" cy="30%" r="80%">
+        <stop offset="0%" stop-color="#4a5568"/>
+        <stop offset="42%" stop-color="#2d3748"/>
+        <stop offset="100%" stop-color="#1a202c"/>
+      </radialGradient>
+      <radialGradient id="pgBelly" cx="42%" cy="34%" r="75%">
+        <stop offset="0%" stop-color="#ffffff"/>
+        <stop offset="70%" stop-color="#f4f7fb"/>
+        <stop offset="100%" stop-color="#dbe3ee"/>
+      </radialGradient>
+      <linearGradient id="pgBeak" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#ffb64d"/>
+        <stop offset="100%" stop-color="#f08a1d"/>
+      </linearGradient>
+      <linearGradient id="pgScarf" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#ff6b6b"/>
+        <stop offset="100%" stop-color="#e23a3a"/>
+      </linearGradient>
+      <radialGradient id="pgFloor" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="rgba(0,0,0,.22)"/>
+        <stop offset="100%" stop-color="rgba(0,0,0,0)"/>
+      </radialGradient>
+    </defs>`;
+
+  // 地面阴影
+  const floor = `<ellipse cx="100" cy="188" rx="52" ry="9" fill="url(#pgFloor)"/>`;
+
+  // 左右手臂/脚：不同姿态差异
+  let leftArm, rightArm, feet, eyes, extra = "";
+  // 眼睛（基础：睁眼带高光）
+  const eyesOpen = `
+    <g>
+      <ellipse cx="82" cy="74" rx="13" ry="15" fill="#fff"/>
+      <ellipse cx="118" cy="74" rx="13" ry="15" fill="#fff"/>
+      <circle cx="85" cy="77" r="6.5" fill="#1a202c"/>
+      <circle cx="115" cy="77" r="6.5" fill="#1a202c"/>
+      <circle cx="87" cy="74" r="2.2" fill="#fff"/>
+      <circle cx="117" cy="74" r="2.2" fill="#fff"/>
+    </g>`;
+  // 眯眼/开心（success）
+  const eyesHappy = `
+    <g fill="none" stroke="#1a202c" stroke-width="3.4" stroke-linecap="round">
+      <path d="M72 76 q10 -10 20 0"/>
+      <path d="M108 76 q10 -10 20 0"/>
+    </g>`;
+  // 找东西（search，眼睛看向一侧）
+  const eyesSearch = `
+    <g>
+      <ellipse cx="82" cy="74" rx="13" ry="15" fill="#fff"/>
+      <ellipse cx="118" cy="74" rx="13" ry="15" fill="#fff"/>
+      <circle cx="89" cy="78" r="6.5" fill="#1a202c"/>
+      <circle cx="123" cy="78" r="6.5" fill="#1a202c"/>
+      <circle cx="91" cy="75" r="2" fill="#fff"/>
+      <circle cx="125" cy="75" r="2" fill="#fff"/>
+    </g>`;
+
+  eyes = eyesOpen;
+  // 默认双手垂放
+  leftArm = `<path class="pg-arm-l" d="M46 96 q-16 22 -6 46 q10 6 16 -6 q-6 -20 6 -40 z" fill="url(#pgBody)"/>`;
+  rightArm = `<path class="pg-arm-r" d="M154 96 q16 22 6 46 q-10 6 -16 -6 q6 -20 -6 -40 z" fill="url(#pgBody)"/>`;
+  feet = `
+    <path d="M74 176 q-4 12 -18 12 q-8 -1 -3 -9 q9 -6 15 -9 z" fill="url(#pgBeak)"/>
+    <path d="M126 176 q4 12 18 12 q8 -1 3 -9 q-9 -6 -15 -9 z" fill="url(#pgBeak)"/>`;
+
+  if (pose === "wave") {
+    // 右手举起招手
+    rightArm = `<g class="pg-wave" style="transform-origin:154px 96px"><path d="M154 96 q30 -6 40 -30 q10 -6 12 6 q-8 26 -40 42 q-14 4 -12 -18 z" fill="url(#pgBody)"/></g>`;
+  } else if (pose === "scratch") {
+    // 右手举到头顶挠头，眼睛微微看上
+    rightArm = `<path d="M154 96 q24 -18 30 -44 q8 -6 12 4 q-2 26 -26 52 q-12 8 -16 -12 z" fill="url(#pgBody)"/>`;
+    extra = `<g stroke="#f6ad55" stroke-width="3" stroke-linecap="round" opacity=".9"><path d="M150 34 l6 -10"/><path d="M164 40 l10 -6"/></g>`;
+  } else if (pose === "search") {
+    eyes = eyesSearch;
+    // 手搭凉棚
+    rightArm = `<path d="M154 92 q26 -10 34 -2 q8 6 -2 12 q-18 4 -34 8 q-10 -12 2 -18 z" fill="url(#pgBody)"/>`;
+    extra = `<circle cx="150" cy="60" r="12" fill="none" stroke="#f6ad55" stroke-width="3.4"/><line x1="159" y1="69" x2="170" y2="82" stroke="#f6ad55" stroke-width="4" stroke-linecap="round"/>`;
+  } else if (pose === "success") {
+    eyes = eyesHappy;
+    rightArm = `<g style="transform-origin:154px 96px"><path d="M154 96 q30 -6 40 -30 q10 -6 12 6 q-8 26 -40 42 q-14 4 -12 -18 z" fill="url(#pgBody)"/></g>`;
+    extra = `<g stroke="#ffd93b" stroke-width="3" stroke-linecap="round"><path d="M40 48 l-10 -8"/><path d="M52 34 l-4 -12"/><path d="M160 30 l6 -12"/></g>`;
+  }
+
+  return `<svg class="pg-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+    ${defs}
+    ${floor}
+    ${leftArm}
+    ${rightArm}
+    <!-- 身体 -->
+    <path d="M100 20 C60 20 44 58 44 108 C44 158 66 184 100 184 C134 184 156 158 156 108 C156 58 140 20 100 20 Z" fill="url(#pgBody)"/>
+    <!-- 白肚子 -->
+    <path d="M100 62 C74 62 64 92 64 122 C64 154 82 172 100 172 C118 172 136 154 136 122 C136 92 126 62 100 62 Z" fill="url(#pgBelly)"/>
+    <!-- 头顶高光 -->
+    <ellipse cx="84" cy="46" rx="20" ry="12" fill="rgba(255,255,255,.18)"/>
+    ${eyes}
+    <!-- 扁嘴 -->
+    <path d="M88 92 q12 -12 24 0 q-12 10 -24 0 z" fill="url(#pgBeak)"/>
+    <path d="M88 92 q12 8 24 0" fill="none" stroke="#c9740f" stroke-width="1.4"/>
+    <!-- 红围巾 -->
+    <path d="M62 118 q38 20 76 0 q4 12 -6 18 q-32 16 -64 0 q-10 -6 -6 -18 z" fill="url(#pgScarf)"/>
+    <path d="M120 132 q10 22 4 40 q-2 6 -10 4 q-6 -22 -2 -44 z" fill="url(#pgScarf)"/>
+    <path d="M120 132 l-6 20" stroke="rgba(0,0,0,.12)" stroke-width="2" fill="none"/>
+    ${feet}
+    ${extra}
+  </svg>`;
+}

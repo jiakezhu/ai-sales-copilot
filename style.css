@@ -27,17 +27,13 @@
 }
 .qq-penguin {
   position: relative;
-  display: inline-block;
-  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
-  background: #fff;
 }
-.qq-penguin img {
-  position: absolute;
-  max-width: none;
-}
-.qq-penguin--brand { width: 46px; height: 46px; border-radius: 12px; }
-.qq-penguin--brand img { width:75px;height:95px;left:-12px;top:-25px; }
+.pg-svg { width: 100%; height: 100%; display: block; overflow: visible; filter: drop-shadow(0 3px 5px rgba(0,0,0,.18)); }
+.qq-penguin--brand { width: 44px; height: 44px; }
 [data-theme="dark"] {
   --bg: #0d1119; --surface: #151b25; --surface-2: #1b2330; --surface-3: #242d3c;
   --ink: #eef2f8; --ink-2: #b4bdcc; --muted: #7e899d; --line: #252e3d; --line-strong: #354156;
@@ -130,7 +126,8 @@ h3 { font-size:14px; }
 .section-heading > span { color:var(--muted); font-size:12px; }
 .muted { color:var(--muted); }
 .empty-state { min-height:120px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; color:var(--muted); }
-.empty-state > span { width:26px;height:26px;margin-bottom:8px;display:grid;place-items:center;border-radius:50%;background:var(--surface-2);font-size:20px; }
+.empty-state > span.empty-penguin { width:64px;height:64px;margin-bottom:6px;display:block;opacity:.92; }
+.empty-state > span.empty-penguin .pg-svg { filter:drop-shadow(0 2px 4px rgba(0,0,0,.14)); }
 .empty-state b { color:var(--ink-2); font-size:13px; }
 .empty-state p { margin-top:4px; font-size:11.5px; }
 
@@ -138,12 +135,14 @@ h3 { font-size:14px; }
 .today-command { display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:20px; }
 .today-command > div > p:last-child { margin-top:8px;color:var(--td-text-secondary);font-size:13.5px; }
 .ai-assistant-card { position:relative;padding:24px 24px 22px 96px;border:1px solid color-mix(in srgb,var(--td-brand-color-hover) 38%,var(--td-border));border-radius:var(--td-radius-lg);background:linear-gradient(100deg,color-mix(in srgb,var(--blue-soft) 75%,var(--surface)) 0,var(--surface) 72%);box-shadow:var(--td-shadow-1); }
-.qq-penguin--assistant { position:absolute;left:24px;top:26px;width:54px;height:54px;border-radius:14px; }
-.qq-penguin--assistant img { width:88px;height:112px;left:-14px;top:-29px; }
+.qq-penguin--assistant { position:absolute;left:20px;top:20px;width:64px;height:64px; }
+/* 招手的手臂轻轻摆动，让企鹅一直有"活着"的感觉 */
+.qq-penguin--assistant .pg-wave { animation:pgWave 2.2s ease-in-out infinite; }
+@keyframes pgWave { 0%,100%{transform:rotate(0)} 30%{transform:rotate(-16deg)} 60%{transform:rotate(8deg)} }
 .ai-assistant-card.assistant-listening .qq-penguin--assistant { animation:assistantBreath 1.2s ease-in-out infinite; }
 .ai-assistant-card.assistant-reviewing { border-color:var(--td-brand-color-hover); }
 .ai-assistant-card.assistant-success { border-color:var(--td-success);background:linear-gradient(100deg,color-mix(in srgb,var(--td-success) 10%,var(--surface)),var(--surface) 72%); }
-@keyframes assistantBreath { 50% { transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,82,217,.2); } }
+@keyframes assistantBreath { 50% { transform:translateY(-3px) scale(1.03); } }
 .ai-assistant-copy>span { color:var(--td-brand-color);font-size:12px;font-weight:700; }
 .ai-assistant-copy h2 { margin:4px 0; }
 .ai-assistant-copy p { color:var(--td-text-secondary); }
