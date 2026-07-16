@@ -1,0 +1,459 @@
+# Review package: 16b55e9..1562104
+
+## Commits
+1562104 fix: preserve listening while rerendering AI draft
+60829b4 fix: reconcile QQ assistant workflow state
+9c3185b feat: add restrained QQ assistant states
+
+## Files changed
+ app.js                     |  38 ++++++++++
+ style.css                  |   6 +-
+ tests/ui-contract.test.mjs | 181 +++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 224 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/app.js b/app.js
+index 45bc9e7..d8c399e 100644
+--- a/app.js
++++ b/app.js
+@@ -2,20 +2,22 @@
+ // 核心链路：AI / 语音 / 手动采集 → 销售确认 → 客户全流程沉淀 → 一键全景报告
+ 
+ const $ = (s, root = document) => root.querySelector(s);
+ const $$ = (s, root = document) => Array.from(root.querySelectorAll(s));
+ const safe = (value) => String(value == null ? "" : value).replace(/[&<>\"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+ const icon = (name, className = "") => `<i data-lucide="${name}"${className ? ` class="${className}"` : ""}></i>`;
+ 
+ let customers = [];
+ let reportCustomer = null;
+ let toastTimer = null;
++let assistantStateTimer = null;
++let currentAssistantState = "idle";
+ 
+ const state = {
+   page: "today",
+   customerId: null,
+   customerTab: "overview",
+   query: "",
+   stageFilter: "all",
+   aiDraft: null,
+   copilotAttachments: [],
+   recording: false,
+@@ -167,20 +169,21 @@ function navigate(page) {
+ }
+ 
+ function renderApp() {
+   renderNavigation();
+   const root = $("#pageRoot");
+   if (state.page === "today") root.innerHTML = renderToday();
+   if (state.page === "customers") root.innerHTML = state.customerId ? renderCustomerDetail(getCustomer(state.customerId)) : renderCustomers();
+   if (state.page === "tasks") root.innerHTML = renderTasks();
+   if (state.page === "analytics") root.innerHTML = renderAnalytics();
+   if (state.aiDraft && state.page === "today") renderAIDraft();
++  reconcileAssistantState();
+   refreshIcons();
+ }
+ 
+ function renderNavigation() {
+   const taskCount = getTasks().filter(task => !task.done).length;
+   const html = NAV_ITEMS.map(item => `
+     <button class="nav-item ${state.page === item.key ? "active" : ""}" data-action="nav" data-page="${item.key}">
+       <span class="nav-icon">${icon(item.icon)}</span><span>${item.label}</span>${item.key === "tasks" && taskCount ? `<em>${taskCount}</em>` : ""}
+     </button>`).join("");
+   $("#primaryNav").innerHTML = html;
+@@ -513,20 +516,50 @@ function renderAnalytics() {
+       <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">PIPELINE</p><h2>推进阶段分布</h2></div></div><div class="bar-chart">${CRM_STAGES.map(stage => { const count=customers.filter(c=>c.stage===stage.key).length; return `<div><span>${stage.label}</span><i><b style="width:${count/maxStage*100}%;--bar:${stage.color}"></b></i><strong>${count}</strong></div>`; }).join("")}</div></section>
+       <div class="analytics-side">
+         <section class="td-panel stalled-customers"><div class="section-heading"><div><p class="eyebrow">FOLLOW-UP RISK</p><h2>停滞重点客户</h2></div><span>${stalledPriority.length}</span></div>${stalledPriority.length ? `<div class="stalled-list">${stalledPriority.map(item => `<button data-action="open-customer" data-id="${item.customer.id}">${avatar(item.customer)}<span><b>${safe(item.customer.name)}</b><small>${stageLabel(item.customer.stage)} · ${item.days} 天未更新</small></span>${icon("arrow-right")}</button>`).join("")}</div>` : emptyState("重点客户推进正常", "暂时没有超过两周未更新的 S/A 客户。")}</section>
+         <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">GRADE STRUCTURE</p><h2>客户等级结构</h2></div></div><div class="grade-chart">${GRADES.map(g => `<article style="--grade:${g.color}"><b>${g.key}</b><strong>${customers.filter(c=>c.grade===g.key).length}</strong><small>${safe(g.label.split("·").at(-1).trim())}</small></article>`).join("")}</div></section>
+       </div>
+     </div>
+   </div>`;
+ }
+ 
+ // ---------- AI 信息收件箱 ----------
++function applyAssistantState(nextAssistantState) {
++  const card = $("#copilotCard");
++  if (!card) return;
++  card.classList.remove("assistant-listening", "assistant-reviewing", "assistant-success");
++  card.dataset.assistantState = nextAssistantState;
++  if (nextAssistantState !== "idle") card.classList.add(`assistant-${nextAssistantState}`);
++}
++
++function setAssistantState(assistantState) {
++  clearTimeout(assistantStateTimer);
++  assistantStateTimer = null;
++  currentAssistantState = assistantState;
++  applyAssistantState(assistantState);
++  if (assistantState === "success") {
++    assistantStateTimer = setTimeout(() => setAssistantState("idle"), 1200);
++  }
++}
++
++function deriveAssistantState() {
++  if (state.recording) return "listening";
++  if (state.aiDraft) return "reviewing";
++  return currentAssistantState === "success" ? "success" : "idle";
++}
++
++function reconcileAssistantState() {
++  const nextAssistantState = deriveAssistantState();
++  if (nextAssistantState === currentAssistantState) return applyAssistantState(nextAssistantState);
++  setAssistantState(nextAssistantState);
++}
++
+ function focusCopilot() {
+   if (state.page !== "today") {
+     state.page = "today";
+     state.customerId = null;
+     renderApp();
+   }
+   requestAnimationFrame(() => {
+     $("#copilotCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+     $("#copilotInput")?.focus();
+   });
+@@ -595,20 +628,21 @@ function renderAIDraft() {
+   host.innerHTML = `<section class="ai-review">
+     <div class="review-head"><div><span class="review-kicker">AI 已整理 · 等待确认</span><h3>准备写入客户档案</h3></div><label>关联客户<div class="modern-select"><select id="aiTargetSelect"><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${draft.customerId === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label></div>
+     <div class="review-items">
+       <label class="review-item main-review"><input class="draft-check" type="checkbox" data-kind="note" checked /><span class="review-check"></span><div><small>新增推进记录 · ${safe(methodMeta(draft.method).label)}</small><b>${safe(draft.raw)}</b>${draft.contact ? `<p>对接人：${safe(draft.contact)}</p>` : ""}</div></label>
+       ${fields.map(([key,value]) => { const def=FIELD_DEFS.find(d=>d.key===key); return `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="field" data-key="${key}" checked /><span class="review-check"></span><div><small>更新情报 · ${safe(def?.label || key)}</small><b>${safe(value)}</b></div></label>`; }).join("")}
+       ${draft.next ? `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="task" checked /><span class="review-check"></span><div><small>创建下一步${draft.nextDate ? ` · ${formatShortDate(draft.nextDate)}` : ""}</small><b>${safe(draft.next)}</b></div></label>` : ""}
+       ${draft.attachments?.length ? `<article class="review-item review-attachment"><span class="review-file-icon">${icon("files")}</span><div><small>随推进记录保存 · ${draft.attachments.length} 份资料</small><b>${draft.attachments.map(attachment => safe(attachment.name)).join("、")}</b></div></article>` : ""}
+     </div>
+     <div class="review-actions"><button class="text-button" data-action="discard-ai">取消</button><span>所有内容写入后仍可手动修改</span><button class="primary-button" data-action="confirm-ai" ${draft.customerId ? "" : "disabled"}>确认并写入</button></div>
+   </section>`;
++  reconcileAssistantState();
+   refreshIcons();
+ }
+ 
+ function confirmAIDraft() {
+   const draft = state.aiDraft;
+   if (!draft?.customerId) return toast("请选择要写入的客户");
+   const customer = getCustomer(draft.customerId);
+   const checks = $$(".draft-check", $("#aiDraft"));
+   const isChecked = kind => checks.some(box => box.dataset.kind === kind && box.checked);
+   checks.filter(box => box.dataset.kind === "field" && box.checked).forEach(box => {
+@@ -622,49 +656,53 @@ function confirmAIDraft() {
+       place: "", content: draft.raw, next: isChecked("task") ? draft.next : "",
+       nextDate: isChecked("task") ? draft.nextDate : "", taskDone: false, source: "ai-confirmed",
+       attachments,
+     });
+   }
+   persist();
+   state.aiDraft = null;
+   state.copilotAttachments = [];
+   const input = $("#copilotInput"); if (input) input.value = "";
+   renderApp();
++  setAssistantState("success");
+   toast(`已写入「${customer.name}」，可随时手动修改`);
+ }
+ 
+ function discardAIDraft() {
+   state.aiDraft = null;
+   const host = $("#aiDraft"); if (host) host.innerHTML = "";
++  setAssistantState("idle");
+ }
+ 
+ function startVoiceCapture(button) {
+   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+   if (!Recognition) return toast("当前浏览器暂不支持语音识别，可以直接输入文字");
+   if (state.recording) return;
+   const recognition = new Recognition();
+   recognition.lang = "zh-CN";
+   recognition.interimResults = true;
+   recognition.continuous = false;
+   state.recording = true;
++  setAssistantState("listening");
+   button.classList.add("recording");
+   button.innerHTML = `${icon("audio-lines")} 正在听`;
+   refreshIcons();
+   const input = $("#copilotInput");
+   const before = input.value;
+   recognition.onresult = event => {
+     const speech = Array.from(event.results).map(result => result[0].transcript).join("");
+     input.value = `${before}${before ? " " : ""}${speech}`;
+   };
+   recognition.onerror = () => toast("没有听清，请再试一次或改用文字输入");
+   recognition.onend = () => {
+     state.recording = false;
++    reconcileAssistantState();
+     button.classList.remove("recording");
+     button.innerHTML = `${icon("mic")} 语音`;
+     refreshIcons();
+     input.focus();
+   };
+   recognition.start();
+ }
+ 
+ // ---------- 手动录入 ----------
+ function openNewCustomer() {
+diff --git a/style.css b/style.css
+index f2696f3..f68a557 100644
+--- a/style.css
++++ b/style.css
+@@ -135,20 +135,24 @@ h3 { font-size:14px; }
+ .empty-state { min-height:120px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; color:var(--muted); }
+ .empty-state > span { width:26px;height:26px;margin-bottom:8px;display:grid;place-items:center;border-radius:50%;background:var(--surface-2);font-size:20px; }
+ .empty-state b { color:var(--ink-2); font-size:13px; }
+ .empty-state p { margin-top:4px; font-size:11.5px; }
+ 
+ /* Today & copilot */
+ .today-command { display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:20px; }
+ .today-command > div > p:last-child { margin-top:8px;color:var(--td-text-secondary);font-size:13.5px; }
+ .ai-assistant-card { position:relative;padding:24px 24px 22px 96px;border:1px solid color-mix(in srgb,var(--td-brand-color-hover) 38%,var(--td-border));border-radius:var(--td-radius-lg);background:linear-gradient(100deg,color-mix(in srgb,var(--blue-soft) 75%,var(--surface)) 0,var(--surface) 72%);box-shadow:var(--td-shadow-1); }
+ .qq-penguin--assistant { position:absolute;left:24px;top:26px;width:54px;height:54px;border-radius:14px; }
++.ai-assistant-card.assistant-listening .qq-penguin--assistant { animation:assistantBreath 1.2s ease-in-out infinite; }
++.ai-assistant-card.assistant-reviewing { border-color:var(--td-brand-color-hover); }
++.ai-assistant-card.assistant-success { border-color:var(--td-success);background:linear-gradient(100deg,color-mix(in srgb,var(--td-success) 10%,var(--surface)),var(--surface) 72%); }
++@keyframes assistantBreath { 50% { transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,82,217,.2); } }
+ .ai-assistant-copy>span { color:var(--td-brand-color);font-size:12px;font-weight:700; }
+ .ai-assistant-copy h2 { margin:4px 0; }
+ .ai-assistant-copy p { color:var(--td-text-secondary); }
+ .ai-compose { margin-top:17px; }
+ .today-layout { display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.72fr);gap:16px;margin-top:16px; }
+ .td-panel { height:100%;padding:20px;border:1px solid var(--td-border);border-radius:var(--td-radius-lg);background:var(--td-bg-container);box-shadow:var(--td-shadow-1); }
+ .copilot-compose { position:relative;border:1px solid var(--line);border-radius:15px;background:var(--surface);box-shadow:var(--shadow-sm);transition:.2s; }
+ .copilot-compose:focus-within { border-color:color-mix(in srgb,var(--blue) 50%,var(--line));box-shadow:0 0 0 4px var(--blue-soft); }
+ .copilot-compose textarea { width:100%;min-height:84px;padding:14px 16px 7px;resize:none;border:0;background:transparent;color:var(--ink);line-height:1.65; }
+ .compose-actions { min-height:47px;padding:7px 8px 8px 12px;display:flex;align-items:center;gap:8px; }
+@@ -315,11 +319,11 @@ h3 { font-size:14px; }
+   .report-layer,.report-layer * { visibility:visible!important; }
+   .report-layer { position:static!important;display:block!important;overflow:visible!important;background:#fff!important; }
+   .no-print { display:none!important; }
+   .report-document { width:100%!important;margin:0!important;padding:0!important;box-shadow:none!important; }
+   .report-cover { min-height:245mm;page-break-after:always; }
+   .report-section { break-inside:avoid; }
+   .report-section.page-break { break-before:page; }
+   .report-footer { break-inside:avoid; }
+ }
+ 
+-@media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.001ms!important;transition-duration:.001ms!important}}
++@media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.001ms!important;transition-duration:.001ms!important}.ai-assistant-card.assistant-listening .qq-penguin--assistant{animation:none}}
+diff --git a/tests/ui-contract.test.mjs b/tests/ui-contract.test.mjs
+index eaa8f7b..197f166 100644
+--- a/tests/ui-contract.test.mjs
++++ b/tests/ui-contract.test.mjs
+@@ -17,20 +17,46 @@ function loadWorkspaceTestApi(openMenus = []) {
+       querySelector() { return null; },
+       querySelectorAll(selector) { return selector === ".row-more-actions[open]" ? openMenus : []; },
+     },
+     localStorage: { setItem() {} },
+     THEME_KEY: "theme",
+   };
+   vm.runInNewContext(`${read("app.js")}\n;globalThis.__workspaceTestApi = { closeRowMenus, prepareRowMenusForAction, handleAction, getStalledPriorityCustomers };`, sandbox);
+   return { api: sandbox.__workspaceTestApi, sandbox };
+ }
+ 
++function loadAssistantStateTestApi(card, timers, options = {}) {
++  let currentCard = card;
++  const sandbox = {
++    console,
++    document: {
++      addEventListener() {},
++      querySelector(selector) {
++        if (selector === "#copilotCard") return currentCard;
++        if (selector === "#copilotInput") return options.input || null;
++        if (selector === "#aiDraft") return options.draftHost || null;
++        return null;
++      },
++      querySelectorAll() { return []; },
++    },
++    window: { SpeechRecognition: options.Recognition },
++    FIELD_DEFS: [],
++    CONTACT_METHODS: [{ key: "phone", label: "电话", icon: "phone" }],
++    methodMeta: () => ({ label: "电话", icon: "phone" }),
++    setTimeout: timers.setTimeout,
++    clearTimeout: timers.clearTimeout,
++  };
++  vm.runInNewContext(`${read("app.js")}\n;globalThis.__assistantStateTestApi = { state, setAssistantState, reconcileAssistantState, startVoiceCapture, handleChange };`, sandbox);
++  sandbox.__assistantStateTestApi.replaceCard = nextCard => { currentCard = nextCard; };
++  return sandbox.__assistantStateTestApi;
++}
++
+ test("Tencent shell uses the supplied QQ penguin and TDesign tokens", () => {
+   const html = read("index.html");
+   const css = read("style.css");
+   assert.match(css, /--td-brand-color:\s*#0052d9/i);
+   assert.match(css, /--td-brand-color-hover:\s*#366ef4/i);
+   assert.match(css, /--blue:\s*var\(--td-brand-color\)/i);
+   assert.match(css, /--blue-strong:\s*var\(--td-brand-color-active\)/i);
+   assert.match(css, /--blue-soft:\s*var\(--td-brand-color-light\)/i);
+   assert.match(css, /\.mobile-capture\{[^}]*background:linear-gradient\(145deg,var\(--td-brand-color-hover\),var\(--td-brand-color\)\)/i);
+   assert.doesNotMatch(html, /<script\s+src="report\.js"/i);
+@@ -116,20 +142,175 @@ test("business views use professional workspace classes without mascot imagery",
+   assert.match(js, /customer-worktable/);
+   assert.match(js, /customer-summary-header/);
+   assert.match(js, /detail-section-nav/);
+   assert.match(js, /task-worktable/);
+   assert.match(js, /analytics-workspace/);
+   const businessStart = js.indexOf("function renderCustomers");
+   const aiStart = js.indexOf("function focusCopilot");
+   assert.doesNotMatch(js.slice(businessStart, aiStart), /qq-penguin/);
+ });
+ 
++test("QQ penguin is controlled by explicit assistant states", () => {
++  const js = read("app.js");
++  assert.match(js, /function setAssistantState\(assistantState\)/);
++  assert.match(js, /setAssistantState\("listening"\)/);
++  assert.match(js, /if \(state\.aiDraft\) return "reviewing";/);
++  assert.match(js, /function reconcileAssistantState\(\)/);
++  assert.match(js, /setAssistantState\("success"\)/);
++  assert.match(js, /setAssistantState\("idle"\)/);
++});
++
++test("assistant state helper applies one card state and cancels stale success reset", () => {
++  const classes = new Set(["ai-assistant-card"]);
++  const card = {
++    dataset: {},
++    classList: {
++      add(value) { classes.add(value); },
++      remove(...values) { values.forEach(value => classes.delete(value)); },
++    },
++  };
++  let pendingTimer = null;
++  let scheduledDelay = null;
++  const api = loadAssistantStateTestApi(card, {
++    setTimeout(callback, delay) { pendingTimer = callback; scheduledDelay = delay; return 1; },
++    clearTimeout() { pendingTimer = null; },
++  });
++
++  api.setAssistantState("success");
++  assert.equal(card.dataset.assistantState, "success");
++  assert.equal(classes.has("assistant-success"), true);
++  assert.equal(scheduledDelay, 1200);
++
++  api.setAssistantState("listening");
++  assert.equal(card.dataset.assistantState, "listening");
++  assert.equal(classes.has("assistant-success"), false);
++  assert.equal(classes.has("assistant-listening"), true);
++  assert.equal(pendingTimer, null);
++});
++
++test("voice end returns to reviewing when an AI draft already exists", () => {
++  const classes = new Set(["ai-assistant-card"]);
++  const card = {
++    dataset: {},
++    classList: {
++      add(value) { classes.add(value); },
++      remove(...values) { values.forEach(value => classes.delete(value)); },
++    },
++  };
++  const input = { value: "", focus() {} };
++  let recognition;
++  class Recognition {
++    constructor() { recognition = this; }
++    start() {}
++  }
++  const buttonClasses = new Set();
++  const button = {
++    innerHTML: "",
++    classList: {
++      add(value) { buttonClasses.add(value); },
++      remove(value) { buttonClasses.delete(value); },
++    },
++  };
++  const api = loadAssistantStateTestApi(card, {
++    setTimeout() { return 1; },
++    clearTimeout() {},
++  }, { input, Recognition });
++  api.state.aiDraft = { raw: "待确认草稿" };
++
++  api.startVoiceCapture(button);
++  assert.equal(card.dataset.assistantState, "listening");
++  recognition.onend();
++
++  assert.equal(api.state.recording, false);
++  assert.equal(card.dataset.assistantState, "reviewing");
++  assert.equal(classes.has("assistant-reviewing"), true);
++  assert.equal(buttonClasses.has("recording"), false);
++});
++
++test("reconcile restores listening on a rebuilt Today card without extending success", () => {
++  const makeCard = () => {
++    const classes = new Set(["ai-assistant-card"]);
++    return {
++      classes,
++      dataset: {},
++      classList: {
++        add(value) { classes.add(value); },
++        remove(...values) { values.forEach(value => classes.delete(value)); },
++      },
++    };
++  };
++  const firstCard = makeCard();
++  let timerCount = 0;
++  const api = loadAssistantStateTestApi(firstCard, {
++    setTimeout() { timerCount += 1; return timerCount; },
++    clearTimeout() {},
++  });
++
++  api.setAssistantState("success");
++  const successCard = makeCard();
++  api.replaceCard(successCard);
++  api.reconcileAssistantState();
++  assert.equal(successCard.dataset.assistantState, "success");
++  assert.equal(timerCount, 1);
++
++  api.state.recording = true;
++  const rebuiltCard = makeCard();
++  api.replaceCard(rebuiltCard);
++  api.reconcileAssistantState();
++  assert.equal(rebuiltCard.dataset.assistantState, "listening");
++  assert.equal(rebuiltCard.classes.has("assistant-listening"), true);
++  assert.match(read("app.js"), /function renderApp\(\)[\s\S]*?reconcileAssistantState\(\);/);
++});
++
++test("target selection rerender keeps listening while speech capture is active", async () => {
++  const classes = new Set(["ai-assistant-card"]);
++  const card = {
++    dataset: {},
++    classList: {
++      add(value) { classes.add(value); },
++      remove(...values) { values.forEach(value => classes.delete(value)); },
++    },
++  };
++  const draftHost = { innerHTML: "" };
++  const api = loadAssistantStateTestApi(card, {
++    setTimeout() { return 1; },
++    clearTimeout() {},
++  }, { draftHost });
++  api.state.recording = true;
++  api.state.aiDraft = {
++    customerId: "",
++    raw: "录音中的草稿",
++    found: {},
++    method: "phone",
++    contact: "",
++    next: "",
++    nextDate: "",
++    attachments: [],
++  };
++
++  await api.handleChange({ target: { id: "aiTargetSelect", value: "customer-1", matches() { return false; } } });
++
++  assert.equal(api.state.aiDraft.customerId, "customer-1");
++  assert.equal(card.dataset.assistantState, "listening");
++  assert.equal(classes.has("assistant-listening"), true);
++  assert.equal(classes.has("assistant-reviewing"), false);
++});
++
++test("assistant state styling stays restrained and motion-safe", () => {
++  const css = read("style.css");
++  assert.match(css, /\.ai-assistant-card\.assistant-listening\s+\.qq-penguin--assistant\s*\{[^}]*animation:\s*assistantBreath 1\.2s ease-in-out infinite/i);
++  assert.match(css, /\.ai-assistant-card\.assistant-reviewing\s*\{[^}]*var\(--td-brand-color-hover\)/i);
++  assert.match(css, /\.ai-assistant-card\.assistant-success\s*\{[^}]*var\(--td-success\)/i);
++  assert.match(css, /@keyframes\s+assistantBreath\s*\{[^}]*50%\s*\{[^}]*translateY\(-2px\)/i);
++  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.ai-assistant-card\.assistant-listening\s+\.qq-penguin--assistant\s*\{[^}]*animation:\s*none/i);
++});
++
+ test("customer and task worktables share TDesign surfaces and remain readable in dark mode", () => {
+   const css = read("style.css");
+   assert.match(css, /\.customer-worktable\s*,\s*\.task-worktable\s*\{[^}]*overflow:\s*hidden[^}]*padding:\s*0/i);
+   assert.match(css, /\.task-worktable\s*>\s*\.section-heading\s*\{[^}]*var\(--td-border\)/i);
+   assert.match(css, /\.task-row\s*\{[^}]*border-bottom:\s*1px solid var\(--td-border\)[^}]*transition:\s*background/i);
+   assert.match(css, /\.task-row:hover\s*\{[^}]*var\(--td-brand-color-light\)[^}]*var\(--td-bg-container\)/i);
+ });
+ 
+ test("analytics retains only actionable responsive workspaces", () => {
+   const js = read("app.js");

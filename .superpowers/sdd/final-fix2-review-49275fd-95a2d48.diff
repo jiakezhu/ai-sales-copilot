@@ -1,0 +1,435 @@
+# Review package: 49275fd..95a2d48
+
+## Commits
+95a2d48 fix: secure evidence links and refine date parsing
+
+## Files changed
+ app.js                     |  77 +++++++++++++++++++++++------
+ tests/ui-contract.test.mjs | 121 ++++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 183 insertions(+), 15 deletions(-)
+
+## Diff
+diff --git a/app.js b/app.js
+index cdcc944..a3473b2 100644
+--- a/app.js
++++ b/app.js
+@@ -7,20 +7,21 @@ const safe = (value) => String(value == null ? "" : value).replace(/[&<>\"]/g, c
+ const icon = (name, className = "") => `<i data-lucide="${name}"${className ? ` class="${className}"` : ""}></i>`;
+ const DIALOG_FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+ 
+ let customers = [];
+ let reportCustomer = null;
+ let toastTimer = null;
+ let assistantStateTimer = null;
+ let currentAssistantState = "idle";
+ let modalReturnFocus = null;
+ let reportReturnFocus = null;
++const trustedEvidenceBlobUrls = new Set();
+ 
+ const state = {
+   page: "today",
+   customerId: null,
+   customerTab: "overview",
+   query: "",
+   stageFilter: "all",
+   aiDraft: null,
+   copilotAttachments: [],
+   recording: false,
+@@ -478,30 +479,43 @@ function renderIntelligence(customer) {
+     </section>
+     <aside class="intel-side">
+       <section class="panel"><div class="section-heading"><h2>核心痛点</h2><button class="text-button" data-action="add-pain" data-customer="${customer.id}">${icon("plus")} 添加</button></div><div class="editable-list">${customer.painPoints.length ? customer.painPoints.map((p,i) => `<article><span>${safe(p.v)}</span><button data-action="remove-pain" data-customer="${customer.id}" data-index="${i}" aria-label="删除痛点">${icon("x")}</button></article>`).join("") : emptyState("尚未记录痛点", "从沟通中持续补充。")}</div></section>
+       <section class="panel"><div class="section-heading"><h2>匹配方案</h2><button class="text-button" data-action="add-solution" data-customer="${customer.id}">${icon("plus")} 添加</button></div><div class="solution-list">${customer.solution.length ? customer.solution.map(s => `<article><b>${safe(s.product)}</b><p>${safe(s.reason)}</p></article>`).join("") : emptyState("尚未匹配方案", "基于明确痛点再提供方案。")}</div></section>
+       <section class="panel"><div class="section-heading"><h2>证据材料</h2><span>${customer.assets.length}</span></div>${customer.assets.length ? `<div class="asset-list">${customer.assets.map(a => renderEvidenceItem(customer, a)).join("")}</div>` : emptyState("还没有证据材料", "可在记录推进时上传文件。")}</section>
+     </aside>
+   </div>`;
+ }
+ 
+ function evidenceOpenTarget(asset) {
+-  const url = String(asset?.dataUrl || asset?.fileUrl || asset?.url || asset?.cloudPath || asset?.fileID || "").trim();
+-  if (!url) return { kind: "unavailable", url: "" };
+-  const image = Boolean(asset?.isImage) || /^data:image\//i.test(url) || /\.(?:png|jpe?g|gif|webp|svg)(?:[?#]|$)/i.test(url);
+-  return { kind: image ? "preview" : "open", url };
++  const url = String(asset?.dataUrl || asset?.fileUrl || asset?.url || "").trim();
++  if (/^https?:\/\/[^\s<>"']+$/i.test(url)) {
++    const image = Boolean(asset?.isImage) || /\.(?:png|jpe?g|gif|webp)(?:[?#]|$)/i.test(url);
++    return { kind: image ? "preview" : "open", url };
++  }
++  if (/^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/=\s]+$/i.test(url)) return { kind: "preview", url };
++  if (trustedEvidenceBlobUrls.has(url) && /^blob:https?:\/\/[^\s<>"']+$/i.test(url)) return { kind: "preview", url };
++  if (url) return { kind: "unsafe", url: "" };
++  const cloudRef = String(asset?.fileID || asset?.cloudPath || "").trim();
++  if (cloudRef) return { kind: "cloud", url: cloudRef };
++  return { kind: "unavailable", url: "" };
++}
++
++function registerEvidenceBlobUrl(url) {
++  const value = String(url || "").trim();
++  if (/^blob:https?:\/\/[^\s<>"']+$/i.test(value)) trustedEvidenceBlobUrls.add(value);
+ }
+ 
+ function renderEvidenceItem(customer, asset) {
+   const target = evidenceOpenTarget(asset);
+-  const availability = target.kind === "unavailable" ? "仅保存了本地元数据，无法预览" : target.kind === "preview" ? "可预览" : "可打开或下载";
+-  return `<article><span>${icon(target.kind === "preview" ? "image" : "file-check-2")}</span><div><b>${safe(asset.name || "未命名材料")}</b><small>${safe(assetTypeLabel(asset.type))} · ${formatRelative(asset.createdAt)} · ${availability}</small></div><span class="asset-actions"><button data-action="open-asset" data-customer="${customer.id}" data-asset="${asset.id}" ${target.kind === "unavailable" ? "disabled" : ""} aria-label="${target.kind === "unavailable" ? "此材料不可预览" : "打开材料"}">${icon(target.kind === "preview" ? "eye" : "external-link")}</button><button data-action="remove-asset" data-customer="${customer.id}" data-asset="${asset.id}" aria-label="删除材料">${icon("trash-2")}</button></span></article>`;
++  const availability = target.kind === "unavailable" ? "仅保存了本地元数据，无法预览" : target.kind === "unsafe" ? "链接不安全，无法打开" : target.kind === "cloud" ? "云端材料，打开时获取临时链接" : target.kind === "preview" ? "可预览" : "可打开或下载";
++  const unavailable = ["unavailable", "unsafe"].includes(target.kind);
++  return `<article><span>${icon(target.kind === "preview" ? "image" : "file-check-2")}</span><div><b>${safe(asset.name || "未命名材料")}</b><small>${safe(assetTypeLabel(asset.type))} · ${formatRelative(asset.createdAt)} · ${availability}</small></div><span class="asset-actions"><button data-action="open-asset" data-customer="${safe(customer.id)}" data-asset="${safe(asset.id)}" ${unavailable ? "disabled" : ""} aria-label="${unavailable ? "此材料不可打开" : "打开材料"}">${icon(target.kind === "preview" ? "eye" : "external-link")}</button><button data-action="remove-asset" data-customer="${safe(customer.id)}" data-asset="${safe(asset.id)}" aria-label="删除材料">${icon("trash-2")}</button></span></article>`;
+ }
+ 
+ function intelField(customer, def, multiline = false) {
+   const value = customer.fields[def.key]?.v || "";
+   return `<label class="intel-field ${multiline ? "wide" : ""}"><span>${safe(def.label)}</span>${multiline ? `<textarea rows="3" data-intel-field="${def.key}" data-customer="${customer.id}" placeholder="${safe(def.ph)}">${safe(value)}</textarea>` : `<input data-intel-field="${def.key}" data-customer="${customer.id}" value="${safe(value)}" placeholder="${safe(def.ph)}" />`}</label>`;
+ }
+ 
+ function renderTasks() {
+   const tasks = getTasks().sort(taskPriority);
+   const open = tasks.filter(t => !t.done);
+@@ -607,43 +621,58 @@ async function handleCopilotFiles(fileList) {
+   if (failed) toast(`${failed} 份资料读取失败，请重新选择`);
+ }
+ 
+ function formatFileSize(bytes) {
+   const size = Number(bytes) || 0;
+   if (size < 1024) return `${size} B`;
+   if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} KB`;
+   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+ }
+ 
+-function analyzeCopilot() {
++function analyzeCopilot(baseDate = new Date()) {
+   const input = $("#copilotInput");
+   const raw = input?.value.trim();
+   if (!raw) return toast("先输入一段客户信息，或使用语音记录");
+   const extracted = AIEngine.extract(raw);
+   const matched = customers.find(c => raw.includes(c.name)) || customers.find(c => extracted.name && c.name.includes(extracted.name));
+   const method = /微信/.test(raw) ? "wechat" : /邮件/.test(raw) ? "email" : /拜访|上门/.test(raw) ? "visit" : /会议|开会/.test(raw) ? "meeting" : "phone";
+-  const contactMatch = raw.match(/(?:和|跟|联系了?|对接人[：:]?)\s*([\u4e00-\u9fa5A-Za-z]{2,10})(?:沟通|聊|通话|开会|说|，|,)/);
+-  const action = extractNextAction(raw, new Date());
++  const action = extractNextAction(raw, baseDate);
+   state.aiDraft = {
+     customerId: matched?.id || "",
+     raw,
+     found: extracted.found,
+     method,
+-    contact: contactMatch?.[1] || "",
++    contact: extractContact(raw, matched),
+     next: action.next,
+     nextDate: action.nextDate,
+     attachments: [...state.copilotAttachments],
+   };
+   renderAIDraft();
+   $("#aiDraft")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+ }
+ 
++function extractContact(raw, matchedCustomer) {
++  const text = String(raw || "");
++  const known = [...(matchedCustomer?.orgChain || [])]
++    .filter(person => person?.name && text.includes(person.name))
++    .sort((a, b) => b.name.length - a.name.length)[0];
++  if (known) return known.name;
++  const customerIndex = matchedCustomer?.name ? text.indexOf(matchedCustomer.name) : -1;
++  if (customerIndex >= 0) {
++    const afterCustomer = text.slice(customerIndex + matchedCustomer.name.length);
++    const direct = afterCustomer.match(/^\s*(?:的)?([\u4e00-\u9fa5A-Za-z·]{2,10}?)(?=通了电话|沟通|通话|聊|开会|说|，|,)/);
++    if (direct) return direct[1];
++  }
++  const fallback = text.match(/(?:和|跟|联系了?|对接人[：:]?)\s*([\u4e00-\u9fa5A-Za-z·]{2,10}?)(?=通了电话|沟通|通话|聊|开会|说|，|,)/);
++  return fallback?.[1] || "";
++}
++
+ function renderAIDraft() {
+   const host = $("#aiDraft");
+   if (!host || !state.aiDraft) return;
+   const draft = state.aiDraft;
+   const fields = Object.entries(draft.found);
+   host.innerHTML = `<section class="ai-review">
+     <div class="review-head"><div><span class="review-kicker">AI 已整理 · 等待确认</span><h3>准备写入客户档案</h3></div><label>关联客户<div class="modern-select"><select id="aiTargetSelect"><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${draft.customerId === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label></div>
+     <div class="review-items">
+       <label class="review-item main-review"><input class="draft-check" type="checkbox" data-kind="note" checked /><span class="review-check"></span><div><small>新增推进记录 · ${safe(methodMeta(draft.method).label)}</small><b>${safe(draft.raw)}</b>${draft.contact ? `<p>对接人：${safe(draft.contact)}</p>` : ""}</div></label>
+       ${fields.map(([key,value]) => { const def=FIELD_DEFS.find(d=>d.key===key); return `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="field" data-key="${key}" checked /><span class="review-check"></span><div><small>更新情报 · ${safe(def?.label || key)}</small><b>${safe(value)}</b></div></label>`; }).join("")}
+@@ -846,24 +875,44 @@ function upsertContact(customer, contactPatch) {
+   const current = customer.orgChain[index];
+   customer.orgChain[index] = { ...current, ...contactPatch, id: current.id };
+   return customer.orgChain[index];
+ }
+ 
+ function removeEvidenceAsset(customer, assetId) {
+   customer.assets = customer.assets.filter(asset => asset.id !== assetId);
+   customer.notes.forEach(note => { note.attachments = (note.attachments || []).filter(asset => asset.id !== assetId); });
+ }
+ 
+-function openEvidenceAsset(customerId, assetId) {
++async function resolveCloudEvidenceUrl(cloudRef) {
++  const app = typeof CloudAuth !== "undefined" ? CloudAuth?.app : null;
++  if (typeof CLOUD_ENABLED === "undefined" || !CLOUD_ENABLED || typeof app?.getTempFileURL !== "function") return "";
++  try {
++    const result = await app.getTempFileURL({ fileList: [cloudRef] });
++    const url = String(result?.fileList?.[0]?.tempFileURL || "").trim();
++    return /^https:\/\/[^\s<>"']+$/i.test(url) ? url : "";
++  } catch (error) {
++    console.warn("Cloud evidence URL unavailable", error);
++    return "";
++  }
++}
++
++async function openEvidenceAsset(customerId, assetId) {
+   const asset = getCustomer(customerId)?.assets.find(item => item.id === assetId);
+   const target = evidenceOpenTarget(asset);
+   if (target.kind === "unavailable") return toast("该本地文件仅保存了名称和大小，无法预览");
++  if (target.kind === "unsafe") return toast("材料链接不安全，已拒绝打开");
++  if (target.kind === "cloud") {
++    const temporaryUrl = await resolveCloudEvidenceUrl(target.url);
++    if (!temporaryUrl) return toast("云端材料暂时无法打开，请稍后重试");
++    window.open(temporaryUrl, "_blank", "noopener,noreferrer");
++    return;
++  }
+   window.open(target.url, "_blank", "noopener,noreferrer");
+ }
+ 
+ function deleteEvidenceAsset(customerId, assetId) {
+   const customer = getCustomer(customerId);
+   if (!customer || !window.confirm("确认删除这份材料？报告中的证据索引也会同步更新。")) return;
+   removeEvidenceAsset(customer, assetId);
+   persist(); renderApp(); toast("材料已删除，推进记录引用已同步清理");
+ }
+ 
+@@ -1006,32 +1055,32 @@ function parseNaturalDate(text, baseDate = new Date()) {
+   const input = String(text || "");
+   const explicit = input.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})[日号]?/);
+   if (explicit) return dateString(new Date(Number(explicit[1]), Number(explicit[2]) - 1, Number(explicit[3])));
+   const monthDay = input.match(/(?<!\d)(\d{1,2})月(\d{1,2})[日号]?/);
+   if (monthDay) return dateString(new Date(baseDate.getFullYear(), Number(monthDay[1]) - 1, Number(monthDay[2])));
+   const relative = input.match(/(今天|明天|后天)/);
+   if (relative) {
+     const offset = { 今天: 0, 明天: 1, 后天: 2 }[relative[1]];
+     return dateString(new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + offset));
+   }
+-  const week = input.match(/(本周|下周|下下周)([一二三四五六日天])/);
++  const week = input.match(/(本周|下下周|下周)([一二三四五六日天])?/);
+   if (week) {
+     const weekOffset = { 本周: 0, 下周: 1, 下下周: 2 }[week[1]];
+-    const weekday = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 }[week[2]];
++    const weekday = week[2] ? { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 }[week[2]] : 7;
+     const currentWeekday = baseDate.getDay() || 7;
+     return dateString(new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() - currentWeekday + 1 + weekOffset * 7 + weekday - 1));
+   }
+   return "";
+ }
+ function extractNextAction(text, baseDate = new Date()) {
+   const input = String(text || "");
+-  const dateToken = input.match(/(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}[日号]?|\d{1,2}月\d{1,2}[日号]?|今天|明天|后天|(?:本周|下周|下下周)[一二三四五六日天])/);
++  const dateToken = input.match(/(?:20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}[日号]?|\d{1,2}月\d{1,2}[日号]?|今天|明天|后天|(?:本周|下下周|下周)[一二三四五六日天]?)/);
+   if (dateToken) {
+     const tail = input.slice((dateToken.index || 0) + dateToken[0].length).split(/[。；\n]/)[0]
+       .replace(/^[，,:：\s]+/, "").replace(/[，,]?\s*(?:并)?提醒我.*$/, "").trim();
+     if (tail) return { next: tail, nextDate: parseNaturalDate(dateToken[0], baseDate) };
+   }
+   const generic = input.match(/(?:下一步|接下来|后续|提醒我)[：:]?([^。；\n]+)/);
+   return { next: generic?.[1]?.replace(/(?:并)?提醒我.*$/, "").trim() || "", nextDate: parseNaturalDate(input, baseDate) };
+ }
+ function extractDate(text, baseDate = new Date()) { return parseNaturalDate(text, baseDate); }
+ 
+diff --git a/tests/ui-contract.test.mjs b/tests/ui-contract.test.mjs
+index ea7ac15..70fdff8 100644
+--- a/tests/ui-contract.test.mjs
++++ b/tests/ui-contract.test.mjs
+@@ -103,20 +103,69 @@ function loadFinalFixApi() {
+     THEME_KEY: "theme",
+     FIELD_DEFS: [],
+     CONTACT_METHODS: [{ key: "phone", label: "电话", color: "#000" }],
+     GRADES: [], CRM_STAGES: [], ASSET_TYPES: [],
+     CRM: { save(value) { saved.push(JSON.parse(JSON.stringify(value))); } },
+   };
+   vm.runInNewContext(`${read("app.js")}\n;globalThis.__finalFixApi = { parseNaturalDate, extractNextAction, applyAIDraftSelection, upsertProgressNote, removeProgressNote, upsertContact, removeEvidenceAsset, evidenceOpenTarget };`, sandbox);
+   return { api: sandbox.__finalFixApi, saved };
+ }
+ 
++function loadAnalyzeCopilotApi(raw) {
++  const input = { value: raw };
++  const draftHost = { innerHTML: "", scrollIntoView() {} };
++  const sandbox = {
++    console,
++    document: {
++      addEventListener() {},
++      querySelector(selector) {
++        if (selector === "#copilotInput") return input;
++        if (selector === "#aiDraft") return draftHost;
++        return null;
++      },
++      querySelectorAll() { return []; },
++    },
++    window: {}, localStorage: { setItem() {} }, THEME_KEY: "theme",
++    FIELD_DEFS: [], GRADES: [], CRM_STAGES: [], ASSET_TYPES: [],
++    CONTACT_METHODS: [{ key: "phone", label: "电话", color: "#000" }],
++    AIEngine: { extract() { return { name: "", found: {} }; } },
++    methodMeta() { return { label: "电话", color: "#000" }; },
++    setTimeout() { return 1; }, clearTimeout() {},
++  };
++  vm.runInNewContext(`${read("app.js")}\n;globalThis.__analyzeApi = { state, analyzeCopilot, setCustomers(value) { customers = value; } };`, sandbox);
++  sandbox.__analyzeApi.draftHtml = () => draftHost.innerHTML;
++  return sandbox.__analyzeApi;
++}
++
++function loadEvidenceOpenApi({ cloudEnabled = false, getTempFileURL } = {}) {
++  const opened = [];
++  const toastMessages = [];
++  const classes = { remove() {}, add() {} };
++  const sandbox = {
++    console: { ...console, warn() {} },
++    document: {
++      addEventListener() {},
++      querySelector(selector) { return selector === "#toast" ? { textContent: "", classList: classes } : null; },
++      querySelectorAll() { return []; },
++    },
++    window: { open(url) { opened.push(url); return {}; } },
++    localStorage: { setItem() {} }, THEME_KEY: "theme",
++    FIELD_DEFS: [], CONTACT_METHODS: [], GRADES: [], CRM_STAGES: [], ASSET_TYPES: [],
++    CLOUD_ENABLED: cloudEnabled,
++    CloudAuth: { app: getTempFileURL ? { getTempFileURL } : {} },
++    setTimeout() { return 1; }, clearTimeout() {},
++  };
++  const context = { ...sandbox, __toasts: toastMessages };
++  vm.runInNewContext(`${read("app.js")}\n;toast = message => { globalThis.__toasts.push(message); }; globalThis.__evidenceApi = { evidenceOpenTarget, registerEvidenceBlobUrl, resolveCloudEvidenceUrl, openEvidenceAsset, setCustomers(value) { customers = value; } };`, context);
++  return { api: context.__evidenceApi, opened, toastMessages };
++}
++
+ function reportSection(html, title) {
+   return html.match(new RegExp(`<section[^>]*>\\s*<div class="report-section-title"><h2>${title}</h2></div>[\\s\\S]*?</section>`))?.[0] || "";
+ }
+ 
+ test("Tencent shell uses the supplied QQ penguin and TDesign tokens", () => {
+   const html = read("index.html");
+   const css = read("style.css");
+   assert.match(css, /--td-brand-color:\s*#0052d9/i);
+   assert.match(css, /--td-brand-color-hover:\s*#366ef4/i);
+   assert.match(css, /--blue:\s*var\(--td-brand-color\)/i);
+@@ -898,27 +947,56 @@ test("390px report toolbar keeps close in the title row and exports together", (
+   assert.match(compact, /\.report-actions \.icon-button\s*\{[^}]*position:\s*absolute[^}]*top:\s*10px[^}]*right:\s*12px[^}]*width:\s*44px[^}]*height:\s*44px/i);
+ });
+ 
+ test("natural Chinese dates and date-prefixed actions resolve against a fixed base date", () => {
+   const { api } = loadFinalFixApi();
+   const base = new Date(2026, 6, 16, 9, 0, 0);
+   const expected = new Map([
+     ["今天", "2026-07-16"], ["明天", "2026-07-17"], ["后天", "2026-07-18"],
+     ["本周一", "2026-07-13"], ["本周日", "2026-07-19"],
+     ["下周三", "2026-07-22"], ["下下周五", "2026-07-31"],
++    ["本周", "2026-07-19"], ["下周", "2026-07-26"], ["下下周", "2026-08-02"],
+     ["2026/8/2", "2026-08-02"], ["8月3日", "2026-08-03"],
+   ]);
+   for (const [text, date] of expected) assert.equal(api.parseNaturalDate(text, base), date, text);
+ 
+   const parsed = api.extractNextAction("下周三发 GAAP 对比方案，并提醒我跟进。", base);
+   assert.equal(parsed.next, "发 GAAP 对比方案");
+   assert.equal(parsed.nextDate, "2026-07-22");
++  assert.deepEqual({ ...api.extractNextAction("下周发方案", base) }, { next: "发方案", nextDate: "2026-07-26" });
++});
++
++test("the complete homepage example resolves matched customer, contact, action, and visible date", () => {
++  const raw = "刚和星澜互娱王工通了电话，对方担心海外延迟。下周三发 GAAP 对比方案，并提醒我跟进。";
++  const api = loadAnalyzeCopilotApi(raw);
++  api.setCustomers([{ id: "c-star", name: "星澜互娱", orgChain: [{ id: "p1", name: "王工" }] }]);
++  api.analyzeCopilot(new Date(2026, 6, 16, 9, 0, 0));
++  assert.equal(api.state.aiDraft.customerId, "c-star");
++  assert.equal(api.state.aiDraft.contact, "王工");
++  assert.equal(api.state.aiDraft.next, "发 GAAP 对比方案");
++  assert.equal(api.state.aiDraft.nextDate, "2026-07-22");
++  assert.match(api.draftHtml(), /创建下一步 · 7月22日/);
++});
++
++test("a bare next-week action receives Sunday, renders it, and can become a task", () => {
++  const raw = "星澜互娱下周发方案";
++  const analyze = loadAnalyzeCopilotApi(raw);
++  analyze.setCustomers([{ id: "c-star", name: "星澜互娱", orgChain: [] }]);
++  analyze.analyzeCopilot(new Date(2026, 6, 16, 9, 0, 0));
++  assert.equal(analyze.state.aiDraft.next, "发方案");
++  assert.equal(analyze.state.aiDraft.nextDate, "2026-07-26");
++  assert.match(analyze.draftHtml(), /创建下一步 · 7月26日/);
++
++  const { api } = loadFinalFixApi();
++  const customer = { fields: {}, notes: [], assets: [] };
++  api.applyAIDraftSelection(customer, analyze.state.aiDraft, { note: false, task: true, fields: [] }, "2026-07-16 09:00", "n1");
++  assert.equal(customer.notes.filter(note => note.next === "发方案" && note.nextDate === "2026-07-26").length, 1);
+ });
+ 
+ test("AI candidate selections persist independently and expose a task through getTasks semantics", () => {
+   const { api } = loadFinalFixApi();
+   const baseCustomer = () => ({ id: "c1", fields: {}, notes: [], assets: [], raidFile: { plan: { action: "保留" } }, funnel: { reached: 9 } });
+   const draft = { raw: "原始沟通", method: "phone", contact: "王工", found: { industry: "游戏" }, next: "发方案", nextDate: "2026-07-22", attachments: [{ id: "a1", name: "证据.png" }] };
+ 
+   const taskOnly = baseCustomer();
+   const result = api.applyAIDraftSelection(taskOnly, draft, { note: false, task: true, fields: [] }, "2026-07-16 09:00", "n-task");
+   assert.equal(result.persisted, true);
+@@ -972,29 +1050,70 @@ test("progress and contact upserts preserve identity, attachments, and hierarchy
+ 
+   api.upsertContact(customer, { id: "p1", pid: null, name: "新名", role: "CTO", level: 1 });
+   assert.equal(customer.orgChain.find(x => x.id === "p1").name, "新名");
+   assert.equal(customer.orgChain.find(x => x.id === "child").pid, "p1");
+ });
+ 
+ test("evidence actions expose real content, identify metadata-only files, and remove ghost references", () => {
+   const { api } = loadFinalFixApi();
+   assert.deepEqual({ ...api.evidenceOpenTarget({ dataUrl: "data:image/png;base64,AA", isImage: true }) }, { kind: "preview", url: "data:image/png;base64,AA" });
+   assert.deepEqual({ ...api.evidenceOpenTarget({ fileUrl: "https://example.com/a.pdf" }) }, { kind: "open", url: "https://example.com/a.pdf" });
+-  assert.deepEqual({ ...api.evidenceOpenTarget({ cloudPath: "cloud://bucket/a.pdf" }) }, { kind: "open", url: "cloud://bucket/a.pdf" });
++  assert.deepEqual({ ...api.evidenceOpenTarget({ cloudPath: "cloud://bucket/a.pdf" }) }, { kind: "cloud", url: "cloud://bucket/a.pdf" });
+   assert.deepEqual({ ...api.evidenceOpenTarget({ name: "本地.pdf", size: 100 }) }, { kind: "unavailable", url: "" });
++  for (const unsafe of [
++    { url: "javascript:alert(1)" }, { url: "file:///etc/passwd" },
++    { dataUrl: "data:text/html,<script>alert(1)</script>" },
++    { dataUrl: "data:image/svg+xml,<svg onload=alert(1)>" },
++    { dataUrl: "data:application/pdf;base64,AA==" },
++  ]) assert.equal(api.evidenceOpenTarget(unsafe).kind, "unsafe");
+ 
+   const customer = { assets: [{ id: "a1" }, { id: "a2" }], notes: [{ attachments: [{ id: "a1" }, { id: "a2" }] }] };
+   api.removeEvidenceAsset(customer, "a1");
+   assert.deepEqual(Array.from(customer.assets, x => x.id), ["a2"]);
+   assert.deepEqual(Array.from(customer.notes[0].attachments, x => x.id), ["a2"]);
+ });
+ 
++test("evidence open path allows safe raster/https and rejects malicious protocols", async () => {
++  const harness = loadEvidenceOpenApi();
++  harness.api.setCustomers([{ id: "c1", assets: [
++    { id: "https", url: "https://example.com/a.pdf" },
++    { id: "png", dataUrl: "data:image/png;base64,AA==", isImage: true },
++    { id: "evil", url: "javascript:alert(1)" },
++  ] }]);
++  await harness.api.openEvidenceAsset("c1", "https");
++  await harness.api.openEvidenceAsset("c1", "png");
++  await harness.api.openEvidenceAsset("c1", "evil");
++  assert.deepEqual(harness.opened, ["https://example.com/a.pdf", "data:image/png;base64,AA=="]);
++  assert.match(harness.toastMessages.at(-1), /不安全|无法打开/);
++});
++
++test("blob evidence requires an application-owned runtime registration", () => {
++  const harness = loadEvidenceOpenApi();
++  const blobUrl = "blob:https://app.example.com/123";
++  assert.equal(harness.api.evidenceOpenTarget({ dataUrl: blobUrl, trustedObjectUrl: true }).kind, "unsafe");
++  harness.api.registerEvidenceBlobUrl(blobUrl);
++  assert.deepEqual({ ...harness.api.evidenceOpenTarget({ dataUrl: blobUrl }) }, { kind: "preview", url: blobUrl });
++});
++
++test("cloud evidence resolves to a temporary https URL and reports unavailable failures", async () => {
++  const success = loadEvidenceOpenApi({ cloudEnabled: true, getTempFileURL: async () => ({ fileList: [{ tempFileURL: "https://tmp.example.com/a.pdf" }] }) });
++  success.api.setCustomers([{ id: "c1", assets: [{ id: "cloud", fileID: "cloud://bucket/a.pdf" }] }]);
++  await success.api.openEvidenceAsset("c1", "cloud");
++  assert.deepEqual(success.opened, ["https://tmp.example.com/a.pdf"]);
++
++  const failure = loadEvidenceOpenApi({ cloudEnabled: true, getTempFileURL: async () => { throw new Error("offline"); } });
++  failure.api.setCustomers([{ id: "c1", assets: [{ id: "cloud", cloudPath: "cloud://bucket/a.pdf" }] }]);
++  await failure.api.openEvidenceAsset("c1", "cloud");
++  assert.deepEqual(failure.opened, []);
++  assert.match(failure.toastMessages.at(-1), /云端材料暂时无法打开/);
++});
++
+ test("final UI contract restores linear CRUD actions, complete evidence, and pinned Lucide SRI", () => {
+   const js = read("app.js");
+   const html = read("index.html");
+   assert.match(js, /data-action="edit-note"/);
+   assert.match(js, /data-action="remove-note"/);
+   assert.match(js, /data-action="edit-contact"/);
+   assert.match(js, /data-action="open-asset"/);
+   assert.match(js, /data-action="remove-asset"/);
+   assert.doesNotMatch(js, /customer\.assets\.slice\(0,5\)/);
+   assert.doesNotMatch(js, /function metricCard/);

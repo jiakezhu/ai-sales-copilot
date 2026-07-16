@@ -1,0 +1,524 @@
+# Review package: bd65ff6..01e0270
+
+## Commits
+01e0270 feat: finish Tencent QQ responsive experience
+
+## Files changed
+ app.js                     | 81 +++++++++++++++++++++++++++++++++++++---------
+ index.html                 |  6 ++--
+ style.css                  | 30 +++++++++++++++--
+ tests/ui-contract.test.mjs | 54 +++++++++++++++++++++++++++++++
+ 4 files changed, 151 insertions(+), 20 deletions(-)
+
+## Diff
+diff --git a/app.js b/app.js
+index 056f129..e36a64e 100644
+--- a/app.js
++++ b/app.js
+@@ -1,23 +1,26 @@
+ // 云销副驾 · 产品重构版
+ // 核心链路：AI / 语音 / 手动采集 → 销售确认 → 客户全流程沉淀 → 一键全景报告
+ 
+ const $ = (s, root = document) => root.querySelector(s);
+ const $$ = (s, root = document) => Array.from(root.querySelectorAll(s));
+ const safe = (value) => String(value == null ? "" : value).replace(/[&<>\"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[ch]));
+ const icon = (name, className = "") => `<i data-lucide="${name}"${className ? ` class="${className}"` : ""}></i>`;
++const DIALOG_FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+ 
+ let customers = [];
+ let reportCustomer = null;
+ let toastTimer = null;
+ let assistantStateTimer = null;
+ let currentAssistantState = "idle";
++let modalReturnFocus = null;
++let reportReturnFocus = null;
+ 
+ const state = {
+   page: "today",
+   customerId: null,
+   customerTab: "overview",
+   query: "",
+   stageFilter: "all",
+   aiDraft: null,
+   copilotAttachments: [],
+   recording: false,
+@@ -80,25 +83,26 @@ function bindAppEvents() {
+       state.customerId = null;
+     }
+     renderApp();
+   });
+ 
+   document.addEventListener("keydown", event => {
+     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+       event.preventDefault();
+       $("#globalSearch").focus();
+     }
+-    if (event.key === "Escape") {
+-      closeRowMenus(undefined, true);
+-      closeModal();
+-      closeReport();
+-    }
++    if (event.key === "Tab" && trapDialogFocus(event)) return;
++    if (event.key !== "Escape") return;
++    if (!$("#reportLayer")?.classList.contains("hidden")) return closeReport();
++    if (!$("#modalLayer")?.classList.contains("hidden")) return closeModal();
++    closeChoiceMenus();
++    closeRowMenus(undefined, true);
+   });
+ }
+ 
+ async function handleAction(event) {
+   const trigger = prepareRowMenusForAction(event);
+   if (!trigger) { closeChoiceMenus(); return; }
+   const action = trigger.dataset.action;
+ 
+   if (action === "nav") return navigate(trigger.dataset.page);
+   if (action === "go-today") return navigate("today");
+@@ -699,36 +703,36 @@ function startVoiceCapture(button) {
+     button.classList.remove("recording");
+     button.innerHTML = `${icon("mic")} 语音`;
+     refreshIcons();
+     input.focus();
+   };
+   recognition.start();
+ }
+ 
+ // ---------- 手动录入 ----------
+ function openNewCustomer() {
+-  showModal(`<div class="modal-head"><div><p class="eyebrow">NEW ACCOUNT</p><h2 id="modalTitle">新建客户</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="new-customer"><label>客户名称<input name="name" required autofocus placeholder="公司或组织名称" /></label><label>所属行业<input name="industry" placeholder="例如：游戏、零售、SaaS" /></label><fieldset class="choice-fieldset"><legend>重点等级</legend><div class="option-cards grade-options">${GRADES.map(g => `<label><input type="radio" name="grade" value="${g.key}" ${g.key === "B" ? "checked" : ""}/><span class="grade-option grade-${g.key}">${g.key}</span><b>${safe(g.label.split("·").at(-1).trim())}</b></label>`).join("")}</div></fieldset><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("arrow-right")} 创建并进入档案</button></div></form>`);
++  showModal(`<div class="modal-head"><div><p class="eyebrow">NEW ACCOUNT</p><h2 id="modalTitle">新建客户</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="new-customer"><label>客户名称<input name="name" required autofocus placeholder="公司或组织名称" /></label><label>所属行业<input name="industry" placeholder="例如：游戏、零售、SaaS" /></label><fieldset class="choice-fieldset"><legend>重点等级</legend><div class="option-cards grade-options">${GRADES.map(g => `<label><input type="radio" name="grade" value="${g.key}" ${g.key === "B" ? "checked" : ""}/><span class="grade-option grade-${g.key}">${g.key}</span><b>${safe(g.label.split("·").at(-1).trim())}</b></label>`).join("")}</div></fieldset><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("arrow-right")} 创建并进入档案</button></div></form>`);
+ }
+ 
+ function submitNewCustomer(form) {
+   const data = new FormData(form);
+   const name = String(data.get("name") || "").trim();
+   if (!name) return;
+   const customer = ensureCustomerShape({ id: uid(), name, logo: name[0], color: customerColor(customers.length), stage: "lead", grade: data.get("grade") || "B", fields: {}, notes: [], assets: [], orgChain: [], painPoints: [], solution: [] });
+   customer.fields.industry.v = String(data.get("industry") || "").trim();
+   customers.unshift(customer);
+   persist(); closeModal(); openCustomer(customer.id); toast("客户已创建，可手动填写或交给 AI 整理信息");
+ }
+ 
+ function openManualEntry(customerId) {
+   const selected = customerId || state.customerId || "";
+-  showModal(`<div class="modal-head"><div><p class="eyebrow">PROGRESS ENTRY</p><h2 id="modalTitle">手动记录客户推进</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="manual-entry"><label>关联客户<div class="modern-select"><select name="customerId" required><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${selected === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><fieldset class="choice-fieldset"><legend>沟通方式</legend><div class="option-cards method-options">${CONTACT_METHODS.map((m,i) => `<label><input type="radio" name="method" value="${m.key}" ${i===0?"checked":""}/><span>${icon(methodIconName(m.key))}</span><b>${safe(m.label)}</b></label>`).join("")}</div></fieldset><label>沟通时间<input type="datetime-local" name="date" value="${toLocalInput(new Date())}" /></label><label>对接人<input name="contact" placeholder="姓名或职位" /></label><label>沟通内容<textarea name="content" rows="5" required placeholder="记录对方态度、需求、异议和重要事实"></textarea></label><div class="form-row"><label>下一步行动<input name="next" placeholder="例如：发送方案、预约拜访" /></label><label>提醒日期<input type="date" name="nextDate" /></label></div><label class="file-field">${icon("paperclip")} 佐证材料<input type="file" name="files" multiple /><small>支持图片和常见文件；材料会关联到本次推进记录</small></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存推进记录</button></div></form>`);
++  showModal(`<div class="modal-head"><div><p class="eyebrow">PROGRESS ENTRY</p><h2 id="modalTitle">手动记录客户推进</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="manual-entry"><label>关联客户<div class="modern-select"><select name="customerId" required><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${selected === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><fieldset class="choice-fieldset"><legend>沟通方式</legend><div class="option-cards method-options">${CONTACT_METHODS.map((m,i) => `<label><input type="radio" name="method" value="${m.key}" ${i===0?"checked":""}/><span>${icon(methodIconName(m.key))}</span><b>${safe(m.label)}</b></label>`).join("")}</div></fieldset><label>沟通时间<input type="datetime-local" name="date" value="${toLocalInput(new Date())}" /></label><label>对接人<input name="contact" placeholder="姓名或职位" /></label><label>沟通内容<textarea name="content" rows="5" required placeholder="记录对方态度、需求、异议和重要事实"></textarea></label><div class="form-row"><label>下一步行动<input name="next" placeholder="例如：发送方案、预约拜访" /></label><label>提醒日期<input type="date" name="nextDate" /></label></div><label class="file-field">${icon("paperclip")} 佐证材料<input type="file" name="files" multiple /><small>支持图片和常见文件；材料会关联到本次推进记录</small></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存推进记录</button></div></form>`);
+ }
+ 
+ async function submitManualEntry(form) {
+   const data = new FormData(form);
+   const customer = getCustomer(data.get("customerId"));
+   if (!customer) return toast("请选择关联客户");
+   const files = Array.from(form.elements.files.files || []);
+   const attachments = [];
+   for (const file of files) {
+     try {
+@@ -739,41 +743,41 @@ async function submitManualEntry(form) {
+   }
+   customer.notes.push({ id: uid("n"), method: data.get("method"), date: normalizeDateInput(data.get("date")), contact: String(data.get("contact") || "").trim(), place: "", content: String(data.get("content") || "").trim(), next: String(data.get("next") || "").trim(), nextDate: String(data.get("nextDate") || ""), taskDone: false, source: "manual", attachments });
+   persist(); closeModal();
+   if (state.customerId === customer.id) state.customerTab = "timeline";
+   renderApp(); toast("客户推进记录已保存");
+ }
+ 
+ function openContactForm(customerId) {
+   const customer = getCustomer(customerId);
+   if (!customer) return;
+-  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">添加关键联系人</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><div class="form-row"><label>姓名<input name="name" required /></label><label>职位<input name="role" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options"><label><input type="radio" name="level" value="1"/><span>${icon("crown")}</span><b>决策层</b></label><label><input type="radio" name="level" value="2" checked/><span>${icon("users")}</span><b>影响层</b></label><label><input type="radio" name="level" value="3"/><span>${icon("wrench")}</span><b>执行层</b></label></div></fieldset><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.map(p => `<option value="${p.id}">${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><div class="form-row"><label>电话<input name="phone" /></label><label>微信<input name="wechat" /></label></div><label>邮箱<input name="email" type="email" /></label><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点、建联情况"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("user-plus")} 保存联系人</button></div></form>`);
++  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">添加关键联系人</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><div class="form-row"><label>姓名<input name="name" required /></label><label>职位<input name="role" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options"><label><input type="radio" name="level" value="1"/><span>${icon("crown")}</span><b>决策层</b></label><label><input type="radio" name="level" value="2" checked/><span>${icon("users")}</span><b>影响层</b></label><label><input type="radio" name="level" value="3"/><span>${icon("wrench")}</span><b>执行层</b></label></div></fieldset><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.map(p => `<option value="${p.id}">${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><div class="form-row"><label>电话<input name="phone" /></label><label>微信<input name="wechat" /></label></div><label>邮箱<input name="email" type="email" /></label><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点、建联情况"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("user-plus")} 保存联系人</button></div></form>`);
+ }
+ 
+ function submitContact(form) {
+   const data = new FormData(form); const customer = getCustomer(data.get("customerId")); if (!customer) return;
+   customer.orgChain.push({ id: uid("o"), pid: data.get("pid") || null, name: String(data.get("name") || "").trim(), role: String(data.get("role") || "").trim(), level: Number(data.get("level") || 2), phone: String(data.get("phone") || "").trim(), wechat: String(data.get("wechat") || "").trim(), email: String(data.get("email") || "").trim(), note: String(data.get("note") || "").trim(), photo: "" });
+   persist(); closeModal(); renderApp(); toast("联系人已加入关系图");
+ }
+ 
+ function openPainForm(customerId) {
+   showSimpleTextForm("pain", customerId, "添加客户痛点", "痛点描述", "记录客户明确表达的业务问题或顾虑");
+ }
+ 
+ function openSolutionForm(customerId) {
+   const customer = getCustomer(customerId); if (!customer) return;
+-  showModal(`<div class="modal-head"><div><p class="eyebrow">SOLUTION</p><h2 id="modalTitle">添加匹配方案</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="solution"><input type="hidden" name="customerId" value="${customer.id}" /><label>产品或方案<input name="product" required placeholder="例如：全球应用加速 GAAP" /></label><label>匹配理由<textarea name="reason" rows="4" required placeholder="它解决客户的哪个明确痛点？"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存方案</button></div></form>`);
++  showModal(`<div class="modal-head"><div><p class="eyebrow">SOLUTION</p><h2 id="modalTitle">添加匹配方案</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="solution"><input type="hidden" name="customerId" value="${customer.id}" /><label>产品或方案<input name="product" required placeholder="例如：全球应用加速 GAAP" /></label><label>匹配理由<textarea name="reason" rows="4" required placeholder="它解决客户的哪个明确痛点？"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存方案</button></div></form>`);
+ }
+ 
+ function showSimpleTextForm(type, customerId, title, label, placeholder) {
+   const customer=getCustomer(customerId); if(!customer) return;
+-  showModal(`<div class="modal-head"><div><p class="eyebrow">CUSTOMER INTELLIGENCE</p><h2 id="modalTitle">${title}</h2></div><button class="icon-button" data-action="close-modal">${icon("x")}</button></div><form class="modal-form" data-form="${type}"><input type="hidden" name="customerId" value="${customer.id}" /><label>${label}<textarea name="value" rows="4" required placeholder="${placeholder}"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存</button></div></form>`);
++  showModal(`<div class="modal-head"><div><p class="eyebrow">CUSTOMER INTELLIGENCE</p><h2 id="modalTitle">${title}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="${type}"><input type="hidden" name="customerId" value="${customer.id}" /><label>${label}<textarea name="value" rows="4" required placeholder="${placeholder}"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存</button></div></form>`);
+ }
+ 
+ function submitPain(form) { const data=new FormData(form), customer=getCustomer(data.get("customerId")); if(!customer)return; customer.painPoints.push({v:String(data.get("value")||"").trim()}); persist(); closeModal(); renderApp(); toast("痛点已保存"); }
+ function submitSolution(form) { const data=new FormData(form), customer=getCustomer(data.get("customerId")); if(!customer)return; customer.solution.push({product:String(data.get("product")||"").trim(),reason:String(data.get("reason")||"").trim()}); persist(); closeModal(); renderApp(); toast("方案已保存"); }
+ 
+ function removePain(customerId, index) { const c=getCustomer(customerId); if(!c?.painPoints[index])return; c.painPoints.splice(index,1); persist(); renderApp(); }
+ function removeContact(customerId, contactId) { const c=getCustomer(customerId); if(!c)return; c.orgChain = c.orgChain.filter(p=>p.id!==contactId); c.orgChain.forEach(p=>{if(p.pid===contactId)p.pid=null;}); persist(); renderApp(); toast("联系人已删除，下属已移到顶层"); }
+ 
+ function updateCustomerStage(customerId, stage) {
+   const customer=getCustomer(customerId); if(!customer || customer.stage===stage)return;
+@@ -811,42 +815,53 @@ const WORD_REPORT_STYLES = `
+ function openReport(customerId) {
+   const customer = getCustomer(customerId);
+   if (!customer) return;
+   const builder = getReportBuilder();
+   if (!builder) return reportBuilderUnavailable();
+   let reportHtml;
+   try { reportHtml = buildReport(customer, builder); }
+   catch (error) { console.error("Report preview unavailable", error); return reportBuilderUnavailable(); }
+   if (typeof reportHtml !== "string" || !reportHtml.trim()) return reportBuilderUnavailable();
+   reportCustomer = customer;
++  reportReturnFocus = document.activeElement;
+   $("#reportDocument").innerHTML = reportHtml;
+   $("#reportStatus").textContent = `${customer.name} · ${formatLongDate(new Date())}`;
+-  $("#reportLayer").classList.remove("hidden");
++  const layer = $("#reportLayer");
++  layer.classList.remove("hidden");
++  layer.setAttribute?.("aria-hidden", "false");
+   document.body.classList.add("report-open");
+   refreshIcons();
+   window.scrollTo({ top: 0 });
++  requestAnimationFrame(() => layer.querySelector?.('[data-action="close-report"]')?.focus?.() || layer.focus?.());
+ }
+ 
+ function closeReport() {
+-  $("#reportLayer").classList.add("hidden");
++  const layer = $("#reportLayer");
++  if (!layer || layer.classList.contains("hidden")) return;
++  layer.classList.add("hidden");
++  layer.setAttribute?.("aria-hidden", "true");
+   document.body.classList.remove("report-open");
+   reportCustomer = null;
++  restoreDialogFocus(reportReturnFocus);
++  reportReturnFocus = null;
+ }
+ 
+ function getReportBuilder() {
+   const builder = typeof ReportBuilder === "undefined" ? null : ReportBuilder;
+   return builder && typeof builder.build === "function" && typeof builder.wrapWord === "function" ? builder : null;
+ }
+ 
+ function reportBuilderUnavailable() {
+   reportCustomer = null;
+-  $("#reportLayer")?.classList.add("hidden");
++  const layer = $("#reportLayer");
++  layer?.classList.add("hidden");
++  layer?.setAttribute?.("aria-hidden", "true");
+   document.body.classList.remove("report-open");
+   toast("报告组件未加载，请刷新页面后重试");
+ }
+ 
+ function buildReport(customer, builder = getReportBuilder()) {
+   if (!builder) return "";
+   return builder.build(customer, {
+     fieldDefs: FIELD_DEFS,
+     stages: CRM_STAGES,
+     methods: CONTACT_METHODS,
+@@ -934,14 +949,50 @@ function prepareRowMenusForAction(event, root = document) {
+ }
+ function closeRowMenus(except, restoreFocus = false, root = document) {
+   Array.from(root.querySelectorAll(".row-more-actions[open]")).forEach(menu => {
+     if (menu === except) return;
+     const focusWasInside = restoreFocus && menu.contains(root.activeElement);
+     menu.removeAttribute("open");
+     if (focusWasInside) menu.querySelector("summary")?.focus();
+   });
+ }
+ function toggleTheme() { const next=document.documentElement.dataset.theme==="dark"?"light":"dark"; document.documentElement.dataset.theme=next; localStorage.setItem(THEME_KEY,next); }
+-function showModal(content) { $("#modalPanel").innerHTML=content; $("#modalLayer").classList.remove("hidden"); document.body.classList.add("modal-open"); refreshIcons(); requestAnimationFrame(()=>$("#modalPanel input[autofocus]")?.focus()); }
+-function closeModal() { $("#modalLayer").classList.add("hidden"); document.body.classList.remove("modal-open"); }
++function showModal(content) {
++  const layer = $("#modalLayer");
++  const panel = $("#modalPanel");
++  modalReturnFocus = document.activeElement;
++  panel.innerHTML = content;
++  layer.classList.remove("hidden");
++  layer.setAttribute("aria-hidden", "false");
++  document.body.classList.add("modal-open");
++  refreshIcons();
++  requestAnimationFrame(() => panel.querySelector("input[autofocus]")?.focus() || panel.querySelector(DIALOG_FOCUSABLE)?.focus() || panel.focus());
++}
++function closeModal() {
++  const layer = $("#modalLayer");
++  if (!layer || layer.classList.contains("hidden")) return;
++  layer.classList.add("hidden");
++  layer.setAttribute("aria-hidden", "true");
++  document.body.classList.remove("modal-open");
++  restoreDialogFocus(modalReturnFocus);
++  modalReturnFocus = null;
++}
++function restoreDialogFocus(element) {
++  if (element && typeof element.focus === "function") element.focus({ preventScroll: true });
++}
++function trapDialogFocus(event) {
++  const report = $("#reportLayer");
++  const modal = $("#modalLayer");
++  const layer = report && !report.classList.contains("hidden") ? report : modal && !modal.classList.contains("hidden") ? modal : null;
++  if (!layer) return false;
++  const focusable = Array.from(layer.querySelectorAll(DIALOG_FOCUSABLE))
++    .filter(element => !element.closest("[hidden]") && element.getClientRects().length);
++  if (!focusable.length) { event.preventDefault(); layer.focus(); return true; }
++  const first = focusable[0];
++  const last = focusable.at(-1);
++  if (!layer.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); return true; }
++  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
++  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
++  return true;
++}
+ function toast(message) { const el=$("#toast"); clearTimeout(toastTimer); el.textContent=message; el.classList.remove("hidden"); toastTimer=setTimeout(()=>el.classList.add("hidden"),2600); }
+ function emptyState(title,copy) { return `<div class="empty-state"><span>·</span><b>${safe(title)}</b><p>${safe(copy)}</p></div>`; }
+diff --git a/index.html b/index.html
+index e9eeed4..7e5558b 100644
+--- a/index.html
++++ b/index.html
+@@ -43,26 +43,26 @@
+         </div>
+       </header>
+ 
+       <main id="pageRoot" class="page-root" tabindex="-1"></main>
+     </div>
+ 
+     <nav class="mobile-nav" id="mobileNav" aria-label="移动端导航"></nav>
+     <button class="mobile-capture" data-action="focus-copilot" aria-label="用 AI 记录信息"><i data-lucide="sparkles"></i></button>
+   </div>
+ 
+-  <div class="modal-layer hidden" id="modalLayer" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
++  <div class="modal-layer hidden" id="modalLayer" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-hidden="true">
+     <div class="modal-backdrop" data-action="close-modal"></div>
+-    <section class="modal-panel" id="modalPanel"></section>
++    <section class="modal-panel" id="modalPanel" tabindex="-1"></section>
+   </div>
+ 
+-  <div class="report-layer hidden" id="reportLayer" role="dialog" aria-modal="true" aria-label="客户全景报告预览">
++  <div class="report-layer hidden" id="reportLayer" role="dialog" aria-modal="true" aria-label="客户全景报告预览" aria-hidden="true" tabindex="-1">
+     <div class="report-toolbar no-print">
+       <div><b>客户全景报告</b><span id="reportStatus">客户报告预览</span></div>
+       <div class="report-actions">
+         <button class="secondary-button" data-action="export-word"><i data-lucide="file-type-2"></i> 导出 Word</button>
+         <button class="primary-button" data-action="export-pdf"><i data-lucide="file-down"></i> 导出 PDF</button>
+         <button class="icon-button" data-action="close-report" aria-label="关闭报告"><i data-lucide="x"></i></button>
+       </div>
+     </div>
+     <article class="report-document" id="reportDocument"></article>
+   </div>
+diff --git a/style.css b/style.css
+index a4d3b44..13b4320 100644
+--- a/style.css
++++ b/style.css
+@@ -50,20 +50,21 @@
+   --blue: #6a9cff; --blue-strong: #8db2ff; --blue-soft: rgba(75,126,235,.16); --violet-soft: rgba(116,86,215,.18);
+   --green-soft: rgba(20,133,102,.18); --red-soft: rgba(212,79,73,.16); --amber-soft: rgba(185,117,22,.16);
+   --shadow-sm: none; --shadow: 0 12px 32px rgba(0,0,0,.18); --shadow-lg: 0 28px 80px rgba(0,0,0,.45);
+ }
+ html { color-scheme: light; scroll-behavior: smooth; }
+ [data-theme="dark"] { color-scheme: dark; }
+ body { min-width: 320px; min-height: 100vh; font-family: var(--font); color: var(--ink); background: var(--bg); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+ button, input, textarea, select { font: inherit; color: inherit; }
+ button { cursor: pointer; }
+ button:disabled { cursor: not-allowed; opacity: .5; }
++:where(button, [role="button"], summary, input, select, textarea):focus-visible { outline: 2px solid var(--td-brand-color-hover); outline-offset: 2px; }
+ button:focus-visible, summary:focus-visible { outline: 2px solid var(--td-brand-color-hover); outline-offset: 2px; }
+ input, textarea, select { outline: none; }
+ input::placeholder, textarea::placeholder { color: var(--muted); }
+ ::selection { color: var(--ink); background: var(--blue-soft); }
+ .hidden { display: none !important; }
+ .show-mobile { display: none; }
+ .app-shell { min-height: 100vh; }
+ .app-main { min-height: 100vh; margin-left: var(--side); }
+ 
+ /* Shell */
+@@ -243,31 +244,32 @@ h3 { font-size:14px; }
+ .report-button { min-width:190px;height:52px;padding:0 13px;display:grid;grid-template-columns:27px 1fr;grid-template-rows:1fr 1fr;column-gap:8px;align-items:center;border:1px solid color-mix(in srgb,var(--blue) 35%,var(--line));border-radius:13px;color:var(--blue);background:var(--blue-soft);text-align:left;transition:.18s; }.report-button:hover{transform:translateY(-1px);box-shadow:0 7px 20px rgba(40,100,220,.12)}.report-button>span{grid-row:1/3;width:27px;height:27px;display:grid;place-items:center;border-radius:8px;color:#fff;background:var(--blue)}.report-button>b{align-self:end;font-size:12px}.report-button>small{align-self:start;color:var(--muted);font-size:9.5px}
+ .customer-control-bar { min-height:64px;padding:10px 14px;display:flex;align-items:center;gap:18px;border:1px solid var(--line);border-radius:15px;background:var(--surface); }
+ .customer-control-bar label{display:grid;gap:3px;color:var(--muted);font-size:9.5px}.stage-track{flex:1;display:flex;align-items:flex-start}.stage-track span{position:relative;flex:1;padding-top:19px;color:var(--muted);font-size:9px;text-align:center}.stage-track span::before{content:"";position:absolute;left:0;right:0;top:6px;height:2px;background:var(--line)}.stage-track span:first-child::before{left:50%}.stage-track span:last-child::before{right:50%}.stage-track i{position:absolute;z-index:1;top:2px;left:50%;width:10px;height:10px;transform:translateX(-50%);border:2px solid var(--line-strong);border-radius:50%;background:var(--surface)}.stage-track span.done::before{background:var(--blue)}.stage-track span.done i{border-color:var(--blue);background:var(--blue)}.stage-track span.current{color:var(--blue);font-weight:650}.stage-track span.current i{box-shadow:0 0 0 4px var(--blue-soft)}
+ .choice-field{width:156px;flex:none;display:grid;gap:4px}.choice-label{color:var(--muted);font-size:9.5px}.choice-control{position:relative}.choice-trigger{width:100%;height:34px;padding:0 9px;display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:10px;color:var(--ink-2);background:var(--surface-2);text-align:left;transition:.16s}.choice-trigger:hover,.choice-control.open .choice-trigger{border-color:color-mix(in srgb,var(--blue) 45%,var(--line));background:var(--surface);box-shadow:0 0 0 3px var(--blue-soft)}.choice-trigger b{min-width:0;flex:1;overflow:hidden;font-size:10.5px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.choice-trigger>svg{width:14px;height:14px;color:var(--muted);transition:transform .18s}.choice-control.open .choice-trigger>svg{transform:rotate(180deg)}.choice-menu{position:absolute;z-index:60;top:calc(100% + 7px);left:0;width:190px;padding:6px;display:none;border:1px solid var(--line);border-radius:13px;background:var(--surface);box-shadow:var(--shadow-lg);transform-origin:top;animation:choiceIn .16s ease}.choice-field:last-child .choice-menu{left:auto;right:0}.choice-control.open .choice-menu{display:grid;gap:2px}@keyframes choiceIn{from{opacity:0;transform:translateY(-4px) scale(.98)}}.choice-option{min-height:36px;padding:6px 8px;display:flex;align-items:center;gap:9px;border:0;border-radius:8px;color:var(--ink-2);background:transparent;text-align:left}.choice-option:hover{color:var(--ink);background:var(--surface-2)}.choice-option.selected{color:var(--blue);background:var(--blue-soft)}.choice-option>span:nth-child(2){flex:1;font-size:10.5px;font-weight:600}.choice-option>svg{width:14px;height:14px}.choice-dot{width:9px;height:9px;flex:none;border-radius:50%;background:#8a94a6;box-shadow:0 0 0 3px color-mix(in srgb,currentColor 8%,transparent)}.stage-dot-contact,.stage-dot-meeting{background:#366ef4}.stage-dot-proposal{background:#ed7b2f}.stage-dot-won{background:#00a870}.stage-dot-lost{background:#c5000f}.choice-grade{width:22px;height:22px;flex:none;display:grid;place-items:center;border-radius:7px;color:#fff;font-size:9px;font-weight:800}
+ .next-action-banner { margin-top:12px;padding:13px 15px;display:flex;align-items:center;gap:12px;border:1px solid color-mix(in srgb,var(--blue) 24%,var(--line));border-radius:14px;background:linear-gradient(90deg,var(--blue-soft),color-mix(in srgb,var(--blue-soft) 20%,var(--surface))); }.next-action-banner.overdue{border-color:color-mix(in srgb,var(--red) 25%,var(--line));background:linear-gradient(90deg,var(--red-soft),var(--surface))}.next-icon{width:28px;height:28px;display:grid;place-items:center;border-radius:9px;color:#fff;background:var(--blue)}.next-icon svg{width:15px;height:15px}.overdue .next-icon{background:var(--red)}.next-action-banner>div{flex:1;display:grid;gap:1px}.next-action-banner small{color:var(--blue);font-size:9.5px;font-weight:700}.overdue small{color:var(--red)}.next-action-banner b{font-size:12.5px}.next-action-banner p{color:var(--muted);font-size:10px}.next-action-banner .primary-button{height:32px;font-size:11px}
+ .detail-section-nav { position:sticky;top:64px;z-index:20;margin:18px 0;display:flex;gap:24px;border-bottom:1px solid var(--td-border);background:var(--td-bg-page); }.detail-section-nav button{padding:11px 2px 12px;border:0;border-bottom:2px solid transparent;color:var(--td-text-secondary);background:none;font-size:12.5px;font-weight:600}.detail-section-nav button:hover{color:var(--td-brand-color-hover)}.detail-section-nav button.active{color:var(--td-brand-color);border-bottom-color:var(--td-brand-color)}
+ .overview-grid { display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.75fr);gap:14px; }.wide-panel{grid-column:1}.overview-summary{min-height:250px}.health-score{padding:4px 8px;border-radius:7px;color:var(--green)!important;background:var(--green-soft);font-size:10px!important}.brief-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.brief-grid>div{min-height:74px;padding:11px;border-radius:11px;background:var(--surface-2)}.brief-grid small{color:var(--muted);font-size:9.5px}.brief-grid p{margin-top:5px;font-size:12px;font-weight:560;line-height:1.55}.strategy-callout{margin-top:11px;padding:10px 12px;display:flex;gap:10px;border-radius:10px;color:var(--ink-2);background:var(--blue-soft)}.strategy-callout span{flex:none;color:var(--blue);font-size:10px;font-weight:700}.strategy-callout p{font-size:11.5px}.contact-stack{display:grid;gap:7px;margin-bottom:12px}.compact-contact{padding:8px;display:flex;align-items:center;gap:8px;border-radius:10px;background:var(--surface-2)}.person-avatar{flex:none;width:30px;height:30px;display:grid;place-items:center;border-radius:9px;color:var(--blue);background:var(--blue-soft);font-size:11px;font-weight:730}.person-avatar.large{width:39px;height:39px;border-radius:11px;font-size:13px}.compact-contact>div{min-width:0;display:grid}.compact-contact b{font-size:11.5px}.compact-contact small{overflow:hidden;color:var(--muted);font-size:9.5px;text-overflow:ellipsis;white-space:nowrap}.relation-state{margin-left:auto;color:var(--green);font-size:9px}.mini-timeline{display:grid}.mini-timeline article{padding:11px 2px;display:flex;align-items:flex-start;gap:10px;border-bottom:1px solid var(--line)}.mini-timeline article:last-child{border:0}.timeline-dot{flex:none;width:26px;height:26px;display:grid;place-items:center;border-radius:8px;color:#fff;background:var(--dot);font-size:11px}.mini-timeline article>div{display:grid;gap:4px}.mini-timeline b{font-size:11.5px;font-weight:560}.mini-timeline small{color:var(--muted);font-size:9.5px}.tag-list{display:flex;flex-wrap:wrap;gap:6px}.tag-list span{padding:5px 8px;border-radius:7px;color:var(--ink-2);background:var(--surface-2);font-size:10px}.tag-list .empty-tag{color:var(--muted)}.solution-preview{margin-top:12px;display:grid;gap:7px}.solution-preview article{padding:8px 9px;border-left:2px solid var(--blue);background:var(--blue-soft)}.solution-preview b,.solution-preview small{display:block}.solution-preview b{color:var(--blue);font-size:11px}.solution-preview small{margin-top:2px;color:var(--ink-2);font-size:9.5px}
+ 
+ /* Timeline, relations, intel */
+ .content-layout { display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:14px;align-items:start}.timeline-aside{position:sticky;top:125px}.timeline-aside h3{margin-bottom:12px}.timeline-aside ul{margin:0 0 18px 18px;color:var(--muted);font-size:11.5px;line-height:2}.full-timeline{position:relative;padding-left:13px}.full-timeline::before{content:"";position:absolute;left:26px;top:5px;bottom:10px;width:1px;background:var(--line)}.timeline-item{position:relative;padding:0 0 16px;display:flex;gap:12px}.timeline-marker{z-index:1;flex:none;width:28px;height:28px;display:grid;place-items:center;border:3px solid var(--surface);border-radius:9px;color:#fff;background:var(--dot);font-size:10px}.timeline-card{flex:1;padding:12px 13px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}.timeline-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:7px}.timeline-head b{color:var(--ink-2);font-size:10.5px}.timeline-head time{color:var(--muted);font-size:9.5px}.timeline-card>p{font-size:12px;line-height:1.65}.timeline-next{margin-top:9px;padding:7px 9px;display:flex;align-items:center;gap:7px;border-radius:8px;background:var(--blue-soft);font-size:9.5px}.timeline-next span{color:var(--blue);font-weight:700}.timeline-next b{flex:1;font-size:10.5px}.timeline-next time{color:var(--muted)}.timeline-next.done{opacity:.65;text-decoration:line-through}.attachment-row{margin-top:8px;display:flex;flex-wrap:wrap;gap:5px}.attachment-row span{padding:4px 7px;display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:6px;color:var(--muted);background:var(--surface);font-size:9px}.attachment-row svg{width:11px;height:11px}
+-.relation-legend{margin:-4px 0 17px;padding:9px 11px;display:flex;align-items:center;gap:14px;border-radius:9px;background:var(--surface-2);color:var(--muted);font-size:9.5px}.relation-legend span{display:flex;align-items:center;gap:5px}.relation-legend i{width:7px;height:7px;border-radius:50%;background:var(--line-strong)}.relation-legend i.positive{background:var(--green)}.relation-legend p{margin-left:auto}.org-map{display:grid;gap:9px}.org-branch{position:relative}.org-children{position:relative;margin:8px 0 0 28px;padding-left:24px;display:grid;gap:8px}.org-children::before{content:"";position:absolute;left:8px;top:-9px;bottom:24px;width:1px;background:var(--line-strong)}.org-children>.org-branch::before{content:"";position:absolute;left:-16px;top:27px;width:16px;height:1px;background:var(--line-strong)}.person-card{position:relative;padding:11px 13px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}.person-card.connected{border-left:3px solid var(--green)}.person-main{display:flex;align-items:center;gap:10px}.person-main>div{display:grid}.person-main b{font-size:12.5px}.person-main small{color:var(--muted);font-size:10px}.influence-pill{margin-left:auto;padding:3px 7px;border-radius:6px;color:var(--blue);background:var(--blue-soft);font-size:9px}.person-contact{margin:8px 0 5px;display:flex;flex-wrap:wrap;gap:7px}.person-contact span{display:inline-flex;align-items:center;gap:4px;color:var(--ink-2);font-size:9.5px}.person-contact svg{width:12px;height:12px}.person-card>p{color:var(--muted);font-size:10.5px}.remove-link{position:absolute;right:10px;bottom:9px;border:0;color:transparent;background:none;font-size:9px}.person-card:hover .remove-link{color:var(--red)}
++.relation-legend{margin:-4px 0 17px;padding:9px 11px;display:flex;align-items:center;gap:14px;border-radius:9px;background:var(--surface-2);color:var(--muted);font-size:9.5px}.relation-legend span{display:flex;align-items:center;gap:5px}.relation-legend i{width:7px;height:7px;border-radius:50%;background:var(--line-strong)}.relation-legend i.positive{background:var(--green)}.relation-legend p{margin-left:auto}.org-map{display:grid;gap:9px}.org-branch{position:relative}.org-children{position:relative;margin:8px 0 0 28px;padding-left:24px;display:grid;gap:8px}.org-children::before{content:"";position:absolute;left:8px;top:-9px;bottom:24px;width:1px;background:var(--line-strong)}.org-children>.org-branch::before{content:"";position:absolute;left:-16px;top:27px;width:16px;height:1px;background:var(--line-strong)}.person-card{position:relative;padding:11px 13px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}.person-card.connected{border-left:3px solid var(--green)}.person-main{display:flex;align-items:center;gap:10px}.person-main>div{display:grid}.person-main b{font-size:12.5px}.person-main small{color:var(--muted);font-size:10px}.influence-pill{margin-left:auto;padding:3px 7px;border-radius:6px;color:var(--blue);background:var(--blue-soft);font-size:9px}.person-contact{margin:8px 0 5px;display:flex;flex-wrap:wrap;gap:7px}.person-contact span{display:inline-flex;align-items:center;gap:4px;color:var(--ink-2);font-size:9.5px}.person-contact svg{width:12px;height:12px}.person-card>p{color:var(--muted);font-size:10.5px}.remove-link{position:absolute;right:10px;bottom:9px;border:0;color:transparent;background:none;font-size:9px}.person-card:hover .remove-link,.person-card:focus-within .remove-link{color:var(--red)}
+ .intel-layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(270px,.65fr);gap:14px;align-items:start}.intel-side{display:grid;gap:14px}.save-hint{color:var(--green)!important}.intel-section+.intel-section{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}.intel-section-title{margin-bottom:13px;display:flex;align-items:center;gap:9px}.intel-section-title>span{width:35px;height:24px;display:grid;place-items:center;border-radius:7px;color:var(--blue);background:var(--blue-soft);font-size:9px;font-weight:700}.intel-section-title.private>span{color:var(--amber);background:var(--amber-soft)}.intel-section-title>div{display:grid}.intel-section-title b{font-size:12px}.intel-section-title small{color:var(--muted);font-size:9.5px}.intel-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.intel-form-grid.single{grid-template-columns:1fr}.intel-field{display:grid;gap:5px}.intel-field>span{color:var(--ink-2);font-size:10px;font-weight:620}.intel-field input,.intel-field textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);font-size:11.5px;transition:.16s}.intel-field input{height:38px}.intel-field textarea{resize:vertical;line-height:1.55}.intel-field input:focus,.intel-field textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft);background:var(--surface)}.editable-list,.solution-list,.asset-list{display:grid;gap:7px}.editable-list article,.solution-list article{padding:9px 10px;display:flex;gap:8px;border-radius:9px;background:var(--surface-2)}.editable-list span{flex:1;font-size:10.5px}.editable-list button{border:0;color:var(--muted);background:none}.editable-list button:hover{color:var(--red)}.solution-list article{display:grid}.solution-list b{color:var(--blue);font-size:11px}.solution-list p{color:var(--ink-2);font-size:9.5px}.asset-list article{padding:8px;display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:9px}.asset-list>article>span{color:var(--blue)}.asset-list div{min-width:0;display:grid}.asset-list b{overflow:hidden;font-size:10.5px;text-overflow:ellipsis;white-space:nowrap}.asset-list small{color:var(--muted);font-size:9px}
+ 
+ /* Tasks / analytics */
+ .task-summary{margin-bottom:12px;display:flex;gap:9px}.task-summary span{padding:7px 11px;border:1px solid var(--td-border);border-radius:var(--td-radius);color:var(--td-text-secondary);background:var(--td-bg-container);font-size:10.5px}.task-summary b{margin-right:3px;color:var(--td-text-primary);font-size:13px}.task-worktable>.section-heading{margin:0;padding:14px 17px;border-bottom:1px solid var(--td-border)}.task-list{display:grid}.task-row{min-height:62px;padding:9px 17px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--td-border);transition:background .15s}.task-row:hover{background:color-mix(in srgb,var(--td-brand-color-light) 45%,var(--td-bg-container))}.task-row:last-child{border:0}.task-content{min-width:0;flex:1;display:grid;gap:3px;border:0;background:none;text-align:left}.task-content b{overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.task-content span{color:var(--td-text-secondary);font-size:10px}.task-row time{width:72px;color:var(--td-text-secondary);font-size:10.5px;text-align:right}.task-row.done{opacity:.62}.task-row.done .task-content{text-decoration:line-through}.completed-worktable{margin-top:14px}
+ .analytics-workspace{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(280px,.75fr);gap:16px;align-items:start}.analytics-workspace>.td-panel,.analytics-side>.td-panel{padding:18px}.analytics-side{display:grid;gap:16px}.bar-chart{display:grid;gap:12px}.bar-chart>div{display:grid;grid-template-columns:55px minmax(0,1fr) 24px;gap:10px;align-items:center}.bar-chart span{color:var(--td-text-secondary);font-size:10.5px}.bar-chart i{height:8px;overflow:hidden;border-radius:8px;background:var(--td-bg-secondary)}.bar-chart i b{height:100%;display:block;border-radius:8px;background:var(--bar);transition:width .7s cubic-bezier(.2,.7,.2,1)}.bar-chart strong{font-size:11px}.stalled-list{display:grid}.stalled-list button{width:100%;padding:10px 2px;display:flex;align-items:center;gap:10px;border:0;border-bottom:1px solid var(--td-border);color:var(--td-text-primary);background:transparent;text-align:left}.stalled-list button:last-child{border-bottom:0}.stalled-list button:hover{color:var(--td-brand-color-hover);background:var(--td-bg-secondary)}.stalled-list button>span:nth-child(2){min-width:0;flex:1;display:grid}.stalled-list b,.stalled-list small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.stalled-list b{font-size:11.5px}.stalled-list small{color:var(--td-text-secondary);font-size:9.5px}.stalled-list svg{width:14px;height:14px}.grade-chart{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.grade-chart article{padding:13px 8px;display:grid;justify-items:center;border:1px solid var(--td-border);border-top:2px solid var(--grade);border-radius:var(--td-radius-lg);background:var(--td-bg-secondary)}.grade-chart b{color:var(--grade);font-size:12px}.grade-chart strong{margin:6px 0;font-size:23px}.grade-chart small{color:var(--td-text-secondary);font-size:9px}
+ 
+ /* Modals */
+ .modal-open{overflow:hidden}.modal-layer{position:fixed;inset:0;z-index:300;display:grid;place-items:center;padding:20px}.modal-backdrop{position:absolute;inset:0;background:rgba(8,15,27,.52);backdrop-filter:blur(4px);animation:fadeIn .2s}.modal-panel{position:relative;z-index:1;width:min(560px,100%);max-height:min(86vh,760px);padding:22px;overflow:auto;border:1px solid var(--line);border-radius:20px;background:var(--surface);box-shadow:var(--shadow-lg);animation:modalIn .24s cubic-bezier(.2,.8,.2,1)}@keyframes fadeIn{from{opacity:0}}@keyframes modalIn{from{opacity:0;transform:translateY(14px) scale(.985)}}.modal-head{display:flex;justify-content:space-between;gap:16px;margin-bottom:20px}.modal-head h2{font-size:19px}.modal-form{display:grid;gap:13px}.modal-form label{display:grid;gap:6px;color:var(--ink-2);font-size:10.5px;font-weight:620}.modal-form input,.modal-form textarea,.modal-form select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-size:12px;font-weight:400}.modal-form input,.modal-form select{height:40px}.modal-form textarea{resize:vertical;line-height:1.55}.modal-form input:focus,.modal-form textarea:focus,.modal-form select:focus{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft);background:var(--surface)}.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.file-field{padding:10px;border:1px dashed var(--line-strong);border-radius:10px;background:var(--surface-2)}.file-field input{height:auto;padding:0;border:0;background:none}.file-field small{color:var(--muted);font-weight:400}.modal-actions{margin-top:7px;display:flex;justify-content:flex-end;gap:8px}.toast{position:fixed;z-index:500;left:50%;bottom:24px;transform:translateX(-50%);padding:10px 15px;border-radius:10px;color:#fff;background:#172033;box-shadow:var(--shadow-lg);font-size:11.5px;font-weight:600;animation:toastIn .25s}@keyframes toastIn{from{opacity:0;transform:translate(-50%,8px)}}
+ 
+ .choice-fieldset{min-width:0;border:0}.choice-fieldset legend{margin-bottom:6px;color:var(--ink-2);font-size:10.5px;font-weight:620}.option-cards{display:grid;gap:7px}.option-cards.grade-options{grid-template-columns:repeat(4,1fr)}.option-cards.method-options{grid-template-columns:repeat(3,1fr)}.option-cards.role-options{grid-template-columns:repeat(3,1fr)}.option-cards label{position:relative;min-height:60px;padding:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border:1px solid var(--line);border-radius:11px;color:var(--muted);background:var(--bg);text-align:center;transition:.16s}.option-cards label:hover{border-color:var(--line-strong);color:var(--ink);background:var(--surface)}.option-cards input{position:absolute;width:1px!important;height:1px!important;opacity:0;pointer-events:none}.option-cards label:has(input:checked){border-color:color-mix(in srgb,var(--blue) 45%,var(--line));color:var(--blue);background:var(--blue-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--blue) 10%,transparent)}.option-cards label>span{display:grid;place-items:center}.option-cards label>span svg{width:18px;height:18px}.option-cards label>b{font-size:10px;font-weight:650}.grade-option{width:23px;height:23px;border-radius:7px;color:#fff;font-size:9px;font-weight:800}.modern-select{position:relative}.modern-select select{padding-right:36px;appearance:none;-webkit-appearance:none}.modern-select>svg{position:absolute;right:12px;top:12px;width:15px;height:15px;color:var(--muted);pointer-events:none}
++.option-cards label:has(input:focus-visible){outline:2px solid var(--td-brand-color-hover);outline-offset:2px}
+ 
+ /* Full report */
+ .report-open{overflow:hidden}
+ .report-layer{position:fixed;inset:0;z-index:250;overflow:auto;background:#e8ecf1;color:#172b4d}
+ .report-toolbar{position:sticky;top:0;z-index:10;min-height:64px;padding:9px max(18px,calc((100vw - 860px)/2));display:flex;align-items:center;justify-content:space-between;gap:20px;color:var(--ink);background:color-mix(in srgb,var(--surface) 94%,transparent);border-bottom:1px solid var(--line);backdrop-filter:blur(18px)}
+ .report-toolbar>div:first-child{display:grid}
+ .report-toolbar b{font-size:13px}
+ .report-toolbar span{color:var(--muted);font-size:9.5px}
+ .report-actions{display:flex;align-items:center;gap:7px}
+ .report-document{width:min(860px,calc(100% - 32px));min-height:1120px;margin:24px auto 60px;padding:54px 62px;background:#fff;color:#172b4d;box-shadow:0 12px 36px rgba(32,46,66,.12);font-family:"PingFang SC","Microsoft YaHei",Arial,sans-serif;font-size:12px;line-height:1.65}
+@@ -285,44 +287,52 @@ h3 { font-size:14px; }
+ .report-field-grid p{margin-top:5px;font-size:12px;line-height:1.6}
+ .report-field-grid--summary>div:first-child{border-left-color:#0052d9;background:#f2f6ff}
+ .report-document ul{padding-left:20px}
+ .report-document li{margin-bottom:7px;line-height:1.65;break-inside:avoid-page;page-break-inside:avoid}
+ .report-progress article{display:grid;grid-template-columns:112px minmax(0,1fr);gap:18px;padding:12px 0;border-bottom:1px solid #edf0f2;break-inside:avoid-page;page-break-inside:avoid}
+ .report-progress article:last-child{border-bottom:0}
+ .report-progress time{color:#7a8491;font-size:10px}
+ .report-progress b{font-size:11px}
+ .report-progress p{margin:4px 0;font-size:11px;line-height:1.6}
+ .report-progress small{color:#0052d9;font-size:10px}
++[data-theme="dark"] .modal-panel { border-color:var(--td-border);background:var(--td-bg-container); }
++[data-theme="dark"] .report-toolbar { color:var(--td-text-primary);background:color-mix(in srgb,var(--td-bg-container) 96%,transparent);border-color:var(--td-border); }
+ 
+ 
+ /* Responsive */
+ @media (max-width:1100px){.table-head,.customer-row{grid-template-columns:1.4fr .7fr 1fr 1.25fr auto}.table-head span:nth-child(5),.customer-row>span:nth-child(5){display:none}.today-layout{grid-template-columns:1fr}.overview-grid{grid-template-columns:1fr 1fr}.wide-panel{grid-column:1/-1}.content-layout{grid-template-columns:1fr}.timeline-aside{position:static}.intel-layout{grid-template-columns:1fr}.intel-side{grid-template-columns:repeat(3,1fr)}.analytics-grid{grid-template-columns:1fr}}
+ @media (max-width:900px){:root{--side:0px}.side-nav{display:none}.app-main{margin-left:0;padding-bottom:72px}.topbar{height:60px;padding:0 14px}.mobile-brand{display:flex}.global-search{width:auto;flex:1}.global-search kbd{display:none}.mobile-nav{position:fixed;z-index:80;left:0;right:0;bottom:0;height:64px;padding:5px 8px calc(5px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(4,1fr);background:color-mix(in srgb,var(--surface) 94%,transparent);border-top:1px solid var(--line);backdrop-filter:blur(16px)}.mobile-nav .nav-item{height:52px;padding:4px;display:flex;flex-direction:column;justify-content:center;gap:1px;border-radius:8px;font-size:9.5px;text-align:center}.mobile-nav .nav-item.active{color:var(--blue);background:var(--blue-soft)}.mobile-nav .nav-item.active::before{display:none}.mobile-nav .nav-icon{font-size:18px}.mobile-nav .nav-item em{position:absolute;top:2px;right:25%;width:15px;min-width:15px;height:15px;padding:0;color:#fff;background:var(--red);font-size:7px}.mobile-capture{position:fixed;z-index:85;right:16px;bottom:79px;width:47px;height:47px;display:grid;place-items:center;border:0;border-radius:15px;color:#fff;background:linear-gradient(145deg,var(--td-brand-color-hover),var(--td-brand-color));box-shadow:0 12px 28px rgba(40,75,170,.35);font-size:18px}.page{padding:28px 18px 45px}.customer-tabs{top:60px}.intel-side{grid-template-columns:1fr 1fr}.report-document{padding:45px 40px}}
+ @media (max-width:680px){.hide-mobile{display:none!important}.show-mobile{display:inline}.topbar{gap:8px}.mobile-brand{font-size:0}.mobile-brand>span{font-size:12px}.global-search input{height:36px;padding-right:10px}.top-actions{gap:5px}.top-actions .primary-button{width:39px;padding:0}.page{padding:23px 14px 38px}.welcome-row,.page-heading{align-items:flex-start}.welcome-row .secondary-button{display:none}h1{font-size:26px}.copilot-card{padding:15px;border-radius:17px}.copilot-heading{align-items:flex-start}.copilot-heading p{max-width:240px}.privacy-pill{display:none}.copilot-compose textarea{min-height:100px}.compose-actions{flex-wrap:wrap;padding:7px}.compose-hint{display:none}.compose-actions .primary-button{width:100%;margin:2px 0 0}.review-head{align-items:flex-start;flex-direction:column;gap:9px}.review-head label{width:100%;justify-content:space-between}.review-head select{flex:1}.review-items{grid-template-columns:1fr}.review-actions{flex-wrap:wrap}.review-actions>span{width:100%;order:-1}.metric-strip{grid-template-columns:repeat(2,1fr);gap:8px}.metric-card{min-height:98px;padding:13px}.today-grid{gap:10px}.panel{padding:15px;border-radius:15px}.priority-item{gap:8px}.date-chip{display:none}.page-heading>.primary-button{padding:0 10px;font-size:11px}.filter-bar{flex-wrap:wrap}.filter-summary{width:100%;margin:0}.customer-table{overflow:visible;border:0;background:transparent;box-shadow:none}.table-head{display:none}.table-body{display:grid;gap:8px}.customer-row{padding:13px;display:grid;grid-template-columns:1fr auto;gap:10px;border:1px solid var(--line)!important;border-radius:13px;background:var(--surface)}.customer-row>.identity-cell{grid-column:1/-1}.customer-row>span:nth-child(2){position:absolute;margin:2px 0 0 calc(100% - 112px)}.customer-row>.muted-cell{display:none}.customer-row>.next-cell{grid-column:1}.row-actions{grid-column:2;grid-row:2}.arrow-button{display:none}.customer-hero{align-items:flex-start;flex-direction:column}.customer-hero-actions{width:100%}.customer-hero-actions>.secondary-button{flex:1}.report-button{min-width:0;flex:1}.customer-control-bar{padding:10px;display:grid;grid-template-columns:1fr 1fr}.stage-track{grid-column:1/-1;grid-row:2}.next-action-banner{align-items:flex-start;flex-wrap:wrap}.next-action-banner>div{min-width:calc(100% - 45px)}.next-action-banner .primary-button{margin-left:40px}.customer-tabs{gap:0;overflow-x:auto}.customer-tabs button{min-width:88px;flex:1;white-space:nowrap}.overview-grid{grid-template-columns:1fr}.wide-panel{grid-column:auto}.brief-grid{grid-template-columns:1fr}.intel-side{grid-template-columns:1fr}.intel-form-grid{grid-template-columns:1fr}.org-children{margin-left:10px;padding-left:14px}.relation-legend p{display:none}.task-summary{display:grid;grid-template-columns:repeat(3,1fr)}.task-summary span{padding:7px 5px;text-align:center}.task-row{padding:9px 11px}.task-row .grade-dot{display:none}.task-row time{width:48px}.analytics-metrics{grid-template-columns:repeat(2,1fr)}.grade-chart{grid-template-columns:repeat(2,1fr)}.form-row{grid-template-columns:1fr}.modal-layer{padding:10px}.modal-panel{padding:17px;border-radius:16px}
+ .report-toolbar{align-items:flex-start;padding:9px 12px}
+ .report-toolbar>div:first-child span{display:none}}
+ 
+ @media (max-width:680px){.stage-filter-chips{width:100%;padding-bottom:2px;overflow-x:auto;scrollbar-width:none}.stage-filter-chips::-webkit-scrollbar{display:none}.stage-filter-chips>span{position:sticky;left:0;z-index:1;padding-right:5px;background:var(--surface)}.stage-filter-chips button{flex:none}.choice-field{width:auto;min-width:0}.choice-trigger{height:38px}.choice-menu{width:min(220px,calc(100vw - 28px))}.choice-field:last-child .choice-menu{right:0}.option-cards.method-options{grid-template-columns:repeat(3,1fr)}.review-head .modern-select{width:100%;min-width:0}.review-head .modern-select select{width:100%}}
+ 
+ @media (max-width:680px){.today-command{align-items:flex-start}.today-command .td-button{display:none}.ai-assistant-card{padding:16px}.qq-penguin--assistant{left:16px;top:18px}.ai-assistant-copy{min-height:56px;padding-left:70px}.ai-assistant-copy p{font-size:12px}.today-layout{gap:10px}.td-panel{padding:15px}.today-action-list .priority-item{align-items:flex-start;flex-wrap:wrap}.today-action-list .priority-main{flex-basis:calc(100% - 40px)}.today-action-list .date-chip{display:inline-flex;margin-left:31px;white-space:normal}}
+ 
+ @media (max-width:900px){.analytics-workspace{grid-template-columns:1fr}.analytics-side{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-section-nav{top:60px}}
+ 
++@media (max-width:900px){
++  :where(button,[role="button"],summary,.attach-button){min-height:44px}
++  :where(.icon-button,.task-check,.row-more-actions summary,.editable-list button){min-width:44px}
++  :where(input:not([type="checkbox"]):not([type="radio"]),select){min-height:44px}
++}
++
+ @media (max-width:680px){
+   .customer-worktable{overflow:visible;padding:0;border:0;background:transparent;box-shadow:none}
+   .task-worktable{overflow:visible;padding:0;border:0;background:transparent;box-shadow:none}
+   .customer-worktable .table-head{display:none}
+   .customer-worktable .table-body{display:grid;gap:8px}
+   .customer-row{position:relative;padding:13px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;border:1px solid var(--td-border)!important;border-radius:var(--td-radius-lg);background:var(--td-bg-container)}
+   .customer-row>.identity-cell{grid-column:1/-1;padding-right:52px}
+   .customer-row>span:nth-child(2){position:absolute;top:16px;right:13px;margin:0}
+-  .customer-row>.muted-cell:nth-child(3){display:none}
++  .customer-row>.muted-cell:nth-child(3){grid-column:1;display:flex;align-items:center;gap:5px;font-size:10px}
+   .customer-row>.next-cell{grid-column:1/-1;padding:9px 10px;border-radius:var(--td-radius);background:var(--td-bg-secondary)}
+   .customer-row>.muted-cell:nth-child(5){display:flex;align-items:center;gap:5px;font-size:10px}
+   .customer-row>[data-label]::before{content:attr(data-label);color:var(--td-text-placeholder);font-size:9px;font-weight:600}
+   .customer-row>.next-cell b,.customer-row>.next-cell small{white-space:normal}
+   .customer-row>.row-actions{grid-column:1/-1;grid-row:auto;justify-content:space-between}
+   .report-mini{min-height:36px;padding:7px 10px}
+   .row-more-actions summary{width:36px;height:36px}
+   .row-more-actions>button{top:42px}
+   .customer-summary-header{align-items:flex-start;flex-direction:column}
+   .customer-hero-actions{width:100%;display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr)}
+@@ -348,20 +358,36 @@ h3 { font-size:14px; }
+   .report-actions{width:100%;display:flex;flex-wrap:wrap;gap:6px}
+   .report-actions .primary-button,.report-actions .secondary-button{min-width:0;flex:1;padding:0 9px;font-size:11px}
+   .report-actions .icon-button{flex:none}
+   .report-document{width:100%;min-height:0;margin:0;padding:30px 18px;box-shadow:none}
+   .report-heading{padding-bottom:20px}
+   .report-heading h1{font-size:28px}
+   .report-field-grid{grid-template-columns:1fr}
+   .report-progress article{grid-template-columns:1fr;gap:4px}
+ }
+ 
++@media (max-width:390px){
++  .topbar{padding-inline:10px}
++  .global-search input{min-width:0;padding-left:32px;font-size:12px}
++  .page{padding:20px 12px 96px}
++  .ai-assistant-card{padding:14px}
++  .customer-hero-actions{grid-template-columns:1fr}
++  .customer-control-bar{grid-template-columns:1fr}
++  .stage-track{grid-column:1;overflow-x:auto}
++  .task-summary{grid-template-columns:1fr}
++  .grade-chart{grid-template-columns:repeat(2,minmax(0,1fr))}
++  .report-actions .primary-button,.report-actions .secondary-button{flex-basis:calc(50% - 25px)}
++  .modal-layer{padding:0}
++  .modal-panel{width:100%;max-height:100dvh;min-height:100dvh;border:0;border-radius:0;padding:18px 14px calc(18px + env(safe-area-inset-bottom))}
++  .option-cards.method-options,.option-cards.role-options{grid-template-columns:repeat(2,1fr)}
++}
++
+ @media print {
+   @page { size:A4; margin:14mm; }
+   body { min-width:0;background:#fff!important; }
+   body > * { display:none!important; }
+   .report-layer { position:static!important;display:block!important;overflow:visible!important;background:#fff!important; }
+   .report-layer.hidden { display:none!important; }
+   .no-print { display:none!important; }
+   .report-document { width:100%!important;min-height:0!important;margin:0!important;padding:0!important;box-shadow:none!important; }
+   .report-heading,.report-section-title { break-after:avoid-page; }
+   .report-field,.report-progress article,.report-document li { break-inside:avoid-page; }
+diff --git a/tests/ui-contract.test.mjs b/tests/ui-contract.test.mjs
+index 4f018e8..b7fc8c8 100644
+--- a/tests/ui-contract.test.mjs
++++ b/tests/ui-contract.test.mjs
+@@ -792,10 +792,64 @@ test("report integration fails safely with a recoverable message when builder AP
+ 
+ test("attitude enums are localized and missing customer names do not create empty headings", () => {
+   const html = ReportBuilder.build({
+     raidFile: { dm: { attitude: "positive", coreDemand: "推进试点" } },
+   }, reportContext);
+ 
+   assert.match(html, /合作态度[\s\S]*积极/);
+   assert.doesNotMatch(html, /positive/);
+   assert.doesNotMatch(html, /<h1>\s*<\/h1>/);
+ });
++
++test("mobile, motion, and mascot boundaries are explicit", () => {
++  const css = read("style.css");
++  const js = read("app.js");
++  const reportAdapter = js.slice(js.indexOf("function buildReport"), js.indexOf("function exportWordReport"));
++
++  assert.match(css, /@media\s*\(max-width:\s*900px\)/);
++  assert.match(css, /@media\s*\(max-width:\s*680px\)/);
++  assert.match(css, /@media\s*\(max-width:\s*390px\)/);
++  assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
++  assert.doesNotMatch(reportAdapter, /qq-penguin|企鹅|assets\//);
++});
++
++test("390px customer cards retain every business-priority field", () => {
++  const css = read("style.css");
++  const mobile = css.slice(css.indexOf("@media (max-width:680px){\n  .customer-worktable"));
++
++  assert.match(mobile, /\.customer-row>\.muted-cell:nth-child\(3\)\s*\{[^}]*display:\s*flex/i);
++  assert.match(mobile, /\.customer-row>\.muted-cell:nth-child\(5\)\s*\{[^}]*display:\s*flex/i);
++  assert.match(mobile, /\.customer-row>\.next-cell\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/i);
++});
++
++test("mobile controls expose 44px touch targets and visible keyboard focus", () => {
++  const css = read("style.css");
++
++  assert.match(css, /:where\(button,\s*\[role="button"\],\s*summary,\s*input,\s*select,\s*textarea\):focus-visible/);
++  assert.match(css, /\.option-cards label:has\(input:focus-visible\)/);
++  assert.match(css, /@media\s*\(max-width:\s*900px\)[\s\S]*?min-height:\s*44px/i);
++  assert.match(css, /@media\s*\(max-width:\s*900px\)[\s\S]*?min-width:\s*44px/i);
++});
++
++test("modal and report dialogs declare focus targets and accessible close controls", () => {
++  const html = read("index.html");
++  const js = read("app.js");
++
++  assert.match(html, /id="modalLayer"[^>]*aria-hidden="true"/);
++  assert.match(html, /id="modalPanel"[^>]*tabindex="-1"/);
++  assert.match(html, /id="reportLayer"[^>]*aria-hidden="true"[^>]*tabindex="-1"/);
++  assert.match(js, /function trapDialogFocus\(event\)/);
++  assert.match(js, /!layer\.contains\(document\.activeElement\)/);
++  assert.match(js, /querySelector\(DIALOG_FOCUSABLE\)\?\.focus\(\)/);
++  assert.match(js, /restoreDialogFocus\(/);
++  assert.doesNotMatch(js, /class="icon-button" data-action="close-modal">/);
++  assert.match(js, /data-action="close-modal" aria-label="关闭弹窗"/);
++});
++
++test("dark surfaces and compact report preview remain explicit", () => {
++  const css = read("style.css");
++
++  assert.match(css, /\[data-theme="dark"\]\s+\.modal-panel\s*\{/);
++  assert.match(css, /\[data-theme="dark"\]\s+\.report-toolbar\s*\{/);
++  assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-document\s*\{[^}]*width:\s*100%[^}]*padding:\s*30px 18px/i);
++  assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-field-grid\s*\{[^}]*grid-template-columns:\s*1fr/i);
++});

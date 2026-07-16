@@ -1,0 +1,34 @@
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -3,6 +3,13 @@
+ > 一个**销售自己做主、AI 只做辅助**的客户获客工作台。纯前端、开箱即用、数据存本地。
+ 
+ 核心理念：**AI 是副驾，不是替身**。抽取信息、给参考分、建议痛点——全部可被销售采纳 / 修改 / 拒绝，主动权始终在销售手里。AI 查不到的情报会**诚实说"查不到"，绝不编造**。
++
++## 最终界面与报告约定
++
++- QQ penguin is the AI assistant identity and is excluded from business data and reports.
++- UI follows TDesign/Tencent blue tokens.
++- Reports dynamically omit empty sections and contain only customer facts, judgments, evidence, progress, and actions.
++- Verification command is `node --test tests/ui-contract.test.mjs` plus JavaScript syntax checks.
+ 
+ ## 在线演示
+ 
+diff --git a/HANDOVER.md b/HANDOVER.md
+--- a/HANDOVER.md
++++ b/HANDOVER.md
+@@ -63,6 +63,13 @@
+ **六大 Tab 顺序**：跟进记录(核心) → 组织架构 → 资料库(新) → 客户情报 → 话术辅助 → 复盘。另有独立的**数据看板**(dashboard) 和**明暗主题切换**。
+ 
+ ---
++
++## 最终界面与报告约定
++
++- QQ penguin is the AI assistant identity and is excluded from business data and reports.
++- UI follows TDesign/Tencent blue tokens.
++- Reports dynamically omit empty sections and contain only customer facts, judgments, evidence, progress, and actions.
++- Verification command is `node --test tests/ui-contract.test.mjs` plus JavaScript syntax checks.
+ 
+ ## 4. 怎么跑 / 怎么验证
+ 

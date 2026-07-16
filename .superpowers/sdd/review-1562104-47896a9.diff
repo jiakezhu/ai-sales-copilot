@@ -1,0 +1,581 @@
+# Review package: 1562104..47896a9
+
+## Commits
+47896a9 feat: generate content-only customer reports
+
+## Files changed
+ .superpowers/sdd/task-5-report.md |  31 +++++
+ app.js                            |  36 ++----
+ index.html                        |   3 +-
+ report.js                         | 242 ++++++++++++++++++++++++++++++++++++++
+ tests/ui-contract.test.mjs        | 115 +++++++++++++++++-
+ 5 files changed, 401 insertions(+), 26 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/task-5-report.md b/.superpowers/sdd/task-5-report.md
+new file mode 100644
+index 0000000..5f4023a
+--- /dev/null
++++ b/.superpowers/sdd/task-5-report.md
+@@ -0,0 +1,31 @@
++# Task 5 Report: Content-only customer report builder
++
++## Outcome
++
++- Added pure UMD `report.js`, exported as both `window.ReportBuilder` and `module.exports`.
++- Added `ReportBuilder.build(customer, options)` and `ReportBuilder.wrapWord(html)`.
++- Replaced the report template in `app.js` with a context adapter; preview and Word export now consume the same builder output.
++- Loaded `report.js` before `app.js` in `index.html`.
++- Removed report branding, mascot references, generation explanations, placeholders, empty sections, repeated facts, and the decorative footer.
++- Preserved existing README and HANDOVER changes without editing or staging them.
++
++## Data coverage
++
++The builder reads customer metadata, configured fields, relationship records, pain points, competitors, matched solutions, all progress notes, unfinished actions, stage history, goals, plans, raid intelligence, and evidence assets. It accepts both current normalized values and compatible alternate shapes such as primitive list values, `{ v }`, `{ value }`, `{ name, description }`, and `{ fileName, date }` without mutating the source object.
++
++## TDD evidence
++
++1. Added report-content and integration contracts first.
++2. Confirmed RED: `ERR_MODULE_NOT_FOUND` for the not-yet-created `report.js`.
++3. Added the pure builder and confirmed the content tests turned GREEN while the integration contract remained RED.
++4. Connected `index.html` and `app.js`; all contracts turned GREEN.
++5. Added a fact-level deduplication regression and confirmed RED (`2 !== 1`) before changing the ledger behavior.
++6. Added a singleton organization-intelligence regression and confirmed RED before correcting prepared-list rendering.
++
++## Verification
++
++- `node --test tests/ui-contract.test.mjs`: 30 passed, 0 failed.
++- `node --check report.js`: passed.
++- `node --check app.js`: passed.
++- `git diff --check`: passed.
++- Seed compatibility check: all 3 bundled customers produced reports, contained their customer names, contained none of the prohibited report copy, and remained byte-equivalent under `JSON.stringify` before/after build.
+diff --git a/app.js b/app.js
+index d8c399e..db27c4f 100644
+--- a/app.js
++++ b/app.js
+@@ -781,60 +781,48 @@ function updateCustomerStage(customerId, stage) {
+ }
+ function updateCustomerGrade(customerId, grade) { const customer=getCustomer(customerId); if(!customer)return; customer.grade=grade; persist("客户优先级已更新"); renderApp(); }
+ function updateIntelField(target) { const customer=getCustomer(target.dataset.customer); if(!customer)return; customer.fields[target.dataset.intelField] = {v:target.value.trim()}; persist(); toast("情报已保存"); }
+ 
+ // ---------- 全景报告 ----------
+ function openReport(customerId) {
+   const customer = getCustomer(customerId);
+   if (!customer) return;
+   reportCustomer = customer;
+   $("#reportDocument").innerHTML = buildReport(customer);
+-  $("#reportStatus").textContent = `生成于 ${formatDateTime(nowDateTime())} · 可继续返回档案修改`;
++  $("#reportStatus").textContent = `${customer.name} · ${formatLongDate(new Date())}`;
+   $("#reportLayer").classList.remove("hidden");
+   document.body.classList.add("report-open");
+   refreshIcons();
+   window.scrollTo({ top: 0 });
+ }
+ 
+ function closeReport() {
+   $("#reportLayer").classList.add("hidden");
+   document.body.classList.remove("report-open");
+   reportCustomer = null;
+ }
+ 
+ function buildReport(customer) {
+-  const notes=[...customer.notes].sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+-  const tasks=getTasks(customer).filter(t=>!t.done);
+-  const publicFields=FIELD_DEFS.filter(d=>d.public);
+-  const privateFields=FIELD_DEFS.filter(d=>!d.public);
+-  const raid=customer.raidFile || {};
+-  const reportRow=(label,value)=>`<div class="report-field"><span>${safe(label)}</span><p>${safe(value || "未填写")}</p></div>`;
+-  return `<header class="report-cover"><div class="report-brand"><span>Y</span> 云销副驾</div><p class="report-type">客户全景报告 / ACCOUNT 360</p><h1>${safe(customer.name)}</h1><div class="report-cover-meta"><span>${customer.grade} 级客户</span><span>${stageLabel(customer.stage)}</span><span>${safe(customer.fields.industry?.v || "行业未填写")}</span></div><p class="report-date">报告生成日期：${formatLongDate(new Date())}</p></header>
+-  <section class="report-section report-executive"><div class="report-section-title"><span>01</span><h2>执行摘要</h2></div><div class="report-summary-grid">${reportRow("下一步行动",tasks[0]?.text || raid.plan?.action)}${reportRow("核心机会",customer.painPoints[0]?.v)}${reportRow("关系进展",customer.fields.relation?.v)}${reportRow("推荐切入",customer.solution[0]?.product)}</div></section>
+-  <section class="report-section"><div class="report-section-title"><span>02</span><h2>客户基本面</h2></div><div class="report-data-grid">${publicFields.map(d=>reportRow(d.label,customer.fields[d.key]?.v)).join("")}</div></section>
+-  <section class="report-section"><div class="report-section-title"><span>03</span><h2>一线私有情报</h2></div><div class="report-data-grid single">${privateFields.map(d=>reportRow(d.label,customer.fields[d.key]?.v)).join("")}</div></section>
+-  <section class="report-section"><div class="report-section-title"><span>04</span><h2>关键关系与组织架构</h2></div>${customer.orgChain.length?`<table class="report-table"><thead><tr><th>姓名</th><th>职位 / 层级</th><th>联系方式</th><th>关系备注</th></tr></thead><tbody>${customer.orgChain.map(p=>`<tr><td><b>${safe(p.name)}</b></td><td>${safe(p.role)} / ${p.level===1?"决策层":p.level===2?"影响层":"执行层"}</td><td>${safe([p.phone,p.wechat,p.email].filter(Boolean).join(" · ") || "未填写")}</td><td>${safe(p.note || "未填写")}</td></tr>`).join("")}</tbody></table>`:reportEmpty("尚未建立关键关系")}</section>
+-  <section class="report-section"><div class="report-section-title"><span>05</span><h2>痛点、竞对与方案</h2></div><div class="report-two-col"><div><h3>核心痛点</h3>${reportList(customer.painPoints.map(p=>p.v))}<h3>外部竞对</h3>${reportList((raid.competitors||[]).map(c=>`${c.name}：${c.coverage}；优势 ${c.pros}；劣势 ${c.cons}`))}</div><div><h3>匹配方案</h3>${customer.solution.length?customer.solution.map(s=>`<article class="report-solution"><b>${safe(s.product)}</b><p>${safe(s.reason)}</p></article>`).join(""):reportEmpty("尚未匹配方案")}<h3>商务 / 技术策略</h3><p class="report-paragraph">${safe(raid.solution?.biz || "未填写")}</p><p class="report-paragraph">${safe(raid.solution?.tech || "未填写")}</p></div></div></section>
+-  <section class="report-section page-break"><div class="report-section-title"><span>06</span><h2>全流程客户推进记录</h2></div>${notes.length?`<div class="report-timeline">${notes.map(note=>`<article><time>${formatDateTime(note.date)}</time><div><b>${safe(methodMeta(note.method).label)}${note.contact?` · ${safe(note.contact)}`:""}</b><p>${safe(note.content)}</p>${note.next?`<small>${note.taskDone?"已完成":"下一步"}：${safe(note.next)} · ${formatShortDate(note.nextDate)}</small>`:""}</div></article>`).join("")}</div>`:reportEmpty("尚无推进记录")}</section>
+-  <section class="report-section"><div class="report-section-title"><span>07</span><h2>阶段历史与当前待办</h2></div><div class="report-two-col"><div><h3>阶段历史</h3>${reportList((customer.stageHistory||[]).map(h=>`${formatDateTime(h.date)} · ${stageLabel(h.stage)} · ${h.note||""}`))}</div><div><h3>当前待办</h3>${reportList(tasks.map(t=>`${formatShortDate(t.date)} · ${t.text}${t.note.contact?` · ${t.note.contact}`:""}`))}</div></div></section>
+-  <section class="report-section"><div class="report-section-title"><span>08</span><h2>阶段目标与攻坚计划</h2></div><div class="report-data-grid single">${reportRow("3 个月目标",raid.goals?.g1)}${reportRow("6 个月目标",raid.goals?.g2)}${reportRow("长期布局",raid.goals?.g3)}${reportRow("下一步攻坚动作",raid.plan?.action)}${reportRow("需要支持事项",raid.plan?.support)}</div></section>
+-  <section class="report-section"><div class="report-section-title"><span>09</span><h2>材料与证据索引</h2></div>${customer.assets.length?`<table class="report-table"><thead><tr><th>材料名称</th><th>类型</th><th>关联说明</th><th>录入时间</th></tr></thead><tbody>${customer.assets.map(a=>`<tr><td>${safe(a.name)}</td><td>${safe(assetTypeLabel(a.type))}</td><td>${safe(a.caption||"未填写")}</td><td>${formatDateTime(a.createdAt)}</td></tr>`).join("")}</tbody></table>`:reportEmpty("尚无材料附件")}</section>
+-  <footer class="report-footer"><b>云销副驾 · 客户全景报告</b><p>本报告由客户档案实时汇总生成。AI 提取内容均经销售确认；未填写项明确保留，不进行虚构补全。</p></footer>`;
+-}
+-
+-function reportList(items) { return items.filter(Boolean).length ? `<ul class="report-list">${items.filter(Boolean).map(item=>`<li>${safe(item)}</li>`).join("")}</ul>` : reportEmpty("暂无内容"); }
+-function reportEmpty(text) { return `<p class="report-empty">${safe(text)}</p>`; }
++  return ReportBuilder.build(customer, {
++    fieldDefs: FIELD_DEFS,
++    stages: CRM_STAGES,
++    methods: CONTACT_METHODS,
++    assetTypes: ASSET_TYPES,
++    formatDateTime,
++    formatShortDate,
++    reportDate: formatLongDate(new Date()),
++  });
++}
+ 
+ function exportWordReport() {
+   if (!reportCustomer) return;
+-  const styles = `body{font-family:Arial,'Microsoft YaHei',sans-serif;color:#162033;line-height:1.6;margin:36px}.report-cover{padding:40px 0;border-bottom:3px solid #2864dc}.report-cover h1{font-size:34px}.report-section{margin:32px 0}.report-section-title{display:flex;gap:12px;align-items:center;border-bottom:1px solid #ccd5e3}.report-section-title span{color:#2864dc;font-weight:bold}.report-data-grid,.report-summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.report-field{border:1px solid #dce2ea;padding:12px}.report-field span{color:#69758a;font-size:12px}.report-table{width:100%;border-collapse:collapse}.report-table th,.report-table td{border:1px solid #dce2ea;padding:8px;text-align:left}.report-two-col{display:grid;grid-template-columns:1fr 1fr;gap:24px}.report-footer{margin-top:50px;border-top:1px solid #dce2ea;padding-top:16px;color:#69758a}`;
+-  const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${styles}</style></head><body>${$("#reportDocument").innerHTML}</body></html>`;
++  const doc = ReportBuilder.wrapWord($("#reportDocument").innerHTML);
+   const blob = new Blob(["\ufeff", doc], { type: "application/msword" });
+   const url = URL.createObjectURL(blob);
+   const link = document.createElement("a"); link.href=url; link.download=`${reportCustomer.name}_客户全景报告_${todayStr()}.doc`; link.click();
+   setTimeout(()=>URL.revokeObjectURL(url),1000); toast("Word 报告已导出");
+ }
+ 
+ // ---------- 数据计算 ----------
+ function getCustomer(id) { return customers.find(customer => customer.id === id); }
+ function getTasks(onlyCustomer) {
+   const scope = onlyCustomer ? [onlyCustomer] : customers;
+diff --git a/index.html b/index.html
+index 5918c21..e9eeed4 100644
+--- a/index.html
++++ b/index.html
+@@ -50,31 +50,32 @@
+     <button class="mobile-capture" data-action="focus-copilot" aria-label="用 AI 记录信息"><i data-lucide="sparkles"></i></button>
+   </div>
+ 
+   <div class="modal-layer hidden" id="modalLayer" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+     <div class="modal-backdrop" data-action="close-modal"></div>
+     <section class="modal-panel" id="modalPanel"></section>
+   </div>
+ 
+   <div class="report-layer hidden" id="reportLayer" role="dialog" aria-modal="true" aria-label="客户全景报告预览">
+     <div class="report-toolbar no-print">
+-      <div><b>客户全景报告</b><span id="reportStatus">实时汇总当前客户全部信息</span></div>
++      <div><b>客户全景报告</b><span id="reportStatus">客户报告预览</span></div>
+       <div class="report-actions">
+         <button class="secondary-button" data-action="export-word"><i data-lucide="file-type-2"></i> 导出 Word</button>
+         <button class="primary-button" data-action="export-pdf"><i data-lucide="file-down"></i> 导出 PDF</button>
+         <button class="icon-button" data-action="close-report" aria-label="关闭报告"><i data-lucide="x"></i></button>
+       </div>
+     </div>
+     <article class="report-document" id="reportDocument"></article>
+   </div>
+ 
+   <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+ 
+   <script src="https://web.sdk.qcloud.com/cloudbase/js-sdk/2.7.4/tcb.js"></script>
+   <script src="data.js"></script>
+   <script src="cloudbase-config.js"></script>
+   <script src="auth.js"></script>
+   <script src="crm.js"></script>
+   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
++  <script src="report.js"></script>
+   <script src="app.js"></script>
+ </body>
+ </html>
+diff --git a/report.js b/report.js
+new file mode 100644
+index 0000000..c8300db
+--- /dev/null
++++ b/report.js
+@@ -0,0 +1,242 @@
++(function (root, factory) {
++  const api = factory();
++  if (typeof module === "object" && module.exports) module.exports = api;
++  else root.ReportBuilder = api;
++})(typeof globalThis !== "undefined" ? globalThis : this, function () {
++  "use strict";
++
++  const escape = value => String(value == null ? "" : value).replace(/[&<>\"]/g, character => ({
++    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
++  })[character]);
++  const text = value => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
++  const array = value => Array.isArray(value) ? value : [];
++
++  function valueOf(value) {
++    if (value == null) return "";
++    if (typeof value !== "object") return text(value);
++    for (const key of ["v", "value", "text", "content", "name", "label"]) {
++      const candidate = text(value[key]);
++      if (candidate) return candidate;
++    }
++    return "";
++  }
++
++  function resolveLabel(items, key) {
++    const match = array(items).find(item => item && item.key === key);
++    return text(match && match.label) || text(key);
++  }
++
++  function format(value, formatter) {
++    const source = text(value);
++    if (!source) return "";
++    if (typeof formatter !== "function") return source;
++    try { return text(formatter(value)) || source; } catch (_) { return source; }
++  }
++
++  function createLedger() {
++    const emitted = new Set();
++    return function unique(value) {
++      const fact = text(value);
++      if (!fact) return "";
++      const key = fact.toLocaleLowerCase();
++      if (emitted.has(key)) return "";
++      emitted.add(key);
++      return fact;
++    };
++  }
++
++  function section(title, body, className) {
++    if (!body) return "";
++    const classes = ["report-section", className].filter(Boolean).join(" ");
++    return `<section class="${classes}"><div class="report-section-title"><h2>${escape(title)}</h2></div>${body}</section>`;
++  }
++
++  function fieldGrid(entries, unique, className) {
++    const body = entries.map(([label, value]) => {
++      const fact = unique(value);
++      return fact ? `<div class="report-field"><span>${escape(label)}</span><p>${escape(fact)}</p></div>` : "";
++    }).join("");
++    return body ? `<div class="${className || "report-data-grid"}">${body}</div>` : "";
++  }
++
++  function list(items, unique, className) {
++    const body = items.map(item => {
++      const fact = unique(item);
++      return fact ? `<li>${escape(fact)}</li>` : "";
++    }).join("");
++    return body ? `<ul class="${className || "report-list"}">${body}</ul>` : "";
++  }
++
++  function preparedList(items, className) {
++    const body = items.map(text).filter(Boolean).map(item => `<li>${escape(item)}</li>`).join("");
++    return body ? `<ul class="${className || "report-list"}">${body}</ul>` : "";
++  }
++
++  function describeParts(parts) {
++    return parts.map(text).filter(Boolean).join(" · ");
++  }
++
++  function uniqueParts(parts, unique, separator) {
++    return parts.map(unique).filter(Boolean).join(separator || " · ");
++  }
++
++  function build(customer, options) {
++    const source = customer && typeof customer === "object" ? customer : {};
++    const context = options && typeof options === "object" ? options : {};
++    const fields = source.fields && typeof source.fields === "object" ? source.fields : {};
++    const raid = source.raidFile && typeof source.raidFile === "object" ? source.raidFile : {};
++    const unique = createLedger();
++    const notes = array(source.notes).slice().sort((left, right) => text(right && right.date).localeCompare(text(left && left.date)));
++    const pendingNotes = notes.filter(note => note && valueOf(note.next) && !note.taskDone);
++    const painPoints = array(source.painPoints).map(valueOf).filter(Boolean);
++    const solutions = array(source.solution);
++    const fieldDefs = array(context.fieldDefs);
++
++    const headingMeta = [
++      resolveLabel(context.stages, source.stage),
++      text(source.grade) ? `${text(source.grade)} 级客户` : "",
++      text(context.reportDate),
++    ].filter(Boolean).map(item => `<span>${escape(item)}</span>`).join("");
++    const heading = `<header class="report-cover"><p class="report-type">客户全景报告</p><h1>${escape(valueOf(source.name))}</h1>${headingMeta ? `<div class="report-cover-meta">${headingMeta}</div>` : ""}</header>`;
++
++    const executive = fieldGrid([
++      ["当前判断", valueOf(fields.relation) || valueOf(raid.dm && raid.dm.reachLevel)],
++      ["核心机会", painPoints[0]],
++      ["主要风险", valueOf(raid.dm && raid.dm.concern) || valueOf(raid.plan && raid.plan.support)],
++    ], unique, "report-summary-grid");
++
++    const profileEntries = fieldDefs.map(definition => [
++      definition && definition.label,
++      valueOf(fields[definition && definition.key]),
++    ]);
++    const raidBasic = raid.basic && typeof raid.basic === "object" ? raid.basic : {};
++    const raidDm = raid.dm && typeof raid.dm === "object" ? raid.dm : {};
++    profileEntries.push(
++      ["经营范围", valueOf(raidBasic.scope)],
++      ["商业模式", valueOf(raidBasic.model)],
++      ["市场分布", valueOf(raidBasic.market)],
++      ["当前触达", valueOf(raidDm.reachLevel)],
++      ["合作态度", valueOf(raidDm.attitude)],
++      ["核心诉求", valueOf(raidDm.coreDemand)],
++      ["主要顾虑", valueOf(raidDm.concern)],
++      ["内部协同", valueOf(raid.competitor && raid.competitor.internal)],
++      ["商务策略", valueOf(raid.solution && raid.solution.biz)],
++      ["技术策略", valueOf(raid.solution && raid.solution.tech)],
++    );
++    array(raid.scenes).forEach((scene, index) => {
++      const sceneValue = describeParts([valueOf(scene && scene.title), valueOf(scene && (scene.scene || scene.description)), valueOf(scene && scene.link)]);
++      profileEntries.push([`业务场景 ${index + 1}`, sceneValue]);
++    });
++    const profile = fieldGrid(profileEntries, unique);
++
++    const orgItems = [];
++    array(source.orgChain).forEach(person => {
++      if (!person || typeof person !== "object") return;
++      const contacts = [person.phone, person.wechat, person.email].map(text).filter(Boolean).join(" · ");
++      const detail = uniqueParts([valueOf(person.name), valueOf(person.role), contacts, valueOf(person.note)], unique);
++      if (detail) orgItems.push(detail);
++    });
++    const raidOrg = raid.org && typeof raid.org === "object" ? raid.org : {};
++    if (unique(valueOf(raidOrg.orgDesc))) orgItems.push(valueOf(raidOrg.orgDesc));
++    const roles = array(raid.roles).concat(array(raidOrg.roles));
++    roles.forEach(role => {
++      if (!role || typeof role !== "object") return;
++      const detail = uniqueParts([
++        valueOf(role.name), valueOf(role.role), valueOf(role.position), valueOf(role.demand),
++      ], unique);
++      if (detail) orgItems.push(detail);
++    });
++    const organization = preparedList(orgItems, "report-relation-list");
++
++    const marketItems = [];
++    painPoints.forEach(item => {
++      const fact = unique(item);
++      if (fact) marketItems.push(`客户痛点：${fact}`);
++    });
++    array(raid.competitors).forEach(competitor => {
++      if (!competitor || typeof competitor !== "object") return;
++      const detail = [
++        valueOf(competitor.name),
++        valueOf(competitor.coverage) ? `覆盖 ${valueOf(competitor.coverage)}` : "",
++        valueOf(competitor.pros) ? `优势 ${valueOf(competitor.pros)}` : "",
++        valueOf(competitor.cons) ? `劣势 ${valueOf(competitor.cons)}` : "",
++      ].map(unique).filter(Boolean).join("；");
++      if (detail) marketItems.push(`竞品：${detail}`);
++    });
++    solutions.forEach(solution => {
++      const name = valueOf(solution && (solution.product || solution.name || solution.title || solution));
++      const reason = valueOf(solution && (solution.reason || solution.description || solution.detail));
++      const detail = uniqueParts([name, reason], unique, "：");
++      if (detail) marketItems.push(`匹配方案：${detail}`);
++    });
++    const market = preparedList(marketItems);
++
++    const progressItems = notes.map(note => {
++      if (!note || typeof note !== "object") return "";
++      const when = format(note.date, context.formatDateTime);
++      const method = resolveLabel(context.methods, note.method);
++      const who = valueOf(note.contact);
++      const place = valueOf(note.place);
++      const content = unique(valueOf(note.content || note.text || note.summary));
++      const completedFact = note.taskDone ? unique(valueOf(note.next)) : "";
++      const completedAction = completedFact
++        ? `已完成：${completedFact}${format(note.nextDate, context.formatShortDate) ? `（${format(note.nextDate, context.formatShortDate)}）` : ""}`
++        : "";
++      const details = [describeParts([method, who, place]), content, completedAction].filter(Boolean);
++      if (!details.length) return "";
++      return `<article><time>${escape(when)}</time><div>${details.map((detail, index) => index === 0 ? `<b>${escape(detail)}</b>` : `<p>${escape(detail)}</p>`).join("")}</div></article>`;
++    }).filter(Boolean).join("");
++    const progress = progressItems ? `<div class="report-timeline">${progressItems}</div>` : "";
++
++    const pending = list(pendingNotes.map(note => {
++      const due = format(note.nextDate, context.formatShortDate);
++      return describeParts([due, valueOf(note.next), valueOf(note.contact)]);
++    }), unique, "report-action-list");
++
++    const executionItems = [];
++    array(source.stageHistory).forEach(history => {
++      if (!history || typeof history !== "object") return;
++      const item = describeParts([
++        format(history.date, context.formatDateTime),
++        resolveLabel(context.stages, history.stage),
++        valueOf(history.note),
++      ]);
++      if (item) executionItems.push(`阶段历史：${item}`);
++    });
++    const goals = raid.goals && typeof raid.goals === "object" ? raid.goals : {};
++    [
++      ["3 个月目标", goals.g1], ["6 个月目标", goals.g2], ["长期目标", goals.g3],
++      ["攻坚动作", raid.plan && raid.plan.action], ["支持事项", raid.plan && raid.plan.support],
++    ].forEach(([label, value]) => {
++      const fact = unique(valueOf(value));
++      if (fact) executionItems.push(`${label}：${fact}`);
++    });
++    const execution = preparedList(executionItems, "report-plan-list");
++
++    const evidenceItems = array(source.assets).map(asset => {
++      if (!asset || typeof asset !== "object") return valueOf(asset);
++      const name = unique(valueOf(asset.name || asset.fileName || asset.title));
++      const type = resolveLabel(context.assetTypes, asset.type);
++      const caption = unique(valueOf(asset.caption || asset.description || asset.note));
++      const created = format(asset.createdAt || asset.date || asset.created, context.formatDateTime);
++      return describeParts([name, type, caption, created]);
++    });
++    const evidence = preparedList(evidenceItems, "report-evidence-list");
++
++    return heading
++      + section("执行摘要", executive, "report-executive")
++      + section("客户基本信息与情报", profile)
++      + section("组织与关键关系", organization)
++      + section("痛点、竞品与匹配方案", market)
++      + section("全流程客户推进记录", progress, "page-break")
++      + section("当前未完成行动", pending)
++      + section("阶段历史、目标与攻坚计划", execution)
++      + section("材料与证据索引", evidence);
++  }
++
++  function wrapWord(html) {
++    return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"></head><body>${String(html == null ? "" : html)}</body></html>`;
++  }
++
++  return { build, wrapWord };
++});
+diff --git a/tests/ui-contract.test.mjs b/tests/ui-contract.test.mjs
+index 197f166..cba4dd7 100644
+--- a/tests/ui-contract.test.mjs
++++ b/tests/ui-contract.test.mjs
+@@ -1,15 +1,16 @@
+ import test from "node:test";
+ import assert from "node:assert/strict";
+ import { createHash } from "node:crypto";
+ import { readFileSync } from "node:fs";
+ import vm from "node:vm";
++import ReportBuilder from "../report.js";
+ 
+ const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+ const readBinary = path => readFileSync(new URL(`../${path}`, import.meta.url));
+ 
+ function loadWorkspaceTestApi(openMenus = []) {
+   const sandbox = {
+     console,
+     document: {
+       activeElement: null,
+       documentElement: { dataset: { theme: "light" } },
+@@ -52,21 +53,21 @@ function loadAssistantStateTestApi(card, timers, options = {}) {
+ 
+ test("Tencent shell uses the supplied QQ penguin and TDesign tokens", () => {
+   const html = read("index.html");
+   const css = read("style.css");
+   assert.match(css, /--td-brand-color:\s*#0052d9/i);
+   assert.match(css, /--td-brand-color-hover:\s*#366ef4/i);
+   assert.match(css, /--blue:\s*var\(--td-brand-color\)/i);
+   assert.match(css, /--blue-strong:\s*var\(--td-brand-color-active\)/i);
+   assert.match(css, /--blue-soft:\s*var\(--td-brand-color-light\)/i);
+   assert.match(css, /\.mobile-capture\{[^}]*background:linear-gradient\(145deg,var\(--td-brand-color-hover\),var\(--td-brand-color\)\)/i);
+-  assert.doesNotMatch(html, /<script\s+src="report\.js"/i);
++  assert.match(html, /<script\s+src="report\.js"/i);
+ });
+ 
+ test("QQ penguin asset is byte-for-byte the approved reference", () => {
+   const digest = createHash("sha256")
+     .update(readBinary("assets/qq-penguin-reference.png"))
+     .digest("hex");
+ 
+   assert.equal(digest, "5eda8ddce51aa85a0fe6688563868229656fcd27b7f9fde27ac59857ccc87f7e");
+ });
+ 
+@@ -408,10 +409,122 @@ test("menu-internal data-action clicks remain dispatchable", async () => {
+ 
+ test("business workspace controls expose a visible keyboard focus ring", () => {
+   const css = read("style.css");
+   assert.match(css, /button:focus-visible\s*,\s*summary:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--td-brand-color-hover\)[^}]*outline-offset:\s*2px/i);
+ });
+ 
+ test("the final customer menu stays visible inside the clipped worktable", () => {
+   const css = read("style.css");
+   assert.match(css, /\.customer-row:last-child\s+\.row-more-actions\s*>\s*button\s*\{[^}]*top:\s*auto[^}]*bottom:\s*34px/i);
+ });
++
++const reportContext = {
++  fieldDefs: [
++    { key: "industry", label: "行业", public: true },
++    { key: "relation", label: "客户关系", public: false },
++  ],
++  stages: [{ key: "proposal", label: "方案中" }],
++  methods: [{ key: "phone", label: "电话" }],
++  assetTypes: [{ key: "file", label: "文件" }],
++  formatDateTime: value => value,
++  formatShortDate: value => value,
++  reportDate: "2026年7月16日",
++};
++
++test("report omits empty sections and all product-generation copy", () => {
++  const customer = {
++    name: "星澜互娱", grade: "A", stage: "proposal",
++    fields: { industry: { v: "游戏" }, relation: { v: "技术负责人支持" } },
++    painPoints: [{ v: "海外延迟" }], solution: [], orgChain: [], assets: [],
++    notes: [{ method: "phone", date: "2026-07-16 10:00", contact: "王工", content: "确认海外延迟是核心顾虑", next: "发送对比方案", nextDate: "2026-07-18", taskDone: false }],
++    stageHistory: [], raidFile: {},
++  };
++
++  const html = ReportBuilder.build(customer, reportContext);
++
++  assert.match(html, /星澜互娱/);
++  assert.match(html, /执行摘要/);
++  assert.match(html, /全流程客户推进记录/);
++  assert.match(html, /当前未完成行动/);
++  assert.doesNotMatch(html, /云销副驾|AI\s*生成|实时汇总|未填写|暂无|待补充|企鹅|营销话术/);
++  assert.doesNotMatch(html, /关键关系与组织架构|材料与证据索引/);
++});
++
++test("report covers populated customer intelligence without mutating source data", () => {
++  const customer = {
++    name: "远帆科技", grade: "S", stage: "proposal",
++    fields: {
++      industry: { value: "企业服务" },
++      relation: "采购负责人已建联",
++    },
++    orgChain: [{ name: "李总", role: "采购负责人", phone: "13800000000", note: "预算关键人" }],
++    painPoints: ["成本压力"],
++    solution: [{ name: "迁移方案", description: "分阶段降低成本" }],
++    notes: [
++      { method: "phone", date: "2026-07-15 09:00", content: "确认预算范围", next: "提交报价", nextDate: "2026-07-20", taskDone: false },
++      { method: "phone", date: "2026-07-14 09:00", content: "完成首次沟通", next: "发送资料", taskDone: true },
++    ],
++    stageHistory: [{ stage: "proposal", date: "2026-07-15", note: "进入方案评估" }],
++    assets: [{ fileName: "会议纪要.pdf", description: "预算会议记录", type: "file", date: "2026-07-15" }],
++    raidFile: {
++      basic: { scope: "为制造企业提供协同软件" },
++      scenes: [{ title: "海外协同", scene: "跨区域访问" }],
++      org: { orgDesc: "采购向 CFO 汇报", roles: [{ role: "CFO", position: "决策人", demand: "控制预算" }] },
++      dm: { reachLevel: "采购负责人", coreDemand: "年度降本", concern: "迁移风险" },
++      competitors: [{ name: "现有供应商", coverage: "核心系统", pros: "稳定", cons: "成本高" }],
++      solution: { biz: "分阶段商务方案", tech: "双轨迁移" },
++      goals: { g1: "完成测试", g2: "核心系统迁移", g3: "建立长期合作" },
++      plan: { action: "组织技术评审", support: "安排架构师" },
++    },
++  };
++  const before = JSON.stringify(customer);
++
++  const html = ReportBuilder.build(customer, reportContext);
++
++  for (const expected of [
++    "执行摘要", "客户基本信息与情报", "组织与关键关系", "痛点、竞品与匹配方案",
++    "全流程客户推进记录", "当前未完成行动", "阶段历史、目标与攻坚计划", "材料与证据索引",
++    "远帆科技", "企业服务", "李总", "成本压力", "迁移方案", "确认预算范围", "提交报价",
++    "采购向 CFO 汇报", "进入方案评估", "完成测试", "组织技术评审", "会议纪要.pdf",
++  ]) assert.match(html, new RegExp(expected));
++  assert.equal((html.match(/成本压力/g) || []).length, 1);
++  assert.equal((html.match(/迁移风险/g) || []).length, 1);
++  assert.equal(JSON.stringify(customer), before);
++});
++
++test("report escapes customer data, suppresses empty values, and avoids cross-section fact repetition", () => {
++  const repeatedFact = "唯一关系事实";
++  const html = ReportBuilder.build({
++    name: "<客户&公司>", stage: "", grade: "",
++    fields: { industry: { v: "  " }, relation: { v: repeatedFact } },
++    notes: [{ method: "", date: "", content: "" }],
++    orgChain: [{ name: "", role: "", phone: "", note: "" }],
++    painPoints: [], solution: [], assets: [], stageHistory: [], raidFile: {},
++  }, reportContext);
++
++  assert.match(html, /&lt;客户&amp;公司&gt;/);
++  assert.equal((html.match(new RegExp(repeatedFact, "g")) || []).length, 1);
++  assert.doesNotMatch(html, />\s*undefined\s*</);
++  assert.doesNotMatch(html, /<p><\/p>|<li><\/li>|<td><\/td>/);
++  assert.doesNotMatch(html, /全流程客户推进记录|组织与关键关系/);
++});
++
++test("report builder is the single source for preview and Word export", () => {
++  const html = read("index.html");
++  const js = read("app.js");
++  const reportScript = html.indexOf('<script src="report.js"></script>');
++  const appScript = html.indexOf('<script src="app.js"></script>');
++
++  assert.ok(reportScript > 0 && appScript > reportScript);
++  assert.match(js, /return ReportBuilder\.build\(customer,\s*\{/);
++  assert.match(js, /ReportBuilder\.wrapWord\(\$\("#reportDocument"\)\.innerHTML\)/);
++  assert.doesNotMatch(js, /function reportList|function reportEmpty|const reportRow/);
++  assert.doesNotMatch(read("report.js"), /云销副驾|企鹅|AI\s*生成|实时汇总|未填写|暂无|待补充|report-footer/);
++});
++
++test("Word wrapper contains exactly the supplied report body", () => {
++  const body = '<section class="report-section"><h2>客户事实</h2></section>';
++  const word = ReportBuilder.wrapWord(body);
++  assert.match(word, /^<!DOCTYPE html>/i);
++  assert.equal((word.match(/客户事实/g) || []).length, 1);
++  assert.doesNotMatch(word, /云销副驾|企鹅|AI\s*生成|实时汇总|report-footer/);
++});
