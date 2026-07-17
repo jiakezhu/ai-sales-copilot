@@ -9,6 +9,8 @@ const DIALOG_FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([typ
 
 let customers = [];
 let reportCustomer = null;
+let customerImportRows = [];
+let customerImportFileName = "";
 let toastTimer = null;
 let assistantStateTimer = null;
 let currentAssistantState = "idle";
@@ -39,17 +41,32 @@ document.addEventListener("DOMContentLoaded", init);
 async function init() {
   initTheme();
   try {
-    if (typeof CloudAuth !== "undefined" && CloudAuth.boot) await CloudAuth.boot();
+    if (typeof AuthCoordinator !== "undefined" && AuthCoordinator.boot) await AuthCoordinator.boot();
+    else if (typeof CloudAuth !== "undefined" && CloudAuth.boot) await CloudAuth.boot();
   } catch (error) {
-    console.warn("Cloud boot unavailable, using local data", error);
+    console.warn("Authentication boot unavailable, using local data", error);
   }
   customers = CRM.load().map(ensureCustomerShape);
   fillStaticPenguins();
   bindAppEvents();
+  updateCurrentUserUI();
   renderApp();
 }
 
 // 把 HTML 里 [data-penguin] 占位符填充为对应姿态的 SVG 企鹅
+function updateCurrentUserUI() {
+  const user = typeof AuthCoordinator !== "undefined" ? AuthCoordinator.user : null;
+  const name = user?.name || user?.displayName || user?.email || "我的工作台";
+  const nameNode = $("#currentUserName");
+  const metaNode = $("#currentUserMeta");
+  const avatarNode = $("#currentUserAvatar");
+  const logoutButton = $(".user-logout");
+  if (nameNode) nameNode.textContent = name;
+  if (metaNode) metaNode.textContent = user?.email || (user ? "数据仅当前账号可见" : "本地演示模式");
+  if (avatarNode) avatarNode.textContent = String(name).trim().slice(0, 1) || "销";
+  if (logoutButton) logoutButton.hidden = !user;
+}
+
 function fillStaticPenguins() {
   document.querySelectorAll("[data-penguin]").forEach(el => {
     if (el.dataset.penguinDone) return;
@@ -118,7 +135,10 @@ async function handleAction(event) {
   if (action === "nav") return navigate(trigger.dataset.page);
   if (action === "go-today") return navigate("today");
   if (action === "theme") return toggleTheme();
+  if (action === "logout") return AuthCoordinator?.logout?.();
   if (action === "new-customer") return openNewCustomer();
+  if (action === "import-customers") return openCustomerImport();
+  if (action === "download-import-template") return downloadCustomerImportTemplate();
   if (action === "manual-entry") return openManualEntry(trigger.dataset.customer || state.customerId);
   if (action === "edit-note") return openManualEntry(trigger.dataset.customer, trigger.dataset.note);
   if (action === "remove-note") return deleteProgressNote(trigger.dataset.customer, trigger.dataset.note);
@@ -154,6 +174,8 @@ async function handleAction(event) {
 
 async function handleChange(event) {
   const target = event.target;
+  if (target.id === "customerImportFile") return previewCustomerImport(target.files?.[0]);
+  if (target.id === "customerImportStrategy") return renderCustomerImportPreview(target.value);
   if (target.id === "stageFilter") {
     state.stageFilter = target.value;
     return renderApp();
@@ -173,6 +195,7 @@ async function handleSubmit(event) {
   event.preventDefault();
   const type = event.target.dataset.form;
   if (type === "new-customer") return submitNewCustomer(event.target);
+  if (type === "customer-import") return submitCustomerImport(event.target);
   if (type === "manual-entry") return submitManualEntry(event.target);
   if (type === "contact") return submitContact(event.target);
   if (type === "pain") return submitPain(event.target);
@@ -307,7 +330,7 @@ function renderCustomers() {
   return `<div class="page customers-page">
     <section class="page-heading">
       <div><p class="eyebrow">ACCOUNT WORKSPACE</p><h1>客户</h1><p>围绕下一步行动管理客户，而不是维护静态名单。</p></div>
-      <button class="primary-button" data-action="new-customer">${icon("plus")} 新建客户</button>
+      <div class="page-heading-actions"><button class="secondary-button" data-action="import-customers">${icon("upload")} 批量导入</button><button class="primary-button" data-action="new-customer">${icon("plus")} 新建客户</button></div>
     </section>
     <section class="filter-bar">
       <div class="filter-summary"><b>${filtered.length}</b> 个客户</div>
@@ -655,9 +678,37 @@ function analyzeCopilot(baseDate = new Date()) {
     next: action.next,
     nextDate: action.nextDate,
     attachments: [...state.copilotAttachments],
+    source: "local",
   };
   renderAIDraft();
   $("#aiDraft")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  if (typeof SalesAPI !== "undefined" && typeof AuthCoordinator !== "undefined" && AuthCoordinator.mode === "api") {
+    void enhanceAIDraftWithAPI(raw, baseDate, matched);
+  }
+}
+
+async function enhanceAIDraftWithAPI(raw, baseDate, localMatch) {
+  try {
+    setAssistantState("reviewing");
+    const ai = await SalesAPI.extractAI(raw, customers.map(customer => customer.name));
+    if (!state.aiDraft || state.aiDraft.raw !== raw) return;
+    const matched = customers.find(customer => ai.name && (customer.name === ai.name || customer.name.includes(ai.name))) || localMatch;
+    const localAction = extractNextAction(raw, baseDate);
+    state.aiDraft = {
+      ...state.aiDraft,
+      customerId: matched?.id || state.aiDraft.customerId,
+      found: Object.keys(ai.found || {}).length ? ai.found : state.aiDraft.found,
+      method: ai.method || state.aiDraft.method,
+      contact: ai.contact || state.aiDraft.contact,
+      next: ai.next || localAction.next || state.aiDraft.next,
+      nextDate: ai.nextDate || localAction.nextDate || state.aiDraft.nextDate,
+      source: "api",
+    };
+    renderAIDraft();
+  } catch (error) {
+    console.warn("AI API unavailable, local extraction retained", error);
+    if (error?.status === 503 || error?.code === "AI_NOT_CONFIGURED") toast("AI API 尚未配置，已使用本地规则整理");
+  }
 }
 
 function extractContact(raw, matchedCustomer) {
@@ -682,7 +733,7 @@ function renderAIDraft() {
   const draft = state.aiDraft;
   const fields = Object.entries(draft.found);
   host.innerHTML = `<section class="ai-review">
-    <div class="review-head"><div><span class="review-kicker">AI 已整理 · 等待确认</span><h3>准备写入客户档案</h3></div><label>关联客户<div class="modern-select"><select id="aiTargetSelect"><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${draft.customerId === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label></div>
+    <div class="review-head"><div><span class="review-kicker">${draft.source === "api" ? "AI API 已整理" : "本地规则已整理"} · 等待确认</span><h3>准备写入客户档案</h3></div><label>关联客户<div class="modern-select"><select id="aiTargetSelect"><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${draft.customerId === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label></div>
     <div class="review-items">
       <label class="review-item main-review"><input class="draft-check" type="checkbox" data-kind="note" checked /><span class="review-check"></span><div><small>新增推进记录 · ${safe(methodMeta(draft.method).label)}</small><b>${safe(draft.raw)}</b>${draft.contact ? `<p>对接人：${safe(draft.contact)}</p>` : ""}</div></label>
       ${fields.map(([key,value]) => { const def=FIELD_DEFS.find(d=>d.key===key); return `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="field" data-key="${key}" checked /><span class="review-check"></span><div><small>更新情报 · ${safe(def?.label || key)}</small><b>${safe(value)}</b></div></label>`; }).join("")}
@@ -785,6 +836,87 @@ function submitNewCustomer(form) {
   customer.fields.industry.v = String(data.get("industry") || "").trim();
   customers.unshift(customer);
   persist(); closeModal(); openCustomer(customer.id); toast("客户已创建，可手动填写或交给 AI 整理信息");
+}
+
+function openCustomerImport() {
+  customerImportRows = [];
+  customerImportFileName = "";
+  showModal(`<div class="modal-head"><div><p class="eyebrow">BATCH IMPORT</p><h2 id="modalTitle">批量导入客户</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
+    <form class="modal-form" data-form="customer-import">
+      <div class="import-help"><b>支持 CSV、TSV、XLSX、XLS</b><br/>可识别客户名称、行业、阶段、等级、联系人、职位、电话、邮箱、下一步、提醒日期和备注。客户名称为必填项。</div>
+      <button type="button" class="secondary-button import-template-button" data-action="download-import-template">${icon("download")} 下载 CSV 模板</button>
+      <label class="file-field">${icon("upload")} 选择客户数据文件<input id="customerImportFile" type="file" name="file" accept=".csv,.tsv,.xlsx,.xls,text/csv,text/tab-separated-values" required /><small>Excel 默认读取第一个工作表，导入前会先展示校验结果。</small></label>
+      <label>遇到同名客户<div class="modern-select"><select id="customerImportStrategy" name="strategy"><option value="skip">跳过，不覆盖现有数据</option><option value="update">更新现有客户的非空字段</option></select>${icon("chevron-down")}</div></label>
+      <div id="customerImportPreview" class="import-preview" aria-live="polite"></div>
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button id="customerImportSubmit" class="primary-button" disabled>${icon("upload")} 确认导入</button></div>
+    </form>`);
+}
+
+async function readCustomerImportFile(file) {
+  if (!file) return [];
+  const extension = String(file.name || "").split(".").pop().toLowerCase();
+  if (["xlsx", "xls"].includes(extension)) {
+    if (typeof XLSX === "undefined") throw new Error("Excel 解析组件加载失败，请改用 CSV 或刷新后重试");
+    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    if (!firstSheet) throw new Error("Excel 文件中没有可读取的工作表");
+    return XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: "", raw: false });
+  }
+  return CustomerImporter.parseCSV(await file.text());
+}
+
+async function previewCustomerImport(file) {
+  customerImportRows = [];
+  customerImportFileName = file?.name || "";
+  const preview = $("#customerImportPreview");
+  const submit = $("#customerImportSubmit");
+  if (submit) submit.disabled = true;
+  if (!file || !preview) return;
+  preview.innerHTML = `<span class="muted">正在解析 ${safe(customerImportFileName)}…</span>`;
+  try {
+    if (typeof CustomerImporter === "undefined") throw new Error("导入组件尚未加载完成，请稍后重试");
+    customerImportRows = await readCustomerImportFile(file);
+    renderCustomerImportPreview($("#customerImportStrategy")?.value || "skip");
+  } catch (error) {
+    preview.innerHTML = `<ul class="import-errors"><li>${safe(error?.message || "文件解析失败")}</li></ul>`;
+  }
+}
+
+function renderCustomerImportPreview(strategy = "skip") {
+  const preview = $("#customerImportPreview");
+  const submit = $("#customerImportSubmit");
+  if (!preview || !customerImportRows.length || typeof CustomerImporter === "undefined") return;
+  const result = CustomerImporter.importRows(customerImportRows, customers, { strategy, idFactory: () => uid() });
+  const valid = result.imported + result.updated + result.skipped;
+  preview.innerHTML = `<div class="import-preview-summary"><span>${safe(customerImportFileName || "待导入文件")}</span><span class="success">新增 ${result.imported}</span><span>更新 ${result.updated}</span><span>跳过 ${result.skipped}</span><span class="${result.errors.length ? "danger" : ""}">错误 ${result.errors.length}</span></div>${result.errors.length ? `<ul class="import-errors">${result.errors.slice(0, 20).map(item => `<li>第 ${safe(item.row)} 行：${safe(item.message)}</li>`).join("")}${result.errors.length > 20 ? `<li>另有 ${result.errors.length - 20} 条错误未展示</li>` : ""}</ul>` : ""}`;
+  if (submit) submit.disabled = valid === 0 || (result.imported + result.updated === 0 && strategy === "skip");
+}
+
+function submitCustomerImport(form) {
+  if (!customerImportRows.length || typeof CustomerImporter === "undefined") return toast("请先选择并解析客户数据文件");
+  const strategy = String(new FormData(form).get("strategy") || "skip");
+  const result = CustomerImporter.importRows(customerImportRows, customers, { strategy, idFactory: () => uid() });
+  if (!result.imported && !result.updated) return toast(result.errors.length ? "没有可导入的有效客户，请修正文件后重试" : "没有新增或需要更新的客户");
+  customers = result.customers.map(ensureCustomerShape);
+  persist();
+  closeModal();
+  state.page = "customers";
+  state.customerId = null;
+  renderApp();
+  toast(`导入完成：新增 ${result.imported}，更新 ${result.updated}，跳过 ${result.skipped}，错误 ${result.errors.length}`);
+}
+
+function downloadCustomerImportTemplate() {
+  if (typeof CustomerImporter === "undefined") return toast("导入组件尚未加载完成，请稍后重试");
+  const blob = new Blob(["\uFEFF" + CustomerImporter.CSV_TEMPLATE], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "客户批量导入模板.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function openManualEntry(customerId, noteId = "") {

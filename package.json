@@ -1,0 +1,13 @@
+{
+  "name": "ai-sales-workbench",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check server.mjs && node --check api-client.js && node --check customer-import.js && node --check auth.js && node --check crm.js && node --check app.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

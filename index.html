@@ -17,7 +17,7 @@
       <nav class="primary-nav" id="primaryNav"></nav>
       <div class="side-bottom">
         <button class="side-create" data-action="new-customer"><i data-lucide="plus"></i> 新建客户</button>
-        <div class="user-card"><span class="user-avatar">销</span><span><b>我的工作台</b><small>数据仅自己可见</small></span></div>
+        <div class="user-card"><span class="user-avatar" id="currentUserAvatar">销</span><span><b id="currentUserName">我的工作台</b><small id="currentUserMeta">数据仅自己可见</small></span><button class="user-logout" data-action="logout" aria-label="退出登录" title="退出登录"><i data-lucide="log-out"></i></button></div>
       </div>
     </aside>
 
@@ -68,8 +68,11 @@
   <script src="https://web.sdk.qcloud.com/cloudbase/js-sdk/2.7.4/tcb.js"></script>
   <script src="data.js"></script>
   <script src="cloudbase-config.js"></script>
+  <script src="api-client.js"></script>
+  <script type="module" src="customer-import.js"></script>
   <script src="auth.js"></script>
   <script src="crm.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://unpkg.com/lucide@1.24.0/dist/umd/lucide.min.js" integrity="sha384-mooE85Luwgx+AyykX7e90VcN8/QCFTSIwPuHLmvcsLVoA0en7lKYb9XlOzn5G2co" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="report.js"></script>
   <script src="app.js"></script>
