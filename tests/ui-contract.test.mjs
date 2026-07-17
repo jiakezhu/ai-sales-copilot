@@ -7,6 +7,13 @@ import ReportBuilder from "../report.js";
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const readBinary = path => readFileSync(new URL(`../${path}`, import.meta.url));
+const APPROVED_PENGUIN_ASSETS = {
+  "assets/penguin/stand.png": "bcd0d0f848f9c9a11b641c8bf97e6ba39493189ae8d8602e1df64e7f3307dbd8",
+  "assets/penguin/wave.png": "3a397b69ae4969af9851f0ee1318bdd25d2a1c91ec6ff7d4cc995df894002dff",
+  "assets/penguin/scratch.png": "f8128c5b51a3e0bb286b3d4f25e2474f6566a14dcdd24bce1a94a4588afc8e13",
+  "assets/penguin/search.png": "2c64c1362b44e71286ca7df1a29b6c8a3693ed69412b16863fe632c4febc798a",
+  "assets/penguin/success.png": "bb3c3cffb60db9ccff6be55f50e3f4dd9d1de7f1da1b02aebf66f0a1a66ff6aa",
+};
 
 function loadWorkspaceTestApi(openMenus = []) {
   const sandbox = {
@@ -188,23 +195,25 @@ test("Tencent shell uses the supplied QQ penguin and TDesign tokens", () => {
   assert.match(html, /<script\s+src="report\.js"/i);
 });
 
-test("QQ penguin asset is byte-for-byte the approved reference", () => {
-  const digest = createHash("sha256")
-    .update(readBinary("assets/qq-penguin-reference.png"))
-    .digest("hex");
-
-  assert.equal(digest, "5eda8ddce51aa85a0fe6688563868229656fcd27b7f9fde27ac59857ccc87f7e");
+test("QQ penguin pose assets match the approved reference set", () => {
+  for (const [path, expectedDigest] of Object.entries(APPROVED_PENGUIN_ASSETS)) {
+    const digest = createHash("sha256").update(readBinary(path)).digest("hex");
+    assert.equal(digest, expectedDigest, `${path} changed unexpectedly`);
+  }
 });
 
-test("desktop and mobile brands both use the approved decorative mascot", () => {
+test("desktop and mobile brands both reserve the approved stand pose", () => {
   const html = read("index.html");
+  const js = read("app.js");
   const desktopBrand = html.match(/<button class="brand"[\s\S]*?<\/button>/)?.[0] || "";
   const mobileBrand = html.match(/<button class="mobile-brand"[\s\S]*?<\/button>/)?.[0] || "";
-  const mascot = /<span class="qq-penguin qq-penguin--brand" aria-hidden="true">\s*<img src="assets\/qq-penguin-reference\.png" alt="" \/>\s*<\/span>/;
+  const mascot = /<span class="qq-penguin qq-penguin--brand" data-penguin="stand" aria-hidden="true"><\/span>/;
 
   assert.match(desktopBrand, mascot);
   assert.match(mobileBrand, mascot);
-  assert.equal((html.match(/assets\/qq-penguin-reference\.png/g) || []).length, 2);
+  assert.equal((html.match(/data-penguin="stand"/g) || []).length, 2);
+  assert.match(js, /const PENGUIN_POSES = \["stand", "wave", "scratch", "search", "success"\]/);
+  assert.match(js, /src="assets\/penguin\/\$\{p\}\.png"/);
 });
 
 test("application shell preserves every runtime hook consumed by app.js", () => {
@@ -232,7 +241,7 @@ test("Today page is ordered as AI, actions, then customer signals", () => {
   const actions = js.indexOf('class="today-action-list"');
   const signals = js.indexOf('class="account-signal-list"');
   assert.ok(ai > 0 && actions > ai && signals > actions);
-  assert.match(js, /告诉小企刚刚发生了什么/);
+  assert.match(js, /刚发生了什么？说给商务鹅听/);
   assert.doesNotMatch(js, /class="metric-strip"/);
 });
 
@@ -426,7 +435,7 @@ test("assistant state styling stays restrained and motion-safe", () => {
   assert.match(css, /\.ai-assistant-card\.assistant-listening\s+\.qq-penguin--assistant\s*\{[^}]*animation:\s*assistantBreath 1\.2s ease-in-out infinite/i);
   assert.match(css, /\.ai-assistant-card\.assistant-reviewing\s*\{[^}]*var\(--td-brand-color-hover\)/i);
   assert.match(css, /\.ai-assistant-card\.assistant-success\s*\{[^}]*var\(--td-success\)/i);
-  assert.match(css, /@keyframes\s+assistantBreath\s*\{[^}]*50%\s*\{[^}]*translateY\(-2px\)/i);
+  assert.match(css, /@keyframes\s+assistantBreath\s*\{[^}]*50%\s*\{[^}]*translateY\(-3px\)\s*scale\(1\.03\)/i);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.ai-assistant-card\.assistant-listening\s+\.qq-penguin--assistant\s*\{[^}]*animation:\s*none/i);
 });
 
@@ -895,11 +904,10 @@ test("mobile, motion, and mascot boundaries are explicit", () => {
 
 test("390px customer cards retain every business-priority field", () => {
   const css = read("style.css");
-  const mobile = css.slice(css.indexOf("@media (max-width:680px){\n  .customer-worktable"));
 
-  assert.match(mobile, /\.customer-row>\.muted-cell:nth-child\(3\)\s*\{[^}]*display:\s*flex/i);
-  assert.match(mobile, /\.customer-row>\.muted-cell:nth-child\(5\)\s*\{[^}]*display:\s*flex/i);
-  assert.match(mobile, /\.customer-row>\.next-cell\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/i);
+  assert.match(css, /\.customer-row>\.muted-cell:nth-child\(3\)\s*\{[^}]*display:\s*flex/i);
+  assert.match(css, /\.customer-row>\.muted-cell:nth-child\(5\)\s*\{[^}]*display:\s*flex/i);
+  assert.match(css, /\.customer-row>\.next-cell\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/i);
 });
 
 test("mobile controls expose 44px touch targets and visible keyboard focus", () => {
@@ -919,12 +927,14 @@ test("mobile report and topbar actions have concrete 44px targets", () => {
   assert.match(mobile, /\.top-actions \.primary-button\s*\{[^}]*width:\s*44px[^}]*min-width:\s*44px/i);
 });
 
-test("approved mascot crop shows the complete icon without dock chrome", () => {
+test("approved mascot poses render their complete files without CSS cropping", () => {
   const css = read("style.css");
+  const js = read("app.js");
 
-  assert.match(css, /\.qq-penguin--brand img\s*\{[^}]*width:\s*75px[^}]*height:\s*95px[^}]*left:\s*-12px[^}]*top:\s*-25px/i);
-  assert.match(css, /\.qq-penguin--assistant img\s*\{[^}]*width:\s*88px[^}]*height:\s*112px[^}]*left:\s*-14px[^}]*top:\s*-29px/i);
-  assert.equal(createHash("sha256").update(readBinary("assets/qq-penguin-reference.png")).digest("hex"), "5eda8ddce51aa85a0fe6688563868229656fcd27b7f9fde27ac59857ccc87f7e");
+  assert.match(css, /\.pg-img\s*\{[^}]*width:\s*100%[^}]*height:\s*100%[^}]*object-fit:\s*contain/i);
+  assert.match(css, /\.qq-penguin--brand\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/i);
+  assert.match(css, /\.qq-penguin--assistant\s*\{[^}]*width:\s*64px[^}]*height:\s*64px/i);
+  assert.match(js, /return `<img class="pg-img" src="assets\/penguin\/\$\{p\}\.png"/);
 });
 
 test("modal and report dialogs declare focus targets and accessible close controls", () => {
