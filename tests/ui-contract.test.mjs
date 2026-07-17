@@ -1215,3 +1215,38 @@ test("four-zone UI adjudication preserves RAID and funnel source data without ad
   assert.deepEqual(customer.funnel, before.funnel);
   assert.doesNotMatch(js, /\["raid"|\["funnel"|customerTab === "raid"|customerTab === "funnel"/);
 });
+
+test("account API, import module, and SheetJS load before the application runtime", () => {
+  const html = read("index.html");
+  const api = html.indexOf('src="api-client.js"');
+  const importer = html.indexOf('src="customer-import.js"');
+  const auth = html.indexOf('src="auth.js"');
+  const sheet = html.indexOf("xlsx.full.min.js");
+  const app = html.indexOf('src="app.js"');
+  assert.ok(api > 0 && importer > api && auth > importer && sheet > auth && app > sheet);
+  assert.match(html, /id="currentUserName"/);
+  assert.match(html, /data-action="logout"/);
+});
+
+test("customer workspace exposes validated CSV and Excel batch import", () => {
+  const js = read("app.js");
+  assert.match(js, /data-action="import-customers"/);
+  assert.match(js, /accept="\.csv,\.tsv,\.xlsx,\.xls/);
+  assert.match(js, /CustomerImporter\.importRows\(customerImportRows, customers/);
+  assert.match(js, /XLSX\.utils\.sheet_to_json/);
+  assert.match(js, /下载 CSV 模板/);
+  assert.match(js, /新增 \$\{result\.imported\}，更新 \$\{result\.updated\}/);
+});
+
+test("authentication coordinates API login while CRM sync remains user-scoped", () => {
+  const auth = read("auth.js");
+  const crm = read("crm.js");
+  const app = read("app.js");
+  assert.match(auth, /SalesAPI\.register/);
+  assert.match(auth, /SalesAPI\.login/);
+  assert.match(auth, /const AuthCoordinator/);
+  assert.match(crm, /ApiAuth\._mirrorKey\(\)/);
+  assert.match(crm, /SalesAPI\.saveCustomers\(/);
+  assert.match(app, /SalesAPI\.extractAI/);
+  assert.match(app, /AI API 尚未配置，已使用本地规则整理/);
+});

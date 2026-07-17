@@ -223,3 +223,205 @@ function toastSafe(t) {
   try { if (typeof toast === "function") return toast(t); } catch (e) {}
   console.log("[toast]", t);
 }
+
+// ===================================================================
+// 本地 Node API 认证：用于开箱即用的账号密码注册/登录。
+// CloudBase 配置了 ENV_ID 时仍优先使用 CloudBase，不改变现有部署。
+// ===================================================================
+const ApiAuth = {
+  enabled: false,
+  user: null,
+
+  _uid() {
+    return this.user?.id || this.user?.uid || "anon";
+  },
+
+  _mergeCustomerLists(remote, local) {
+    const merged = new Map();
+    (Array.isArray(remote) ? remote : []).forEach(customer => {
+      const key = customer?.id || String(customer?.name || "").trim().toLowerCase();
+      if (key) merged.set(key, customer);
+    });
+    (Array.isArray(local) ? local : []).forEach(customer => {
+      const key = customer?.id || String(customer?.name || "").trim().toLowerCase();
+      if (key) merged.set(key, customer);
+    });
+    return Array.from(merged.values());
+  },
+
+  async boot() {
+    if (typeof SalesAPI === "undefined") return { mode: "local" };
+    try {
+      await SalesAPI.health();
+    } catch (error) {
+      if (error?.status === 404 || error?.status === 405) return { mode: "local" };
+      return this._showUnavailable(error);
+    }
+
+    this.enabled = true;
+    if (SalesAPI.getToken?.()) {
+      try { this.user = await SalesAPI.me(); } catch (error) { SalesAPI.logout(); }
+    }
+    if (!this.user) this.user = await this._showLoginAndWait();
+    await this._pullToMirror();
+    this._hideGate();
+    return { mode: "api", uid: this._uid(), user: this.user };
+  },
+
+  _showUnavailable(error) {
+    const gate = this._ensureGate();
+    gate.innerHTML = `<div class="cb-login-card"><div class="cb-login-title">服务暂时不可用</div><div class="cb-login-sub">无法连接账号服务。为避免不同账号的客户数据混在一起，当前不会降级到共享本地模式。</div><button id="apiRetryBoot" class="cb-btn-primary">重新连接</button><div class="cb-login-msg cb-err">${error?.status ? `HTTP ${error.status}` : "请检查 Node API 是否正在运行"}</div></div>`;
+    gate.classList.remove("cb-hidden");
+    gate.querySelector("#apiRetryBoot")?.addEventListener("click", () => location.reload());
+    return new Promise(() => {});
+  },
+
+  async _pullToMirror() {
+    const key = this._mirrorKey();
+    const dirtyKey = key + ":dirty";
+    try {
+      let cached = null;
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || "null");
+        if (Array.isArray(parsed)) cached = parsed;
+      } catch (error) {}
+      if (localStorage.getItem(dirtyKey) === "1" && cached) {
+        try {
+          await SalesAPI.saveCustomers(cached);
+        } catch (error) {
+          if (error?.status !== 409) throw error;
+          const remote = await SalesAPI.getCustomers();
+          cached = this._mergeCustomerLists(remote, cached);
+          await SalesAPI.saveCustomers(cached);
+          localStorage.setItem(key, JSON.stringify(cached));
+        }
+        localStorage.removeItem(dirtyKey);
+        return;
+      }
+      const remote = await SalesAPI.getCustomers();
+      const list = Array.isArray(remote) ? remote : (Array.isArray(remote?.customers) ? remote.customers : []);
+      if (list.length) {
+        localStorage.setItem(key, JSON.stringify(list));
+        localStorage.removeItem(dirtyKey);
+      } else {
+        let initial = null;
+        try {
+          const cached = JSON.parse(localStorage.getItem(key) || "null");
+          if (Array.isArray(cached) && cached.length) initial = cached;
+        } catch (error) {}
+        initial ||= JSON.parse(JSON.stringify(SEED_CUSTOMERS));
+        localStorage.setItem(key, JSON.stringify(initial));
+        await SalesAPI.saveCustomers(initial);
+      }
+    } catch (error) {
+      console.warn("[ApiAuth] customer pull failed:", error);
+      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(JSON.parse(JSON.stringify(SEED_CUSTOMERS))));
+      toastSafe("云端客户数据读取失败，已使用本地镜像。");
+    }
+  },
+
+  _mirrorKey() {
+    return "tc_sales_api_mirror_" + this._uid();
+  },
+
+  _showLoginAndWait() {
+    return new Promise((resolve) => {
+      const gate = this._ensureGate();
+      let mode = "login";
+      const render = () => {
+        const registering = mode === "register";
+        gate.innerHTML = `
+          <div class="cb-login-card api-login-card">
+            <div class="cb-login-logo"><svg viewBox="0 0 24 24" width="26" height="26" fill="none"><path d="M4 13.5 L10 19 L20 6" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div class="cb-login-title">云销副驾</div>
+            <div class="cb-login-sub">${registering ? "创建账号，开始管理你的客户推进" : "登录后客户数据按账号安全隔离"}</div>
+            <div class="auth-tabs" role="tablist">
+              <button type="button" class="${!registering ? "active" : ""}" data-auth-mode="login" role="tab" aria-selected="${!registering}">登录</button>
+              <button type="button" class="${registering ? "active" : ""}" data-auth-mode="register" role="tab" aria-selected="${registering}">注册</button>
+            </div>
+            <form id="apiAuthForm" class="cb-login-block">
+              ${registering ? `<div class="cb-field"><label>姓名</label><input name="name" maxlength="40" autocomplete="name" required placeholder="怎么称呼你" /></div>` : ""}
+              <div class="cb-field"><label>邮箱</label><input name="email" type="email" maxlength="120" autocomplete="email" required placeholder="name@example.com" /></div>
+              <div class="cb-field"><label>密码</label><input name="password" type="password" minlength="8" maxlength="128" autocomplete="${registering ? "new-password" : "current-password"}" required placeholder="至少 8 位" /></div>
+              ${registering ? `<div class="cb-field"><label>确认密码</label><input name="confirmPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required placeholder="再次输入密码" /></div>` : ""}
+              <button class="cb-btn-primary" type="submit">${registering ? "注册并进入" : "登录"}</button>
+            </form>
+            <div class="cb-login-msg" id="cbLoginMsg" aria-live="polite"></div>
+          </div>`;
+        gate.classList.remove("cb-hidden");
+        gate.querySelectorAll("[data-auth-mode]").forEach(button => button.addEventListener("click", () => {
+          mode = button.dataset.authMode;
+          render();
+        }));
+        gate.querySelector("#apiAuthForm")?.addEventListener("submit", async event => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const submit = form.querySelector("button[type=submit]");
+          const message = gate.querySelector("#cbLoginMsg");
+          const data = new FormData(form);
+          const email = String(data.get("email") || "").trim();
+          const password = String(data.get("password") || "");
+          const setMessage = (text, error = false) => {
+            message.textContent = text;
+            message.className = "cb-login-msg" + (error ? " cb-err" : "");
+          };
+          if (registering && password !== String(data.get("confirmPassword") || "")) return setMessage("两次输入的密码不一致", true);
+          submit.disabled = true;
+          setMessage(registering ? "正在创建账号…" : "正在登录…");
+          try {
+            const result = registering
+              ? await SalesAPI.register(String(data.get("name") || "").trim(), email, password)
+              : await SalesAPI.login(email, password);
+            this.user = result?.user || result;
+            if (!this.user?.id) this.user = await SalesAPI.me();
+            resolve(this.user);
+          } catch (error) {
+            submit.disabled = false;
+            setMessage(error?.message || (registering ? "注册失败，请稍后重试" : "登录失败，请检查邮箱和密码"), true);
+          }
+        });
+      };
+      render();
+    });
+  },
+
+  async logout() {
+    SalesAPI.logout();
+    this.user = null;
+    location.reload();
+  },
+
+  _ensureGate() {
+    let gate = document.getElementById("cbGate");
+    if (!gate) {
+      gate = document.createElement("div");
+      gate.id = "cbGate";
+      gate.className = "cb-gate";
+      document.body.appendChild(gate);
+    }
+    return gate;
+  },
+
+  _hideGate() {
+    document.getElementById("cbGate")?.classList.add("cb-hidden");
+  },
+};
+
+const AuthCoordinator = {
+  mode: "local",
+  user: null,
+
+  async boot() {
+    const result = (typeof CLOUD_ENABLED !== "undefined" && CLOUD_ENABLED)
+      ? await CloudAuth.boot()
+      : await ApiAuth.boot();
+    this.mode = result?.mode || "local";
+    this.user = this.mode === "cloud" ? CloudAuth.user : this.mode === "api" ? ApiAuth.user : null;
+    return result;
+  },
+
+  async logout() {
+    if (this.mode === "cloud") return CloudAuth.logout();
+    if (this.mode === "api") return ApiAuth.logout();
+  },
+};

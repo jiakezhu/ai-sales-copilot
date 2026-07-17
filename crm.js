@@ -13,6 +13,9 @@ const CRM = {
     if (typeof CLOUD_ENABLED !== "undefined" && CLOUD_ENABLED && typeof CloudAuth !== "undefined") {
       return cloudMirrorKey(CloudAuth._uid ? CloudAuth._uid() : "anon");
     }
+    if (typeof ApiAuth !== "undefined" && ApiAuth.enabled && ApiAuth.user) {
+      return ApiAuth._mirrorKey();
+    }
     return STORAGE_KEY;
   },
 
@@ -32,6 +35,8 @@ const CRM = {
     // 2) 云端模式：后台防抖同步到云数据库
     if (typeof CLOUD_ENABLED !== "undefined" && CLOUD_ENABLED) {
       this._syncToCloud(list);
+    } else if (typeof ApiAuth !== "undefined" && ApiAuth.enabled && typeof SalesAPI !== "undefined") {
+      this._syncToApi(list);
     }
   },
 
@@ -39,6 +44,7 @@ const CRM = {
     localStorage.removeItem(this._key());
     const fresh = this.load();
     if (typeof CLOUD_ENABLED !== "undefined" && CLOUD_ENABLED) this._syncToCloud(fresh);
+    else if (typeof ApiAuth !== "undefined" && ApiAuth.enabled && typeof SalesAPI !== "undefined") this._syncToApi(fresh);
     return fresh;
   },
 
@@ -61,8 +67,44 @@ const CRM = {
         }
       } catch (e) {
         console.warn("[CRM] cloud sync failed:", e);
-        toastSafe("云端同步失败，改动已存本地，联网后会自动重试。");
+        toastSafe("云端同步失败，改动已存本地；联网后再次编辑会重试。");
       }
+    }, ms);
+  },
+
+  _apiSyncTimer: null,
+  _apiSyncQueue: Promise.resolve(),
+  _apiRevision: 0,
+  _syncToApi(list) {
+    const ms = (typeof CLOUDBASE_CONFIG !== "undefined" && CLOUDBASE_CONFIG.SYNC_DEBOUNCE_MS) || 1500;
+    const dirtyKey = ApiAuth._mirrorKey() + ":dirty";
+    const revision = ++this._apiRevision;
+    const snapshot = JSON.parse(JSON.stringify(list));
+    localStorage.setItem(dirtyKey, "1");
+    clearTimeout(this._apiSyncTimer);
+    this._apiSyncTimer = setTimeout(() => {
+      this._apiSyncQueue = this._apiSyncQueue.catch(() => {}).then(async () => {
+        let saved = snapshot;
+        try {
+          await SalesAPI.saveCustomers(saved);
+        } catch (error) {
+          if (error?.status !== 409) throw error;
+          const remote = await SalesAPI.getCustomers();
+          saved = ApiAuth._mergeCustomerLists(remote, saved);
+          await SalesAPI.saveCustomers(saved);
+          localStorage.setItem(ApiAuth._mirrorKey(), JSON.stringify(saved));
+          toastSafe("检测到其他页面或设备的更新，已合并保存；刷新后可查看完整数据。");
+        }
+        if (revision === this._apiRevision) localStorage.removeItem(dirtyKey);
+      }).catch(error => {
+        console.warn("[CRM] API sync failed:", error);
+        if (error?.status === 401) {
+          toastSafe("登录已过期，即将返回登录页。当前改动已保存在本机。");
+          setTimeout(() => location.reload(), 800);
+          return;
+        }
+        toastSafe("服务端同步失败，改动已保存在本机，恢复连接后请再次编辑以重试。");
+      });
     }, ms);
   },
 };

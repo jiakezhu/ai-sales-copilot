@@ -389,3 +389,60 @@ h3 { font-size:14px; }
 }
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.001ms!important;transition-duration:.001ms!important}.ai-assistant-card.assistant-listening .qq-penguin--assistant{animation:none}}
+
+/* Account authentication */
+.cb-gate{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:24px;background:linear-gradient(145deg,#0b1424,#142b54);overflow:auto}
+.cb-gate.cb-hidden{display:none}
+.cb-login-card{width:min(420px,100%);padding:30px;border:1px solid rgba(255,255,255,.12);border-radius:20px;color:#172033;background:#fff;box-shadow:0 28px 90px rgba(0,0,0,.35)}
+.cb-login-logo{width:48px;height:48px;margin:0 auto 14px;display:grid;place-items:center;border-radius:15px;background:#0052d9;box-shadow:0 10px 24px rgba(0,82,217,.3)}
+.cb-login-title{text-align:center;font-size:21px;font-weight:750}
+.cb-login-sub{margin:7px 0 20px;color:#6b768a;text-align:center;font-size:12px;line-height:1.6}
+.cb-login-block{display:grid;gap:13px}
+.cb-field{display:grid;gap:6px}
+.cb-field label{color:#4d596e;font-size:11px;font-weight:650}
+.cb-field input{width:100%;height:43px;padding:0 12px;border:1px solid #d9dfe8;border-radius:10px;color:#172033;background:#f7f9fc}
+.cb-field input:focus{border-color:#0052d9;box-shadow:0 0 0 3px rgba(0,82,217,.12);outline:0}
+.cb-code-row{grid-template-columns:1fr auto}
+.cb-btn-primary,.cb-btn-ghost{height:43px;padding:0 16px;border-radius:10px;font-weight:700}
+.cb-btn-primary{border:0;color:#fff;background:#0052d9}
+.cb-btn-primary:hover{background:#003cab}
+.cb-btn-ghost{border:1px solid #d9dfe8;color:#0052d9;background:#fff}
+.cb-or{margin:13px 0;color:#98a2b3;text-align:center;font-size:11px}
+.cb-login-msg{min-height:20px;margin-top:11px;color:#35745d;text-align:center;font-size:11px}
+.cb-login-msg.cb-err{color:#d54941}
+.auth-tabs{margin-bottom:16px;padding:4px;display:grid;grid-template-columns:1fr 1fr;border-radius:11px;background:#f1f4f8}
+.auth-tabs button{height:35px;border:0;border-radius:8px;color:#6b768a;background:transparent;font-weight:650}
+.auth-tabs button.active{color:#0052d9;background:#fff;box-shadow:0 1px 5px rgba(24,40,72,.1)}
+
+/* Account menu and customer import */
+.user-card>span:nth-child(2){min-width:0;flex:1;display:grid}
+.user-card b,.user-card small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-logout{width:30px;height:30px;display:grid;place-items:center;flex:none;border:0;border-radius:8px;color:#7f8da3;background:transparent}
+.user-logout:hover{color:#fff;background:rgba(255,255,255,.08)}
+.user-logout svg{width:14px;height:14px}
+.page-heading-actions{display:flex;align-items:center;gap:8px}
+.import-help{padding:10px 12px;border-radius:10px;color:var(--ink-2);background:var(--surface-2);font-size:11px;line-height:1.7}
+.import-help b{color:var(--ink)}
+.import-preview{min-height:72px;padding:11px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.import-preview:empty{display:none}
+.import-preview-summary{display:flex;flex-wrap:wrap;gap:7px}
+.import-preview-summary span{padding:4px 8px;border-radius:7px;color:var(--ink-2);background:var(--surface-2);font-size:10px}
+.import-preview-summary .success{color:var(--green);background:var(--green-soft)}
+.import-preview-summary .danger{color:var(--red);background:var(--red-soft)}
+.import-errors{max-height:150px;margin-top:9px;padding-left:20px;overflow:auto;color:var(--red);font-size:10.5px;line-height:1.7}
+.import-template-button{justify-self:start}
+
+[data-theme="dark"] .cb-login-card{border-color:#2c3850;color:#eef2f8;background:#151b25}
+[data-theme="dark"] .cb-login-sub,[data-theme="dark"] .cb-field label{color:#aeb8c8}
+[data-theme="dark"] .cb-field input{border-color:#354156;color:#eef2f8;background:#1b2330}
+[data-theme="dark"] .auth-tabs{background:#1b2330}
+[data-theme="dark"] .auth-tabs button{color:#97a4b7}
+[data-theme="dark"] .auth-tabs button.active{color:#8db2ff;background:#242d3c;box-shadow:none}
+
+@media (max-width:680px){
+  .page-heading{flex-direction:column}
+  .page-heading-actions{width:100%}
+  .page-heading-actions>button{flex:1}
+  .cb-gate{padding:0;align-items:stretch}
+  .cb-login-card{width:100%;min-height:100dvh;padding:36px 22px;border:0;border-radius:0}
+}
