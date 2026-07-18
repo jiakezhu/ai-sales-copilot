@@ -113,7 +113,7 @@ function loadFinalFixApi() {
     GRADES: [], CRM_STAGES: [], ASSET_TYPES: [],
     CRM: { save(value) { saved.push(JSON.parse(JSON.stringify(value))); } },
   };
-  vm.runInNewContext(`${read("app.js")}\n;globalThis.__finalFixApi = { parseNaturalDate, extractNextAction, applyAIDraftSelection, upsertProgressNote, removeProgressNote, upsertContact, removeEvidenceAsset, evidenceOpenTarget };`, sandbox);
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__finalFixApi = { parseNaturalDate, extractNextAction, applyAIDraftSelection, upsertProgressNote, removeProgressNote, upsertContact, removeEvidenceAsset, evidenceOpenTarget, applyTaskCompletion };`, sandbox);
   return { api: sandbox.__finalFixApi, saved };
 }
 
@@ -243,6 +243,34 @@ test("Today page is ordered as AI, actions, then customer signals", () => {
   assert.ok(ai > 0 && actions > ai && signals > actions);
   assert.match(js, /刚发生了什么？说给商务鹅听/);
   assert.doesNotMatch(js, /class="metric-strip"/);
+});
+
+test("Sales Buddy brand and the single global manual entry stay consistent", () => {
+  const html = read("index.html");
+  const js = read("app.js");
+  const auth = read("auth.js");
+  assert.match(html, /<title>Sales Buddy · AI 客户推进工作台<\/title>/);
+  assert.match(html, /class="brand-copy"[^>]*><b>Sales Buddy<\/b>/);
+  assert.match(html, /class="mobile-brand"[\s\S]*?Sales Buddy/);
+  assert.match(auth, /class="cb-login-title">Sales Buddy<\/div>/);
+  assert.equal((html.match(/data-action="manual-entry"/g) || []).length, 1);
+  const today = js.slice(js.indexOf("function renderToday"), js.indexOf("function renderCopilotComposer"));
+  assert.doesNotMatch(today, /data-action="manual-entry"/);
+});
+
+test("customer stages use a clickable roadmap with a moving penguin instead of a dropdown", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  const detail = js.slice(js.indexOf("function renderCustomerDetail"), js.indexOf("function renderCustomerTab"));
+  assert.match(detail, /renderStageTrack\(customer\)/);
+  assert.doesNotMatch(detail, /renderChoiceControl\(customer, "stage"\)/);
+  assert.match(detail, /class="stage-step[\s\S]*data-action="set-stage"/);
+  assert.match(detail, /class="stage-penguin"/);
+  assert.match(js, /animateStagePenguin\(customerId, previousStage, stage\)/);
+  assert.match(detail, /stage-step--lost/);
+  assert.match(detail, /customer\.stage === "lost" \? pipelineStages\.findIndex\(stage => stage\.key === "proposal"\) : currentIndex/);
+  assert.match(css, /\.stage-penguin\.is-moving \.pg-img/);
+  assert.match(css, /prefers-reduced-motion:reduce[\s\S]*\.stage-penguin/);
 });
 
 test("Today surfaces remain readable in dark theme", () => {
@@ -1055,6 +1083,19 @@ test("manual entry validates meaningful content before reading or attaching file
   const validation = submit.indexOf('toast("请填写沟通内容或下一步行动")');
   const fileRead = submit.indexOf("AssetEngine.readFile(file)");
   assert.ok(validation > 0 && fileRead > validation);
+});
+
+test("completed tasks can be restored without losing their content", () => {
+  const { api } = loadFinalFixApi();
+  const customer = { notes: [{ id: "n1", next: "提交方案", nextDate: "2026-07-20", taskDone: false }] };
+  const completed = api.applyTaskCompletion(customer, "n1", true, "2026-07-17 15:00");
+  assert.equal(completed.taskDone, true);
+  assert.equal(completed.completedAt, "2026-07-17 15:00");
+  const restored = api.applyTaskCompletion(customer, "n1", false);
+  assert.equal(restored.taskDone, false);
+  assert.equal("completedAt" in restored, false);
+  assert.equal(restored.next, "提交方案");
+  assert.match(read("app.js"), /data-action="\$\{taskAction\}"[\s\S]*取消完成/);
 });
 
 test("progress and contact upserts preserve identity, attachments, and hierarchy", () => {
