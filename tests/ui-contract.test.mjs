@@ -8,11 +8,12 @@ import ReportBuilder from "../report.js";
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 const readBinary = path => readFileSync(new URL(`../${path}`, import.meta.url));
 const APPROVED_PENGUIN_ASSETS = {
-  "assets/penguin/stand.png": "bcd0d0f848f9c9a11b641c8bf97e6ba39493189ae8d8602e1df64e7f3307dbd8",
-  "assets/penguin/wave.png": "3a397b69ae4969af9851f0ee1318bdd25d2a1c91ec6ff7d4cc995df894002dff",
-  "assets/penguin/scratch.png": "f8128c5b51a3e0bb286b3d4f25e2474f6566a14dcdd24bce1a94a4588afc8e13",
-  "assets/penguin/search.png": "2c64c1362b44e71286ca7df1a29b6c8a3693ed69412b16863fe632c4febc798a",
-  "assets/penguin/success.png": "bb3c3cffb60db9ccff6be55f50e3f4dd9d1de7f1da1b02aebf66f0a1a66ff6aa",
+  "assets/penguin/stand.png": "60763fa43c7f92b827e53dbac1bbac2666d83dea8b9c0553fe7590eae40ae51d",
+  "assets/penguin/wave.png": "02898c13ed3ee28abecb71c6156d9888029a2943ef1b4d76894e4b1c890d5b23",
+  "assets/penguin/scratch.png": "c80e3a7090a20b0bbb9ab099af167332720a744ac96ec40f3fe0eceaa53527ee",
+  "assets/penguin/search.png": "f944af0fb0a382c79e43c35546523ae8d168d8ab4866ac3598acbb16091b642c",
+  "assets/penguin/success.png": "6036ce8fb32a9b5885c18b38aa7d41462a35aa8b97e17c3ade07048f927b0332",
+  "assets/penguin/lost.png": "1ece1ac28b5cf348752f31d59bfd25078608fc732b9fc4fd89da304afd19e3d8",
 };
 
 function loadWorkspaceTestApi(openMenus = []) {
@@ -28,7 +29,7 @@ function loadWorkspaceTestApi(openMenus = []) {
     localStorage: { setItem() {} },
     THEME_KEY: "theme",
   };
-  vm.runInNewContext(`${read("app.js")}\n;globalThis.__workspaceTestApi = { closeRowMenus, prepareRowMenusForAction, handleAction, getStalledPriorityCustomers };`, sandbox);
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__workspaceTestApi = { closeRowMenus, prepareRowMenusForAction, handleAction, getStalledPriorityCustomers, stagePenguinPose, penguinSVG };`, sandbox);
   return { api: sandbox.__workspaceTestApi, sandbox };
 }
 
@@ -212,7 +213,7 @@ test("desktop and mobile brands both reserve the approved stand pose", () => {
   assert.match(desktopBrand, mascot);
   assert.match(mobileBrand, mascot);
   assert.equal((html.match(/data-penguin="stand"/g) || []).length, 2);
-  assert.match(js, /const PENGUIN_POSES = \["stand", "wave", "scratch", "search", "success"\]/);
+  assert.match(js, /const PENGUIN_POSES = \["stand", "wave", "scratch", "search", "success", "lost"\]/);
   assert.match(js, /src="assets\/penguin\/\$\{p\}\.png"/);
 });
 
@@ -241,7 +242,9 @@ test("Today page is ordered as AI, actions, then customer signals", () => {
   const actions = js.indexOf('class="today-action-list"');
   const signals = js.indexOf('class="account-signal-list"');
   assert.ok(ai > 0 && actions > ai && signals > actions);
-  assert.match(js, /刚发生了什么？说给商务鹅听/);
+  assert.match(js, /告诉 Sales Buddy 刚发生了什么/);
+  assert.match(js, /class="today-date"/);
+  assert.doesNotMatch(js, /商务鹅|早上好，先推进最重要的客户|你负责确认和决策/);
   assert.doesNotMatch(js, /class="metric-strip"/);
 });
 
@@ -251,11 +254,32 @@ test("Sales Buddy brand and the single global manual entry stay consistent", () 
   const auth = read("auth.js");
   assert.match(html, /<title>Sales Buddy · AI 客户推进工作台<\/title>/);
   assert.match(html, /class="brand-copy"[^>]*><b>Sales Buddy<\/b>/);
+  assert.doesNotMatch(html, /客户推进工作台<\/small>/);
   assert.match(html, /class="mobile-brand"[\s\S]*?Sales Buddy/);
   assert.match(auth, /class="cb-login-title">Sales Buddy<\/div>/);
+  assert.equal((auth.match(/assets\/penguin\/stand\.png/g) || []).length, 2);
   assert.equal((html.match(/data-action="manual-entry"/g) || []).length, 1);
+  assert.equal((js.match(/data-action="manual-entry"/g) || []).length, 0);
   const today = js.slice(js.indexOf("function renderToday"), js.indexOf("function renderCopilotComposer"));
   assert.doesNotMatch(today, /data-action="manual-entry"/);
+});
+
+test("light theme uses a unified pale shell while dark mode keeps its own sidebar", () => {
+  const css = read("style.css");
+  assert.match(css, /\.side-nav\s*\{[^}]*background:\s*var\(--surface\)/s);
+  assert.match(css, /\[data-theme="dark"\]\s+\.side-nav\s*\{[^}]*background:\s*#101828/s);
+});
+
+test("customer header surfaces staff, funding, and website facts", () => {
+  const js = read("app.js");
+  const data = read("data.js");
+  const detail = js.slice(js.indexOf("function renderCustomerDetail"), js.indexOf("function renderStageTrack"));
+  assert.match(detail, /renderCustomerFacts\(customer\)/);
+  assert.match(js, /function renderCustomerFacts\(customer\)/);
+  assert.match(js, /customer\.fields\.staff/);
+  assert.match(js, /customer\.fields\.funding/);
+  assert.match(js, /customer\.fields\.website/);
+  assert.match(data, /key:\s*"website"/);
 });
 
 test("customer stages use a clickable roadmap with a moving penguin instead of a dropdown", () => {
@@ -265,12 +289,29 @@ test("customer stages use a clickable roadmap with a moving penguin instead of a
   assert.match(detail, /renderStageTrack\(customer\)/);
   assert.doesNotMatch(detail, /renderChoiceControl\(customer, "stage"\)/);
   assert.match(detail, /class="stage-step[\s\S]*data-action="set-stage"/);
-  assert.match(detail, /class="stage-penguin"/);
+  assert.match(detail, /class="stage-penguin stage-penguin--/);
   assert.match(js, /animateStagePenguin\(customerId, previousStage, stage\)/);
   assert.match(detail, /stage-step--lost/);
   assert.match(detail, /customer\.stage === "lost" \? pipelineStages\.findIndex\(stage => stage\.key === "proposal"\) : currentIndex/);
   assert.match(css, /\.stage-penguin\.is-moving \.pg-img/);
   assert.match(css, /prefers-reduced-motion:reduce[\s\S]*\.stage-penguin/);
+});
+
+test("each customer stage uses its approved penguin pose", () => {
+  const { api } = loadWorkspaceTestApi();
+  const expected = {
+    lead: "search",
+    contact: "wave",
+    meeting: "stand",
+    proposal: "scratch",
+    won: "success",
+    lost: "lost",
+  };
+
+  for (const [stage, pose] of Object.entries(expected)) {
+    assert.equal(api.stagePenguinPose(stage), pose);
+  }
+  assert.match(api.penguinSVG("lost"), /assets\/penguin\/lost\.png/);
 });
 
 test("Today surfaces remain readable in dark theme", () => {
@@ -960,7 +1001,7 @@ test("approved mascot poses render their complete files without CSS cropping", (
   const js = read("app.js");
 
   assert.match(css, /\.pg-img\s*\{[^}]*width:\s*100%[^}]*height:\s*100%[^}]*object-fit:\s*contain/i);
-  assert.match(css, /\.qq-penguin--brand\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/i);
+  assert.match(css, /\.qq-penguin--brand\s*\{[^}]*width:\s*48px[^}]*height:\s*48px/i);
   assert.match(css, /\.qq-penguin--assistant\s*\{[^}]*width:\s*64px[^}]*height:\s*64px/i);
   assert.match(js, /return `<img class="pg-img" src="assets\/penguin\/\$\{p\}\.png"/);
 });
