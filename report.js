@@ -137,6 +137,11 @@
     const notes = array(source.notes).slice().sort((left, right) => rawText(right && right.date).localeCompare(rawText(left && left.date)));
     const pendingNotes = notes.filter(note => note && valueOf(note.next) && !note.taskDone);
     const painPoints = uniqueRecords(array(source.painPoints).map(valueOf).filter(Boolean), item => item.toLocaleLowerCase());
+    const confirmations = source.guidedConfirmations && typeof source.guidedConfirmations === "object" ? source.guidedConfirmations : {};
+    const diagnosisSource = source.opportunityDiagnosis && typeof source.opportunityDiagnosis === "object" ? source.opportunityDiagnosis : {};
+    const businessBriefSource = source.businessBrief && typeof source.businessBrief === "object" ? source.businessBrief : {};
+    const painChainSource = source.painChain && typeof source.painChain === "object" ? source.painChain : {};
+    const negotiationSource = source.negotiationBrief && typeof source.negotiationBrief === "object" ? source.negotiationBrief : {};
     const fieldDefs = array(context.fieldDefs);
 
     const name = valueOf(source.name);
@@ -155,6 +160,14 @@
       ["主要风险", valueOf(raid.dm && raid.dm.concern) || valueOf(raid.plan && raid.plan.support)],
       ["下一步行动", nextAction],
     ], "report-field-grid report-field-grid--summary");
+
+    const diagnosisLabels = { pain: "痛苦", power: "权力", vision: "构想", value: "价值", control: "控制", milestone: "里程碑" };
+    const diagnosisItems = Object.entries(diagnosisLabels).map(([key, label]) => {
+      const numeric = Number(diagnosisSource[key]);
+      return Number.isFinite(numeric) ? `${label}：${Math.max(0, Math.min(10, numeric))}/10` : "";
+    });
+    if (valueOf(diagnosisSource.note)) diagnosisItems.push(`诊断备注：${valueOf(diagnosisSource.note)}`);
+    const diagnosis = list(diagnosisItems, "report-diagnosis-list");
 
     const profileEntries = fieldDefs.map(definition => [
       valueOf(definition && (definition.label || definition.key)),
@@ -182,6 +195,66 @@
     });
     const profile = fieldGrid(profileEntries);
 
+    const businessBrief = fieldGrid([
+      ["核心产品或服务", valueOf(businessBriefSource.products)],
+      ["赚钱逻辑", valueOf(businessBriefSource.revenueLogic)],
+      ["经营状况", valueOf(businessBriefSource.operatingStatus)],
+      ["相似竞品", valueOf(businessBriefSource.competitors)],
+      ["可能的业务痛点", valueOf(businessBriefSource.painHypothesis)],
+    ]);
+
+    const externalSignalItems = [];
+    uniqueRecords(array(source.marketNews).filter(Boolean), item => keyOf([
+      valueOf(item.title), item.publishedAt, valueOf(item.market), valueOf(item.sourceUrl), valueOf(item.signal), valueOf(item.impact),
+    ])).forEach(item => {
+      const detail = describeParts([
+        valueOf(item.title), format(item.publishedAt, context.formatShortDate), valueOf(item.market),
+        valueOf(item.signal), valueOf(item.impact), valueOf(item.sourceUrl),
+      ]);
+      if (detail) externalSignalItems.push(`全球新闻：${detail}`);
+    });
+    uniqueRecords(array(source.hiringSignals).filter(Boolean), item => keyOf([
+      valueOf(item.role), item.postedAt, valueOf(item.location), valueOf(item.sourceUrl), valueOf(item.signal), valueOf(item.opportunity),
+    ])).forEach(item => {
+      const detail = describeParts([
+        valueOf(item.role), format(item.postedAt, context.formatShortDate), valueOf(item.location),
+        valueOf(item.signal), valueOf(item.opportunity), valueOf(item.sourceUrl),
+      ]);
+      if (detail) externalSignalItems.push(`招聘动向：${detail}`);
+    });
+    const externalSignals = list(externalSignalItems, "report-external-signals");
+
+    const painChain = fieldGrid([
+      ["外部或经营信号", valueOf(painChainSource.signal)],
+      ["业务痛点", valueOf(painChainSource.pain)],
+      ["经营影响", valueOf(painChainSource.impact)],
+      ["腾讯云切入点", valueOf(painChainSource.solution)],
+      ["客户确认问题", valueOf(painChainSource.question)],
+    ], "report-field-grid report-pain-chain");
+
+    const jointPlanItems = uniqueRecords(array(source.jointWorkPlan).filter(Boolean), item => keyOf([
+      item.id, valueOf(item.title), valueOf(item.deliverable), valueOf(item.ourOwner), valueOf(item.customerOwner), item.dueDate, item.status,
+    ])).sort((left, right) => rawText(left.dueDate).localeCompare(rawText(right.dueDate))).map(item => describeParts([
+      format(item.dueDate, context.formatShortDate), valueOf(item.title), valueOf(item.deliverable),
+      valueOf(item.ourOwner) ? `我方：${valueOf(item.ourOwner)}` : "",
+      valueOf(item.customerOwner) ? `客户：${valueOf(item.customerOwner)}` : "",
+      ({ todo: "待开始", doing: "进行中", done: "已完成" })[clean(item.status)] || "",
+    ]));
+    const jointWorkPlan = list(jointPlanItems, "report-joint-plan");
+
+    const negotiation = fieldGrid([
+      ["目标结果", valueOf(negotiationSource.objective)],
+      ["客户当前立场", valueOf(negotiationSource.customerPosition)],
+      ["价值锚点", valueOf(negotiationSource.valueAnchor)],
+      ["必须守住", valueOf(negotiationSource.mustHave)],
+      ["可以交换", valueOf(negotiationSource.flexible)],
+      ["交换条件", valueOf(negotiationSource.giveGet)],
+      ["红线", valueOf(negotiationSource.redLine)],
+      ["主要异议", valueOf(negotiationSource.objections)],
+      ["回应策略", valueOf(negotiationSource.response)],
+      ["本轮收口动作", valueOf(negotiationSource.closeAction)],
+    ], "report-field-grid report-negotiation");
+
     const people = uniqueRecords(array(source.orgChain).filter(person => person && typeof person === "object"), person => keyOf([
       person.id, person.pid, valueOf(person.name), valueOf(person.role), person.level,
       person.phone, person.wechat, person.email, valueOf(person.note),
@@ -207,9 +280,13 @@
       const detail = describeParts([valueOf(role.name), valueOf(role.role), valueOf(role.position), valueOf(role.demand)]);
       if (detail) orgItems.push(detail);
     });
+    const decisionProcess = valueOf(confirmations["confirm-power"] && confirmations["confirm-power"].note);
+    if (decisionProcess) orgItems.push(`决策流程确认：${decisionProcess}`);
     const organization = list(orgItems, "report-relation-list");
 
     const marketItems = painPoints.map(item => `客户痛点：${item}`);
+    const painConfirmation = valueOf(confirmations["confirm-pain"] && confirmations["confirm-pain"].note);
+    if (painConfirmation) marketItems.push(`客户确认依据：${painConfirmation}`);
     const competitors = uniqueRecords(array(raid.competitors).filter(Boolean), competitor => keyOf([
       valueOf(competitor.name), valueOf(competitor.coverage), valueOf(competitor.pros), valueOf(competitor.cons),
     ]));
@@ -266,6 +343,34 @@
     ]));
     const pending = list(pendingItems, "report-action-list");
 
+    const meetingPrepItems = uniqueRecords(array(source.meetingPreps).filter(Boolean), prep => keyOf([
+      prep.id, prep.createdAt, prep.updatedAt, valueOf(prep.objective),
+      ...array(prep.focus).map(valueOf), valueOf(prep.hook), valueOf(prep.notes),
+    ])).sort((left, right) => rawText(right.updatedAt || right.createdAt).localeCompare(rawText(left.updatedAt || left.createdAt))).map(prep => {
+      const when = format(prep.updatedAt || prep.createdAt, context.formatDateTime);
+      const objective = valueOf(prep.objective);
+      const focus = uniqueRecords(array(prep.focus).map(valueOf).filter(Boolean), item => item.toLocaleLowerCase());
+      const hook = valueOf(prep.hook);
+      const notesValue = valueOf(prep.notes);
+      if (!objective && !focus.length && !hook && !notesValue) return "";
+      return `<article>${when ? `<time>${escape(when)}</time>` : ""}<div>${objective ? `<b>${escape(objective)}</b>` : ""}${focus.length ? `<p>待确认信息：${escape(focus.join("；"))}</p>` : ""}${hook ? `<small>下次会议钩子：${escape(hook)}</small>` : ""}${notesValue ? `<p>销售补充：${escape(notesValue)}</p>` : ""}</div></article>`;
+    }).filter(Boolean).join("");
+    const meetingPreps = meetingPrepItems ? `<div class="report-progress report-meeting-preps">${meetingPrepItems}</div>` : "";
+
+    const meetingReviewItems = uniqueRecords(array(source.meetingReviews).filter(Boolean), review => keyOf([
+      review.id, review.prepId, review.createdAt, review.updatedAt, valueOf(review.summary),
+      valueOf(review.confirmed), valueOf(review.hookResult), valueOf(review.next), review.nextDate,
+    ])).sort((left, right) => rawText(right.updatedAt || right.createdAt).localeCompare(rawText(left.updatedAt || left.createdAt))).map(review => {
+      const when = format(review.updatedAt || review.createdAt, context.formatDateTime);
+      const summary = valueOf(review.summary);
+      const confirmed = valueOf(review.confirmed);
+      const hookResult = valueOf(review.hookResult);
+      const next = valueOf(review.next);
+      if (!summary && !confirmed && !hookResult && !next) return "";
+      return `<article>${when ? `<time>${escape(when)}</time>` : ""}<div>${summary ? `<b>${escape(summary)}</b>` : ""}${confirmed ? `<p>确认事实：${escape(confirmed)}</p>` : ""}${hookResult ? `<p>钩子结果：${escape(hookResult)}</p>` : ""}${next ? `<small>下一步：${escape(next)}${review.nextDate ? ` · ${escape(format(review.nextDate, context.formatShortDate))}` : ""}</small>` : ""}</div></article>`;
+    }).filter(Boolean).join("");
+    const meetingReviews = meetingReviewItems ? `<div class="report-progress report-meeting-reviews">${meetingReviewItems}</div>` : "";
+
     const executionItems = uniqueRecords(array(source.stageHistory).filter(Boolean), history => keyOf([
       history.date, history.stage, valueOf(history.note),
     ])).map(history => {
@@ -294,12 +399,20 @@
 
     return heading
       + section("执行摘要", executive, "report-executive")
+      + section("六维机会诊断", diagnosis)
       + section("客户基本信息与情报", profile)
+      + section("产品与商业模式简报", businessBrief)
+      + section("外部市场与招聘信号", externalSignals)
+      + section("机会痛苦链", painChain)
       + section("组织与关键关系", organization)
       + section("痛点、竞品与匹配方案", market)
+      + section("会前沟通准备", meetingPreps)
+      + section("会后确认", meetingReviews)
       + section("全流程客户推进记录", progress)
       + section("当前未完成行动", pending)
       + section("阶段历史、目标与攻坚计划", execution)
+      + section("联合工作计划", jointWorkPlan)
+      + section("谈判与成交策略", negotiation)
       + section("材料与证据索引", evidence);
   }
 

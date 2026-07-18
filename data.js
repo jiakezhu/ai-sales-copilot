@@ -226,6 +226,41 @@ const SEED_CUSTOMERS = [
       { id: "n2", method: "phone", date: "2026-06-24 10:00", contact: "王工", place: "", content: "电话沟通，王工同意下周见面详聊，需要准备针对东南亚节点的延迟对比数据。", next: "预约周三上门拜访，准备方案 PPT", nextDate: "2026-07-01" },
     ],
     assets: [],
+    marketNews: [
+      { id: "sn1", title: "《九州幻想》东南亚版本开启预约", publishedAt: "2026-06-28", market: "东南亚", sourceUrl: "https://starlight.example.com/news/sea-launch", signal: "海外发行从测试进入正式获客阶段，网络体验将直接影响首月留存。", impact: "拜访时确认重点国家、开服时间和延迟基线，推动小范围 GAAP 实测。", confirmedAt: "2026-07-01 10:00" },
+      { id: "sn2", title: "星澜互娱披露 B 轮融资后的全球化投入计划", publishedAt: "2026-06-12", market: "全球", sourceUrl: "https://starlight.example.com/news/series-b", signal: "融资资金明确用于海外发行和研发团队扩张。", impact: "预算窗口与海外基础设施采购可能同步打开。", confirmedAt: "2026-07-01 10:00" },
+    ],
+    hiringSignals: [
+      { id: "sh1", role: "东南亚游戏社区运营", location: "新加坡", postedAt: "2026-06-26", sourceUrl: "https://starlight.example.com/jobs/community-sea", signal: "正在搭建本地化运营与玩家社区能力。", opportunity: "确认海外节点覆盖、活动峰值保障与本地数据合规计划。", confirmedAt: "2026-07-01 10:00" },
+      { id: "sh2", role: "全球网络运维工程师", location: "深圳", postedAt: "2026-06-20", sourceUrl: "https://starlight.example.com/jobs/global-network", signal: "跨区域网络质量和海外故障响应已成为专门职责。", opportunity: "以东南亚三地延迟与丢包实测切入技术交流。", confirmedAt: "2026-07-01 10:00" },
+    ],
+    painChain: {
+      signal: "海外发行与本地运营团队同步扩张",
+      pain: "东南亚与中东玩家跨境延迟高、活动期掉线",
+      impact: "影响新服留存、付费转化和海外发行口碑",
+      solution: "全球加速 GAAP + 海外边缘节点 PoC",
+      question: "能否用三个重点城市的真实业务流量，共同验证延迟和丢包改善？",
+      updatedAt: "2026-07-01 10:00",
+    },
+    jointWorkPlan: [
+      { id: "map1", title: "确认 PoC 城市与业务流量范围", deliverable: "测试范围与成功标准清单", ourOwner: "客户经理 / 架构师", customerOwner: "王工", dueDate: "2026-07-03", status: "doing" },
+      { id: "map2", title: "完成东南亚三地延迟实测", deliverable: "基线与 GAAP 对比报告", ourOwner: "解决方案架构师", customerOwner: "网络运维团队", dueDate: "2026-07-10", status: "todo" },
+      { id: "map3", title: "联合评审 PoC 结果与商务范围", deliverable: "CTO 评审结论与下一阶段采购范围", ourOwner: "客户经理", customerOwner: "李阔 / 王工", dueDate: "2026-07-15", status: "todo" },
+    ],
+    negotiationBrief: {
+      objective: "确认东南亚三地 GAAP PoC，并锁定 CTO 评审时间",
+      customerPosition: "愿意验证效果，但担心迁移风险、长期成本和单一厂商绑定",
+      valueAnchor: "以真实业务流量降低延迟和丢包，保护海外新服留存与付费转化",
+      mustHave: "共同确认成功标准、测试范围，以及 PoC 达标后的正式采购评审",
+      flexible: "可协调架构师支持与有限 PoC 资源额度，测试范围可以分阶段扩大",
+      giveGet: "提供测试资源和专项技术支持，换取真实业务流量、CTO 参与评审及采购时间表",
+      redLine: "不承诺无限期免费资源，不在成功标准未确认前给出长期价格锁定",
+      objections: "担心迁移影响线上稳定性、被单一云厂商锁定，以及后续成本不可控",
+      response: "先采用旁路小流量验证，不改动核心架构；用实测指标决定是否扩大，并明确可退出边界",
+      closeAction: "会后确认 PoC 负责人、三座城市、成功标准和启动日期",
+      updatedAt: "2026-07-01 10:00",
+    },
+    salesAssets: [],
     // 攻坚档案示范（对应线下《重点攻坚客户档案》模板）
     raidFile: {
       updatedAt: "2026-07-01",
