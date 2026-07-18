@@ -282,6 +282,181 @@ test("customer header surfaces staff, funding, and website facts", () => {
   assert.match(data, /key:\s*"website"/);
 });
 
+test("customer detail is driven by a small set of confirmable Sales Buddy action cards", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  const detail = js.slice(js.indexOf("function renderCustomerDetail"), js.indexOf("function renderStageTrack"));
+  assert.match(detail, /renderGuidedActions\(customer\)/);
+  assert.match(js, /现在建议做/);
+  assert.match(js, /\.slice\(0,\s*3\)/);
+  assert.match(js, /const mainAction = action\.kind === "meeting" \? "open-meeting-card" : "open-guided-confirm"/);
+  assert.match(js, /data-action="\$\{mainAction\}"/);
+  assert.match(js, /data-action="defer-guided-action"/);
+  assert.match(js, /data-action="dismiss-guided-action"/);
+  assert.match(js, /data-form="meeting-prep"/);
+  assert.match(js, /customer\.meetingPreps\.push/);
+  assert.match(css, /\.guided-action-primary\s*\{/);
+  assert.match(css, /\.guided-action-options\s*\{/);
+});
+
+test("customer detail keeps stage progression above guided actions in a contained header layout", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  const detail = js.slice(js.indexOf("function renderCustomerDetail"), js.indexOf("function renderGuidedActions"));
+  assert.ok(detail.indexOf('class="customer-control-bar"') < detail.indexOf("renderGuidedActions(customer)"));
+  assert.match(css, /\.customer-summary-header\s*\{[^}]*display:grid/);
+  assert.match(css, /\.customer-summary-header\s*\{[^}]*background:var\(--surface\)/);
+  assert.match(css, /\.customer-facts\s*\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+});
+
+test("guided confirmations open editable forms and persist confirmed customer facts", () => {
+  const js = read("app.js");
+  assert.match(js, /action === "open-guided-confirm"/);
+  assert.match(js, /data-form="guided-confirm"/);
+  assert.match(js, /function openGuidedConfirmation\(customerId, key\)/);
+  assert.match(js, /function submitGuidedConfirmation\(form\)/);
+  assert.match(js, /customer\.painPoints\[0\]/);
+  assert.match(js, /customer\.orgChain\.push/);
+  assert.match(js, /customer\.guidedConfirmations\[key\]/);
+  assert.match(js, /customer\.guidedActions\[key\] = \{ status: "resolved"/);
+});
+
+test("saved meeting prep cards return to the customer workspace and remain editable", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  const overview = js.slice(js.indexOf("function renderOverview"), js.indexOf("function renderCompactContact"));
+  assert.match(overview, /renderMeetingPrepArchive\(customer\)/);
+  assert.match(js, /function renderMeetingPrepArchive\(customer\)/);
+  assert.match(js, /data-prep="\$\{safe\(prep\.id\)\}"/);
+  assert.match(js, /function openMeetingPrep\(customerId, prepId = ""\)/);
+  assert.match(js, /customer\.meetingPreps\.find\(item => item\.id === prepId\)/);
+  assert.match(js, /existing \? Object\.assign\(existing, record\) : customer\.meetingPreps\.push\(record\)/);
+  assert.match(css, /\.meeting-prep-archive\s*\{/);
+});
+
+test("phase one exposes a six-dimension opportunity diagnosis that sales can calibrate", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /const OPPORTUNITY_DIMENSIONS = \[/);
+  for (const label of ["痛苦", "权力", "构想", "价值", "控制", "里程碑"]) assert.match(js, new RegExp(label));
+  assert.match(js, /renderOpportunityDiagnosis\(customer\)/);
+  assert.match(js, /data-action="edit-opportunity-diagnosis"/);
+  assert.match(js, /data-form="opportunity-diagnosis"/);
+  assert.match(js, /customer\.opportunityDiagnosis =/);
+  assert.match(js, /function renderDiagnosisRadar\(diagnosis\)/);
+  assert.match(js, /class="diagnosis-radar"/);
+  assert.match(js, /<polygon/);
+  assert.match(css, /\.opportunity-diagnosis\s*\{/);
+  assert.match(css, /\.diagnosis-visual\s*\{/);
+  assert.match(css, /\.diagnosis-radar\s*\{/);
+  assert.match(css, /\.diagnosis-visual\s*\{[^}]*grid-template-columns:minmax\(0,/);
+  assert.match(css, /\.diagnosis-radar\s*\{[^}]*overflow:hidden/);
+});
+
+test("customer overview uses an explicit balanced two-column composition", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  const overview = js.slice(js.indexOf("function renderOverview"), js.indexOf("function inferOpportunityDiagnosis"));
+  assert.match(overview, /class="panel overview-summary"/);
+  assert.match(overview, /class="panel recent-progress-panel wide-panel"/);
+  assert.ok(overview.indexOf("痛点与方案") < overview.indexOf("最近推进"));
+  assert.match(css, /\.overview-grid\s*\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+});
+
+test("phase one includes an editable product and business model brief", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /renderBusinessBrief\(customer\)/);
+  assert.match(js, /data-action="edit-business-brief"/);
+  assert.match(js, /data-form="business-brief"/);
+  assert.match(js, /customer\.businessBrief =/);
+  assert.match(js, /核心产品|赚钱逻辑|经营状况|相似竞品/);
+  assert.match(css, /\.business-brief\s*\{/);
+});
+
+test("phase one closes the loop with a meeting-linked post-meeting confirmation", () => {
+  const js = read("app.js");
+  assert.match(js, /data-action="open-meeting-review"/);
+  assert.match(js, /data-form="meeting-review"/);
+  assert.match(js, /customer\.meetingReviews\.push/);
+  assert.match(js, /prep\.status = "completed"/);
+  assert.match(js, /source: "meeting-review"/);
+  assert.match(js, /weakDimensions/);
+});
+
+test("phase two groups global news and hiring into an editable external signal workspace", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /\["signals", "外部信号"\]/);
+  assert.match(js, /function renderExternalSignals\(customer\)/);
+  assert.match(js, /全球新闻/);
+  assert.match(js, /招聘动向/);
+  assert.match(js, /data-action="add-market-news"/);
+  assert.match(js, /data-action="add-hiring-signal"/);
+  assert.match(js, /data-form="market-news"/);
+  assert.match(js, /data-form="hiring-signal"/);
+  assert.match(js, /customer\.marketNews\.push/);
+  assert.match(js, /customer\.hiringSignals\.push/);
+  assert.match(css, /\.external-signal-grid\s*\{/);
+});
+
+test("phase two renders an editable pain chain and joint work plan", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  const overview = js.slice(js.indexOf("function renderOverview"), js.indexOf("function inferOpportunityDiagnosis"));
+  assert.match(overview, /renderPainChain\(customer\)/);
+  assert.match(overview, /renderJointWorkPlan\(customer\)/);
+  assert.match(js, /function openPainChain\(customerId\)/);
+  assert.match(js, /data-form="pain-chain"/);
+  assert.match(js, /customer\.painChain =/);
+  assert.match(js, /function openWorkPlanItem\(customerId, itemId = ""\)/);
+  assert.match(js, /data-form="work-plan"/);
+  assert.match(js, /customer\.jointWorkPlan\.push/);
+  assert.match(css, /\.pain-chain-flow\s*\{/);
+  assert.match(css, /\.joint-plan-list\s*\{/);
+});
+
+test("company avatars are removed from customer business surfaces", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  for (const renderer of ["renderPulseItem", "renderCustomerRow", "renderCustomerDetail"]) {
+    const start = js.indexOf(`function ${renderer}`);
+    const end = js.indexOf("\nfunction ", start + 10);
+    assert.doesNotMatch(js.slice(start, end), /avatar\(customer|avatar\(item\.customer/);
+  }
+  assert.doesNotMatch(css, /\.customer-avatar\s*\{/);
+});
+
+test("phase three provides an editable negotiation assistant with give-get discipline", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /\["closing", "成交工具"\]/);
+  assert.match(js, /function renderClosingWorkspace\(customer\)/);
+  assert.match(js, /function renderNegotiationAssistant\(customer\)/);
+  assert.match(js, /data-action="edit-negotiation-brief"/);
+  assert.match(js, /data-form="negotiation-brief"/);
+  assert.match(js, /customer\.negotiationBrief =/);
+  for (const label of ["目标结果", "必须守住", "可以交换", "交换条件", "红线"]) assert.match(js, new RegExp(label));
+  assert.match(css, /\.negotiation-board\s*\{/);
+  assert.match(css, /\.negotiation-lanes\s*\{/);
+});
+
+test("phase three generates, saves, copies, and downloads complete sales assets", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /const SALES_ASSET_TYPES = \[/);
+  for (const label of ["客户一页纸", "会后跟进邮件", "方案大纲", "谈判作战卡"]) assert.match(js, new RegExp(label));
+  assert.match(js, /function buildSalesAssetContent\(customer, type\)/);
+  assert.match(js, /function generateSalesAsset\(customerId, type\)/);
+  assert.match(js, /customer\.salesAssets\.unshift/);
+  assert.match(js, /action === "copy-sales-asset"/);
+  assert.match(js, /action === "download-sales-asset"/);
+  assert.match(js, /navigator\.clipboard\.writeText/);
+  assert.match(js, /downloadTextFile/);
+  assert.match(css, /\.sales-asset-studio\s*\{/);
+  assert.match(css, /\.sales-asset-grid\s*\{/);
+});
+
 test("customer stages use a clickable roadmap with a moving penguin instead of a dropdown", () => {
   const js = read("app.js");
   const css = read("style.css");
@@ -695,6 +870,107 @@ test("report covers populated customer intelligence without mutating source data
   assert.equal(JSON.stringify(customer), before);
 });
 
+test("report includes saved meeting preparation content without product copy", () => {
+  const html = ReportBuilder.build({
+    name: "启明科技",
+    meetingPreps: [{
+      createdAt: "2026-07-18 09:30",
+      objective: "确认海外业务的真实优先级",
+      focus: ["今年海外收入目标是多少？", "预算由谁最终审批？"],
+      hook: "下次带海外节点延迟测试方案",
+      notes: "重点关注东南亚市场",
+    }],
+  }, reportContext);
+
+  assert.match(html, /会前沟通准备/);
+  assert.match(html, /确认海外业务的真实优先级/);
+  assert.match(html, /今年海外收入目标是多少/);
+  assert.match(html, /下次带海外节点延迟测试方案/);
+  assert.doesNotMatch(html, /Sales Buddy|AI|自动生成/);
+});
+
+test("report retains salesperson confirmation notes for pain and decision process", () => {
+  const html = ReportBuilder.build({
+    name: "启明科技",
+    painPoints: [{ v: "海外访问延迟影响付费转化" }],
+    guidedConfirmations: {
+      "confirm-pain": { note: "客户 CTO 在会议中明确确认" },
+      "confirm-power": { note: "CTO 技术评估，CEO 审批预算" },
+    },
+  }, reportContext);
+
+  assert.match(html, /客户确认依据：客户 CTO 在会议中明确确认/);
+  assert.match(html, /决策流程确认：CTO 技术评估，CEO 审批预算/);
+});
+
+test("report includes phase-one diagnosis, business brief, and post-meeting confirmation", () => {
+  const html = ReportBuilder.build({
+    name: "启明科技",
+    opportunityDiagnosis: {
+      pain: 8, power: 6, vision: 5, value: 4, control: 3, milestone: 7,
+      note: "价值量化仍需客户确认",
+    },
+    businessBrief: {
+      products: "海外社交应用",
+      revenueLogic: "订阅与广告收入",
+      operatingStatus: "海外收入快速增长",
+      competitors: "竞品甲、竞品乙",
+    },
+    meetingReviews: [{
+      createdAt: "2026-07-19 14:00",
+      summary: "客户确认海外访问体验影响付费",
+      confirmed: "预算由 CEO 审批",
+      hookResult: "同意下周进行技术评审",
+      next: "发送延迟测试方案",
+    }],
+  }, reportContext);
+
+  assert.match(html, /六维机会诊断/);
+  assert.match(html, /痛苦：8\/10/);
+  assert.match(html, /产品与商业模式简报/);
+  assert.match(html, /订阅与广告收入/);
+  assert.match(html, /会后确认/);
+  assert.match(html, /同意下周进行技术评审/);
+});
+
+test("report includes phase-two external signals, pain chain, and joint work plan", () => {
+  const html = ReportBuilder.build({
+    name: "启明科技",
+    marketNews: [{ title: "海外产品完成新一轮融资", publishedAt: "2026-07-18", market: "北美", signal: "海外扩张提速", impact: "需要评估海外基础设施", sourceUrl: "https://example.com/news" }],
+    hiringSignals: [{ role: "海外社区运营", location: "新加坡", postedAt: "2026-07-17", signal: "正在建立海外运营团队", opportunity: "全球网络与合规可作为切入点" }],
+    painChain: { signal: "海外团队快速扩张", pain: "跨区访问不稳定", impact: "影响协同和上线效率", solution: "全球加速与海外节点", question: "是否愿意共同做一轮跨区实测？" },
+    jointWorkPlan: [{ title: "完成海外延迟 PoC", ourOwner: "客户经理", customerOwner: "CTO", dueDate: "2026-07-30", deliverable: "三地延迟对比报告", status: "doing" }],
+  }, reportContext);
+
+  for (const expected of ["外部市场与招聘信号", "海外产品完成新一轮融资", "海外社区运营", "机会痛苦链", "跨区访问不稳定", "联合工作计划", "三地延迟对比报告"]) {
+    assert.match(html, new RegExp(expected));
+  }
+});
+
+test("report includes the confirmed negotiation brief without duplicating generated assets", () => {
+  const html = ReportBuilder.build({
+    name: "启明科技",
+    negotiationBrief: {
+      objective: "签署海外加速 PoC",
+      customerPosition: "希望先免费测试并锁定折扣",
+      valueAnchor: "降低核心地区延迟并保障开服稳定",
+      mustHave: "明确成功标准和付费转正式条件",
+      flexible: "可提供有限测试资源",
+      giveGet: "提供测试资源，换取 CTO 评审和采购时间表",
+      redLine: "不承诺无限期免费资源",
+      objections: "担心迁移风险和长期成本",
+      response: "先以旁路小流量验证，达标后再扩大范围",
+      closeAction: "确认 PoC 负责人和启动日期",
+    },
+    salesAssets: [{ type: "followup-email", title: "会后跟进邮件", content: "这段内容不应重复进入全景报告" }],
+  }, reportContext);
+
+  assert.match(html, /谈判与成交策略/);
+  assert.match(html, /签署海外加速 PoC/);
+  assert.match(html, /提供测试资源，换取 CTO 评审和采购时间表/);
+  assert.doesNotMatch(html, /这段内容不应重复进入全景报告/);
+});
+
 test("report escapes customer data and suppresses empty values", () => {
   const repeatedFact = "唯一关系事实";
   const html = ReportBuilder.build({
@@ -719,7 +995,7 @@ test("report builder is the single source for preview and Word export", () => {
   const appScript = html.indexOf('<script src="app.js"></script>');
 
   assert.ok(reportScript > 0 && appScript > reportScript);
-  assert.match(js, /return builder\.build\(customer,\s*\{/);
+  assert.match(js, /return builder\.build\(reportSource,\s*\{/);
   assert.match(js, /builder\.wrapWord\(\$\("#reportDocument"\)\.innerHTML,\s*WORD_REPORT_STYLES\)/);
   assert.doesNotMatch(js, /function reportList|function reportEmpty|const reportRow/);
   assert.doesNotMatch(read("report.js"), /云销副驾|企鹅|AI\s*生成|实时汇总|report-footer/);
