@@ -37,6 +37,22 @@ const NAV_ITEMS = [
   { key: "analytics", label: "分析", icon: "chart-no-axes-column-increasing" },
 ];
 
+const OPPORTUNITY_DIMENSIONS = [
+  { key: "pain", label: "痛苦", icon: "heart-crack", hint: "客户是否明确承认业务痛点" },
+  { key: "power", label: "权力", icon: "crown", hint: "是否接触并确认真正决策者" },
+  { key: "vision", label: "构想", icon: "lightbulb", hint: "客户是否认可解决问题所需能力" },
+  { key: "value", label: "价值", icon: "chart-no-axes-combined", hint: "收益是否被客户认可并量化" },
+  { key: "control", label: "控制", icon: "route", hint: "是否能推动并影响购买流程" },
+  { key: "milestone", label: "里程碑", icon: "flag", hint: "机会是否有明确且已完成的阶段成果" },
+];
+
+const SALES_ASSET_TYPES = [
+  { key: "account-onepager", label: "客户一页纸", icon: "contact-round", description: "客户背景、机会、关系与下一步的单页摘要" },
+  { key: "followup-email", label: "会后跟进邮件", icon: "mail-check", description: "基于最近会议和双方约定生成可直接修改的邮件" },
+  { key: "solution-outline", label: "方案大纲", icon: "panels-top-left", description: "从客户问题到验证路径的专业方案结构" },
+  { key: "negotiation-card", label: "谈判作战卡", icon: "handshake", description: "目标、交换条件、红线与异议处理的一页作战卡" },
+];
+
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
@@ -77,6 +93,8 @@ function fillStaticPenguins() {
 }
 
 function ensureCustomerShape(customer) {
+  const seed = typeof SEED_CUSTOMERS !== "undefined" ? SEED_CUSTOMERS.find(item => item.id === customer.id) : null;
+  const seedCopy = key => JSON.parse(JSON.stringify(seed?.[key] || (["painChain", "negotiationBrief"].includes(key) ? {} : [])));
   customer.fields ||= {};
   FIELD_DEFS.forEach(def => customer.fields[def.key] ||= { v: "" });
   customer.notes ||= [];
@@ -84,6 +102,30 @@ function ensureCustomerShape(customer) {
   customer.orgChain ||= [];
   customer.painPoints ||= [];
   customer.solution ||= [];
+  customer.guidedActions ||= {};
+  customer.guidedConfirmations ||= {};
+  customer.meetingPreps ||= [];
+  customer.meetingReviews ||= [];
+  customer.opportunityDiagnosis ||= {};
+  customer.businessBrief ||= {};
+  if (!Array.isArray(customer.marketNews)) customer.marketNews = seedCopy("marketNews");
+  if (!Array.isArray(customer.hiringSignals)) customer.hiringSignals = seedCopy("hiringSignals");
+  if (!customer.painChain || typeof customer.painChain !== "object") customer.painChain = seedCopy("painChain");
+  if (!Array.isArray(customer.jointWorkPlan)) customer.jointWorkPlan = seedCopy("jointWorkPlan");
+  if (Number(customer.phase2SeedVersion || 0) < 2 && seed) {
+    if (!customer.marketNews.length) customer.marketNews = seedCopy("marketNews");
+    if (!customer.hiringSignals.length) customer.hiringSignals = seedCopy("hiringSignals");
+    if (!Object.values(customer.painChain).some(Boolean)) customer.painChain = seedCopy("painChain");
+    if (!customer.jointWorkPlan.length) customer.jointWorkPlan = seedCopy("jointWorkPlan");
+    customer.phase2SeedVersion = 2;
+  }
+  if (!customer.negotiationBrief || typeof customer.negotiationBrief !== "object") customer.negotiationBrief = seedCopy("negotiationBrief");
+  if (!Array.isArray(customer.salesAssets)) customer.salesAssets = seedCopy("salesAssets");
+  if (Number(customer.phase3SeedVersion || 0) < 1 && seed) {
+    if (!Object.values(customer.negotiationBrief).some(Boolean)) customer.negotiationBrief = seedCopy("negotiationBrief");
+    if (!customer.salesAssets.length) customer.salesAssets = seedCopy("salesAssets");
+    customer.phase3SeedVersion = 1;
+  }
   customer.funnel ||= { reached: 0, connected: 0, meeting: 0, proposal: 0, won: 0 };
   customer.stageHistory ||= [{ stage: customer.stage || "lead", date: customer.notes.at(-1)?.date || todayStr(), note: "当前阶段" }];
   customer.notes.forEach(note => { if (typeof note.taskDone !== "boolean") note.taskDone = false; });
@@ -141,6 +183,26 @@ async function handleAction(event) {
   if (action === "import-customers") return openCustomerImport();
   if (action === "download-import-template") return downloadCustomerImportTemplate();
   if (action === "manual-entry") return openManualEntry(trigger.dataset.customer || state.customerId);
+  if (action === "open-meeting-card") return openMeetingPrep(trigger.dataset.customer || state.customerId, trigger.dataset.prep || "");
+  if (action === "open-guided-confirm") return openGuidedConfirmation(trigger.dataset.customer || state.customerId, trigger.dataset.guided);
+  if (action === "edit-opportunity-diagnosis") return openOpportunityDiagnosis(trigger.dataset.customer || state.customerId);
+  if (action === "edit-business-brief") return openBusinessBrief(trigger.dataset.customer || state.customerId);
+  if (action === "open-meeting-review") return openMeetingReview(trigger.dataset.customer || state.customerId, trigger.dataset.prep);
+  if (action === "add-market-news") return openMarketNews(trigger.dataset.customer || state.customerId);
+  if (action === "add-hiring-signal") return openHiringSignal(trigger.dataset.customer || state.customerId);
+  if (action === "edit-pain-chain") return openPainChain(trigger.dataset.customer || state.customerId);
+  if (action === "add-work-plan") return openWorkPlanItem(trigger.dataset.customer || state.customerId);
+  if (action === "edit-work-plan") return openWorkPlanItem(trigger.dataset.customer || state.customerId, trigger.dataset.item);
+  if (action === "toggle-work-plan") return toggleWorkPlanItem(trigger.dataset.customer || state.customerId, trigger.dataset.item);
+  if (action === "edit-negotiation-brief") return openNegotiationBrief(trigger.dataset.customer || state.customerId);
+  if (action === "generate-sales-asset") return generateSalesAsset(trigger.dataset.customer || state.customerId, trigger.dataset.type);
+  if (action === "open-sales-asset") return openSalesAsset(trigger.dataset.customer || state.customerId, trigger.dataset.asset);
+  if (action === "copy-sales-asset") return copySalesAsset(trigger.dataset.customer || state.customerId, trigger.dataset.asset);
+  if (action === "download-sales-asset") return downloadSalesAsset(trigger.dataset.customer || state.customerId, trigger.dataset.asset);
+  if (action === "remove-sales-asset") return removeSalesAsset(trigger.dataset.customer || state.customerId, trigger.dataset.asset);
+  if (action === "resolve-guided-action") return updateGuidedAction(trigger.dataset.customer || state.customerId, trigger.dataset.guided, "resolved");
+  if (action === "defer-guided-action") return updateGuidedAction(trigger.dataset.customer || state.customerId, trigger.dataset.guided, "deferred");
+  if (action === "dismiss-guided-action") return updateGuidedAction(trigger.dataset.customer || state.customerId, trigger.dataset.guided, "dismissed");
   if (action === "edit-note") return openManualEntry(trigger.dataset.customer, trigger.dataset.note);
   if (action === "remove-note") return deleteProgressNote(trigger.dataset.customer, trigger.dataset.note);
   if (action === "focus-copilot") return focusCopilot();
@@ -186,6 +248,11 @@ async function handleChange(event) {
   if (target.matches("[data-customer-grade]")) return updateCustomerGrade(target.dataset.customerGrade, target.value);
   if (target.matches("[data-intel-field]")) return updateIntelField(target);
   if (target.id === "copilotFiles") return handleCopilotFiles(target.files);
+  if (target.matches(".diagnosis-range")) {
+    const output = target.closest("label")?.querySelector("output");
+    if (output) output.textContent = target.value;
+    return;
+  }
   if (target.id === "aiTargetSelect" && state.aiDraft) {
     state.aiDraft.customerId = target.value;
     renderAIDraft();
@@ -199,6 +266,16 @@ async function handleSubmit(event) {
   if (type === "new-customer") return submitNewCustomer(event.target);
   if (type === "customer-import") return submitCustomerImport(event.target);
   if (type === "manual-entry") return submitManualEntry(event.target);
+  if (type === "meeting-prep") return submitMeetingPrep(event.target);
+  if (type === "guided-confirm") return submitGuidedConfirmation(event.target);
+  if (type === "opportunity-diagnosis") return submitOpportunityDiagnosis(event.target);
+  if (type === "business-brief") return submitBusinessBrief(event.target);
+  if (type === "meeting-review") return submitMeetingReview(event.target);
+  if (type === "market-news") return submitMarketNews(event.target);
+  if (type === "hiring-signal") return submitHiringSignal(event.target);
+  if (type === "pain-chain") return submitPainChain(event.target);
+  if (type === "work-plan") return submitWorkPlan(event.target);
+  if (type === "negotiation-brief") return submitNegotiationBrief(event.target);
   if (type === "contact") return submitContact(event.target);
   if (type === "pain") return submitPain(event.target);
   if (type === "solution") return submitSolution(event.target);
@@ -320,7 +397,7 @@ function renderAccountPulse(stale) {
 function renderPulseItem(item, stale) {
   const next = getNextTask(item.customer);
   return `<button class="pulse-item" data-action="open-customer" data-id="${item.customer.id}">
-    ${avatar(item.customer)}<span><b>${safe(item.customer.name)}</b><small>${stageLabel(item.customer.stage)} · ${stale ? `${item.days} 天未更新` : (next ? `下一步：${safe(next.text)}` : "暂无待办")}</small></span>${icon("chevron-right")}
+    <span><b>${safe(item.customer.name)}</b><small>${stageLabel(item.customer.stage)} · ${stale ? `${item.days} 天未更新` : (next ? `下一步：${safe(next.text)}` : "暂无待办")}</small></span>${icon("chevron-right")}
   </button>`;
 }
 
@@ -350,7 +427,7 @@ function renderCustomerRow(customer) {
   const next = getNextTask(customer);
   const keyContact = customer.orgChain.find(p => /CEO|CTO|总监|负责人|VP/.test(p.role || "")) || customer.orgChain[0];
   return `<article class="customer-row">
-    <button class="customer-cell identity-cell" data-action="open-customer" data-id="${customer.id}">${avatar(customer)}<span><b>${safe(customer.name)}</b><small>${safe(customer.fields.industry?.v || "行业未填写")} · ${customer.grade} 级</small></span></button>
+    <button class="customer-cell identity-cell" data-action="open-customer" data-id="${customer.id}"><span><b>${safe(customer.name)}</b><small>${safe(customer.fields.industry?.v || "行业未填写")} · ${customer.grade} 级</small></span></button>
     <span data-label="阶段"><b class="stage-pill stage-${customer.stage}">${stageLabel(customer.stage)}</b></span>
     <span class="muted-cell" data-label="关键联系人">${keyContact ? `<b>${safe(keyContact.name)}</b><small>${safe(keyContact.role)}</small>` : "待补充"}</span>
     <span class="next-cell ${next?.overdue ? "danger-text" : ""}" data-label="下一步">${next ? `<b>${safe(next.text)}</b><small>${next.overdue ? "已逾期" : formatShortDate(next.date)}</small>` : "暂无待办"}</span>
@@ -372,6 +449,8 @@ function switchCustomerTab(tab) {
   state.customerTab = tab;
   renderApp();
   const anchor = $(".detail-section-nav");
+  const activeTab = anchor?.querySelector("button.active");
+  if (activeTab && anchor.scrollWidth > anchor.clientWidth) activeTab.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
   if (anchor && window.scrollY > anchor.offsetTop) anchor.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -382,12 +461,12 @@ function renderCustomerDetail(customer) {
     : null;
   const next = focusedTask || getNextTask(customer) || getLatestCompletedTask(customer);
   const tabs = [
-    ["overview", "作战概览"], ["timeline", "推进记录"], ["relations", "关键关系"], ["intel", "情报与证据"],
+    ["overview", "作战概览"], ["timeline", "推进记录"], ["relations", "关键关系"], ["signals", "外部信号"], ["closing", "成交工具"], ["intel", "情报与证据"],
   ];
   return `<div class="page customer-detail">
     <button class="back-link" data-action="back-customers">${icon("arrow-left")} 返回客户列表</button>
     <header class="customer-summary-header">
-      <div class="customer-title-group">${avatar(customer, "large")}<div class="customer-title-copy"><div class="title-line"><h1>${safe(customer.name)}</h1><b class="grade-badge grade-${customer.grade}">${customer.grade}</b></div><p>${safe(customer.fields.industry?.v || "行业未填写")} · 最近更新 ${formatRelative(lastActivityDate(customer))}</p>${renderCustomerFacts(customer)}</div></div>
+      <div class="customer-title-group"><div class="customer-title-copy"><div class="title-line"><h1>${safe(customer.name)}</h1><b class="grade-badge grade-${customer.grade}">${customer.grade}</b></div><p>${safe(customer.fields.industry?.v || "行业未填写")} · 最近更新 ${formatRelative(lastActivityDate(customer))}</p>${renderCustomerFacts(customer)}</div></div>
       <div class="customer-hero-actions"><button class="report-button" data-action="open-report" data-id="${customer.id}"><span>${icon("file-text")}</span><b>生成全景报告</b><small>汇总全部客户信息</small></button></div>
     </header>
     <section class="customer-control-bar">
@@ -395,9 +474,189 @@ function renderCustomerDetail(customer) {
       ${renderChoiceControl(customer, "grade")}
     </section>
     ${next ? `<section class="next-action-banner ${next.overdue ? "overdue" : ""} ${next.done ? "completed" : ""}"><span class="next-icon">${icon(next.done ? "circle-check" : "move-right")}</span><div><small>${next.done ? "最近完成" : next.overdue ? "当前最紧急 · 已逾期" : "下一步行动"}</small><b>${safe(next.text)}</b><p>${safe(next.note.contact || "未指定联系人")} · ${formatShortDate(next.date)}</p></div><button class="${next.done ? "secondary-button" : "primary-button"}" data-action="${next.done ? "restore-task" : "complete-task"}" data-customer="${customer.id}" data-note="${next.note.id}">${icon(next.done ? "rotate-ccw" : "check")} ${next.done ? "取消完成" : "标记完成"}</button></section>` : ""}
+    ${renderGuidedActions(customer)}
     <nav class="detail-section-nav" aria-label="客户档案分区">${tabs.map(([key,label]) => `<button class="${state.customerTab === key ? "active" : ""}" data-action="customer-tab" data-tab="${key}" aria-current="${state.customerTab === key ? "page" : "false"}">${label}</button>`).join("")}</nav>
     <section class="customer-tab-content">${renderCustomerTab(customer)}</section>
   </div>`;
+}
+
+function renderGuidedActions(customer) {
+  const actions = buildGuidedActions(customer).slice(0, 3);
+  if (!actions.length) return `<section class="guided-actions guided-actions--complete"><span>${icon("circle-check")}</span><div><b>当前信息已确认</b><p>Sales Buddy 暂时没有新的建议事项。</p></div></section>`;
+  const [primary, ...optional] = actions;
+  return `<section class="guided-actions">
+    <div class="guided-actions-heading"><div><span>${penguinSVG("search")}</span><div><small>SALES BUDDY 建议</small><h2>现在建议做</h2></div></div><p>系统已经预填，确认、稍后或跳过即可。</p></div>
+    ${renderGuidedActionCard(customer, primary, true)}
+    ${optional.length ? `<div class="guided-action-options">${optional.map(action => renderGuidedActionCard(customer, action, false)).join("")}</div>` : ""}
+  </section>`;
+}
+
+function buildGuidedActions(customer) {
+  const pain = customer.painPoints.find(item => item?.v)?.v || "";
+  const decisionMaker = customer.orgChain.find(person => Number(person.level) === 1);
+  const nextTask = getNextTask(customer);
+  const candidates = [
+    {
+      key: "meeting-prep", icon: "messages-square", kind: "meeting",
+      title: "准备下一次客户沟通",
+      reason: nextTask ? `下一步是“${nextTask.text}”，先把本次要确认的信息和会议钩子准备好。` : "先明确本次沟通要确认的信息，以及自然约出下一次会议的钩子。",
+      impact: "生成一张可直接带进会议的速记卡",
+    },
+    {
+      key: "confirm-pain", icon: "scan-search", kind: "confirm",
+      title: pain ? "确认客户的核心痛点" : "摸排客户的核心业务问题",
+      reason: pain ? `档案中记录了“${pain}”，需要确认这是客户本人认可的问题，而不只是内部判断。` : "当前还没有客户明确认可的核心痛点，建议在下一次沟通中优先摸排。",
+      impact: "确认后用于方案、话术和客户报告",
+    },
+    {
+      key: "confirm-power", icon: "user-round-check", kind: "confirm",
+      title: "确认最终决策链",
+      reason: decisionMaker ? `目前将“${decisionMaker.name} · ${decisionMaker.role || "决策层"}”标记为决策层，需要确认预算、技术和采购分别由谁决定。` : "当前还没有明确的最终决策者，建议确认支持者、决策者和审批流程。",
+      impact: "减少只和经办人反复沟通的风险",
+    },
+  ];
+  return candidates
+    .filter(action => !["resolved", "dismissed"].includes(customer.guidedActions[action.key]?.status))
+    .sort((a, b) => Number(customer.guidedActions[a.key]?.status === "deferred") - Number(customer.guidedActions[b.key]?.status === "deferred"));
+}
+
+function renderGuidedActionCard(customer, action, primary) {
+  const mainAction = action.kind === "meeting" ? "open-meeting-card" : "open-guided-confirm";
+  const mainLabel = action.kind === "meeting" ? "生成速记卡" : "确认并沉淀";
+  return `<article class="${primary ? "guided-action-primary" : "guided-action-card"}">
+    <span class="guided-action-icon">${icon(action.icon)}</span>
+    <div class="guided-action-copy">${primary ? '<small class="guided-priority">最优先</small>' : ""}<h3>${safe(action.title)}</h3><p>${safe(action.reason)}</p><span>${icon("arrow-up-right")} ${safe(action.impact)}</span></div>
+    <div class="guided-action-buttons">
+      <button class="${primary ? "primary-button" : "soft-button"}" data-action="${mainAction}" data-customer="${safe(customer.id)}" data-guided="${safe(action.key)}">${mainLabel}</button>
+      <button class="text-button" data-action="defer-guided-action" data-customer="${safe(customer.id)}" data-guided="${safe(action.key)}">稍后</button>
+      <button class="guided-skip" data-action="dismiss-guided-action" data-customer="${safe(customer.id)}" data-guided="${safe(action.key)}" aria-label="跳过${safe(action.title)}">跳过</button>
+    </div>
+  </article>`;
+}
+
+function updateGuidedAction(customerId, key, status) {
+  const customer = getCustomer(customerId);
+  if (!customer || !key) return;
+  customer.guidedActions[key] = { status, updatedAt: nowDateTime() };
+  persist();
+  renderApp();
+  toast(status === "resolved" ? "已确认并保存到客户档案" : status === "deferred" ? "已移到可选事项" : "已跳过这项建议");
+}
+
+function openGuidedConfirmation(customerId, key) {
+  const customer = getCustomer(customerId);
+  if (!customer || !["confirm-pain", "confirm-power"].includes(key)) return toast("这项确认暂时不可用");
+  const confirmation = customer.guidedConfirmations[key] || {};
+  const decisionMaker = customer.orgChain.find(person => Number(person.level) === 1);
+  const currentPain = typeof customer.painPoints[0] === "string" ? customer.painPoints[0] : customer.painPoints[0]?.v || "";
+  const isPain = key === "confirm-pain";
+  const fields = isPain
+    ? `<label>客户确认的核心痛点<textarea name="value" rows="4" required placeholder="用客户自己的表述记录问题">${safe(currentPain)}</textarea></label>
+       <label>确认依据或影响<textarea name="note" rows="3" placeholder="例如：客户 CTO 明确确认；已影响海外付费转化">${safe(confirmation.note || "")}</textarea></label>`
+    : `<div class="form-row"><label>最终决策人<input name="name" required value="${safe(decisionMaker?.name || "")}" placeholder="姓名" /></label><label>职位<input name="role" value="${safe(decisionMaker?.role || "")}" placeholder="例如：CEO" /></label></div>
+       <label>决策与审批流程<textarea name="note" rows="4" placeholder="例如：CTO 负责技术评估，CEO 审批预算，采购完成合同流程">${safe(confirmation.note || "")}</textarea></label>`;
+  showModal(`<div class="modal-head"><div><p class="eyebrow">SALES CONFIRMATION</p><h2 id="modalTitle">${isPain ? "确认客户核心痛点" : "确认最终决策链"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
+    <form class="modal-form guided-confirm-form" data-form="guided-confirm">
+      <input type="hidden" name="customerId" value="${safe(customer.id)}" />
+      <input type="hidden" name="key" value="${safe(key)}" />
+      <div class="meeting-prep-hint">${penguinSVG("search")}<p><b>现有档案信息已预填</b><span>请修改为客户明确确认过的事实，保存后才会完成这项建议。</span></p></div>
+      ${fields}
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 确认并保存</button></div>
+    </form>`);
+}
+
+function submitGuidedConfirmation(form) {
+  const data = new FormData(form);
+  const customer = getCustomer(data.get("customerId"));
+  const key = String(data.get("key") || "");
+  if (!customer || !["confirm-pain", "confirm-power"].includes(key)) return toast("无法保存这项确认");
+  const note = String(data.get("note") || "").trim();
+  if (key === "confirm-pain") {
+    const value = String(data.get("value") || "").trim();
+    if (!value) return toast("请填写客户确认的核心痛点");
+    if (customer.painPoints[0] && typeof customer.painPoints[0] === "object") customer.painPoints[0].v = value;
+    else if (customer.painPoints.length) customer.painPoints[0] = { v: value, source: "sales-confirmed" };
+    else customer.painPoints.push({ v: value, source: "sales-confirmed" });
+  } else {
+    const name = String(data.get("name") || "").trim();
+    const role = String(data.get("role") || "").trim();
+    if (!name) return toast("请填写最终决策人");
+    const decisionMaker = customer.orgChain.find(person => Number(person.level) === 1);
+    if (decisionMaker) Object.assign(decisionMaker, { name, role });
+    else customer.orgChain.push({ id: uid("p"), pid: "", level: 1, name, role, note: "" });
+  }
+  customer.guidedConfirmations[key] = { note, confirmedAt: nowDateTime() };
+  customer.guidedActions[key] = { status: "resolved", updatedAt: nowDateTime() };
+  persist();
+  closeModal();
+  renderApp();
+  toast("确认内容已保存到客户档案");
+}
+
+function openOpportunityDiagnosis(customerId) {
+  const customer = getCustomer(customerId);
+  if (!customer) return toast("请先选择客户");
+  const diagnosis = getOpportunityDiagnosis(customer);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">OPPORTUNITY CHECK</p><h2 id="modalTitle">校准六维机会诊断</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
+    <form class="modal-form diagnosis-form" data-form="opportunity-diagnosis">
+      <input type="hidden" name="customerId" value="${safe(customer.id)}" />
+      <div class="meeting-prep-hint">${penguinSVG("search")}<p><b>分数已根据客户档案预估</b><span>0 表示尚未建立，10 表示已获得决策者明确认可；请按实际情况校准。</span></p></div>
+      <div class="diagnosis-form-grid">${OPPORTUNITY_DIMENSIONS.map(dimension => `<label><span><b>${safe(dimension.label)}</b><small>${safe(dimension.hint)}</small></span><input class="diagnosis-range" type="range" name="${safe(dimension.key)}" min="0" max="10" step="1" value="${diagnosis[dimension.key]}" /><output>${diagnosis[dimension.key]}</output></label>`).join("")}</div>
+      <label>诊断备注<textarea name="note" rows="3" placeholder="记录本次判断依据与最需要补齐的信息">${safe(customer.opportunityDiagnosis.note || "")}</textarea></label>
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存诊断</button></div>
+    </form>`);
+}
+
+function submitOpportunityDiagnosis(form) {
+  const data = new FormData(form);
+  const customer = getCustomer(data.get("customerId"));
+  if (!customer) return toast("客户不存在，请刷新后重试");
+  customer.opportunityDiagnosis = OPPORTUNITY_DIMENSIONS.reduce((result, dimension) => {
+    result[dimension.key] = Math.max(0, Math.min(10, Number(data.get(dimension.key)) || 0));
+    return result;
+  }, { note: String(data.get("note") || "").trim(), updatedAt: nowDateTime() });
+  persist();
+  closeModal();
+  renderApp();
+  toast("六维机会诊断已保存");
+}
+
+function openBusinessBrief(customerId) {
+  const customer = getCustomer(customerId);
+  if (!customer) return toast("请先选择客户");
+  const brief = deriveBusinessBrief(customer);
+  const fields = [
+    ["products", "核心产品或服务", "客户真正卖什么，核心产品与差异化是什么"],
+    ["revenueLogic", "赚钱逻辑", "主要付费客户、收费方式、收入来源与利润驱动"],
+    ["operatingStatus", "经营状况", "增长、收入、活跃用户、市场重点或经营压力"],
+    ["competitors", "相似竞品", "列出相似公司或替代产品，并说明关键差异"],
+    ["painHypothesis", "可能的业务痛点", "基于经营逻辑判断可能存在的问题，拜访时需要向客户确认"],
+  ];
+  showModal(`<div class="modal-head"><div><p class="eyebrow">BUSINESS BRIEF</p><h2 id="modalTitle">产品与商业模式简报</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
+    <form class="modal-form business-brief-form" data-form="business-brief">
+      <input type="hidden" name="customerId" value="${safe(customer.id)}" />
+      <div class="meeting-prep-hint">${penguinSVG("scratch")}<p><b>现有经营情报已自动归拢</b><span>这里记录的是销售理解，不确定的内容请保留为假设，并在拜访中确认。</span></p></div>
+      ${fields.map(([key, label, placeholder]) => `<label>${label}<textarea name="${key}" rows="3" placeholder="${placeholder}">${safe(brief[key] || "")}</textarea></label>`).join("")}
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存简报</button></div>
+    </form>`);
+}
+
+function submitBusinessBrief(form) {
+  const data = new FormData(form);
+  const customer = getCustomer(data.get("customerId"));
+  if (!customer) return toast("客户不存在，请刷新后重试");
+  customer.businessBrief = {
+    products: String(data.get("products") || "").trim(),
+    revenueLogic: String(data.get("revenueLogic") || "").trim(),
+    operatingStatus: String(data.get("operatingStatus") || "").trim(),
+    competitors: String(data.get("competitors") || "").trim(),
+    painHypothesis: String(data.get("painHypothesis") || "").trim(),
+    updatedAt: nowDateTime(),
+  };
+  persist();
+  closeModal();
+  renderApp();
+  toast("产品与商业模式简报已保存");
 }
 
 function renderStageTrack(customer) {
@@ -463,6 +722,8 @@ function renderChoiceControl(customer, type) {
 function renderCustomerTab(customer) {
   if (state.customerTab === "timeline") return renderTimeline(customer);
   if (state.customerTab === "relations") return renderRelations(customer);
+  if (state.customerTab === "signals") return renderExternalSignals(customer);
+  if (state.customerTab === "closing") return renderClosingWorkspace(customer);
   if (state.customerTab === "intel") return renderIntelligence(customer);
   return renderOverview(customer);
 }
@@ -472,7 +733,7 @@ function renderOverview(customer) {
   const contacts = customer.orgChain.slice(0, 3);
   const completeness = profileCompleteness(customer);
   return `<div class="overview-grid">
-    <section class="panel overview-summary wide-panel">
+    <section class="panel overview-summary">
       <div class="section-heading"><div><p class="eyebrow">ACCOUNT BRIEF</p><h2>作战摘要</h2></div><span class="health-score">档案完整度 ${completeness}%</span></div>
       <div class="brief-grid">
         <div><small>核心机会</small><p>${safe(customer.painPoints[0]?.v || "尚未明确核心痛点")}</p></div>
@@ -482,21 +743,392 @@ function renderOverview(customer) {
       </div>
       ${customer.raidFile?.plan?.action ? `<div class="strategy-callout"><span>策略</span><p>${safe(customer.raidFile.plan.action)}</p></div>` : ""}
     </section>
+    ${renderOpportunityDiagnosis(customer)}
+    ${renderBusinessBrief(customer)}
+    ${renderMeetingPrepArchive(customer)}
+    ${renderPainChain(customer)}
+    ${renderJointWorkPlan(customer)}
     <section class="panel">
       <div class="section-heading"><h2>关键关系</h2><button class="text-button" data-action="customer-tab" data-tab="relations">查看关系图 ${icon("arrow-right")}</button></div>
       <div class="contact-stack">${contacts.length ? contacts.map(renderCompactContact).join("") : emptyState("还没有联系人", "先添加一个关键人。")}</div>
       <button class="soft-button full" data-action="add-contact" data-customer="${customer.id}">${icon("user-plus")} 添加联系人</button>
-    </section>
-    <section class="panel wide-panel">
-      <div class="section-heading"><h2>最近推进</h2><button class="text-button" data-action="customer-tab" data-tab="timeline">查看全部 ${icon("arrow-right")}</button></div>
-      <div class="mini-timeline">${recent.length ? recent.map(note => renderMiniTimeline(note)).join("") : emptyState("还没有推进记录", "记录第一次沟通。")}</div>
     </section>
     <section class="panel">
       <div class="section-heading"><h2>痛点与方案</h2><button class="text-button" data-action="customer-tab" data-tab="intel">编辑 ${icon("arrow-right")}</button></div>
       <div class="tag-list">${customer.painPoints.slice(0,3).map(p => `<span>${safe(p.v)}</span>`).join("") || `<span class="empty-tag">待补充痛点</span>`}</div>
       <div class="solution-preview">${customer.solution.slice(0,2).map(s => `<article><b>${safe(s.product)}</b><small>${safe(s.reason)}</small></article>`).join("") || `<p class="muted">补充痛点后再匹配方案。</p>`}</div>
     </section>
+    <section class="panel recent-progress-panel wide-panel">
+      <div class="section-heading"><h2>最近推进</h2><button class="text-button" data-action="customer-tab" data-tab="timeline">查看全部 ${icon("arrow-right")}</button></div>
+      <div class="mini-timeline">${recent.length ? recent.map(note => renderMiniTimeline(note)).join("") : emptyState("还没有推进记录", "记录第一次沟通。")}</div>
+    </section>
   </div>`;
+}
+
+function inferOpportunityDiagnosis(customer) {
+  const painConfirmed = Boolean(customer.guidedConfirmations["confirm-pain"]);
+  const powerConfirmed = Boolean(customer.guidedConfirmations["confirm-power"]);
+  const hasPain = customer.painPoints.some(item => typeof item === "string" ? item.trim() : item?.v);
+  const decisionMaker = customer.orgChain.find(person => Number(person.level) === 1);
+  const hasSolution = customer.solution.some(item => item?.product || item?.name);
+  const hasValue = Boolean(customer.raidFile?.dm?.coreDemand || customer.fields.revenue?.v);
+  const hasNext = customer.notes.some(note => note.next && !note.taskDone);
+  const stageScore = { lead: 1, contact: 3, meeting: 5, proposal: 7, won: 10, lost: 1 }[customer.stage] ?? 0;
+  return {
+    pain: painConfirmed ? 8 : hasPain ? 4 : 1,
+    power: powerConfirmed ? 7 : decisionMaker ? 4 : 1,
+    vision: hasSolution ? 5 : 1,
+    value: hasValue && hasSolution ? 5 : hasValue ? 3 : 1,
+    control: customer.meetingReviews.length ? 7 : customer.meetingPreps.length ? 5 : hasNext ? 3 : 1,
+    milestone: stageScore,
+  };
+}
+
+function getOpportunityDiagnosis(customer) {
+  const inferred = inferOpportunityDiagnosis(customer);
+  return OPPORTUNITY_DIMENSIONS.reduce((result, dimension) => {
+    const stored = Number(customer.opportunityDiagnosis[dimension.key]);
+    result[dimension.key] = Number.isFinite(stored) ? Math.max(0, Math.min(10, stored)) : inferred[dimension.key];
+    return result;
+  }, {});
+}
+
+function diagnosisLevel(score) {
+  if (score >= 8) return "强";
+  if (score >= 5) return "推进中";
+  return "待验证";
+}
+
+function renderDiagnosisRadar(diagnosis) {
+  const center = 90;
+  const radius = 58;
+  const point = (index, scale) => {
+    const angle = (-90 + index * 60) * Math.PI / 180;
+    return `${(center + Math.cos(angle) * radius * scale).toFixed(1)},${(center + Math.sin(angle) * radius * scale).toFixed(1)}`;
+  };
+  const rings = [.25, .5, .75, 1].map(scale => `<polygon points="${OPPORTUNITY_DIMENSIONS.map((_, index) => point(index, scale)).join(" ")}" />`).join("");
+  const axes = OPPORTUNITY_DIMENSIONS.map((_, index) => `<line x1="${center}" y1="${center}" x2="${point(index, 1).split(",")[0]}" y2="${point(index, 1).split(",")[1]}" />`).join("");
+  const dataPoints = OPPORTUNITY_DIMENSIONS.map((dimension, index) => point(index, diagnosis[dimension.key] / 10));
+  const labels = OPPORTUNITY_DIMENSIONS.map((dimension, index) => {
+    const [x, y] = point(index, 1.28).split(",").map(Number);
+    return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle">${safe(dimension.label)}</text>`;
+  }).join("");
+  return `<svg class="diagnosis-radar" viewBox="0 0 180 180" role="img" aria-label="六维机会诊断雷达图：${safe(OPPORTUNITY_DIMENSIONS.map(dimension => `${dimension.label}${diagnosis[dimension.key]}分`).join("，"))}"><g class="radar-grid">${rings}${axes}</g><polygon class="radar-area" points="${dataPoints.join(" ")}" />${dataPoints.map(item => { const [cx, cy] = item.split(","); return `<circle class="radar-point" cx="${cx}" cy="${cy}" r="3" />`; }).join("")}<g class="radar-labels">${labels}</g></svg>`;
+}
+
+function renderOpportunityDiagnosis(customer) {
+  const diagnosis = getOpportunityDiagnosis(customer);
+  const average = Math.round(OPPORTUNITY_DIMENSIONS.reduce((sum, dimension) => sum + diagnosis[dimension.key], 0) / OPPORTUNITY_DIMENSIONS.length * 10);
+  const weakest = [...OPPORTUNITY_DIMENSIONS].sort((a, b) => diagnosis[a.key] - diagnosis[b.key])[0];
+  return `<section class="panel opportunity-diagnosis">
+    <div class="section-heading"><div><p class="eyebrow">OPPORTUNITY CHECK</p><h2>六维机会诊断</h2></div><button class="text-button" data-action="edit-opportunity-diagnosis" data-customer="${safe(customer.id)}">校准诊断 ${icon("sliders-horizontal")}</button></div>
+    <div class="diagnosis-visual">
+      <div class="diagnosis-chart">${renderDiagnosisRadar(diagnosis)}<strong>${average}<small>/100</small></strong></div>
+      <div class="diagnosis-insight"><div class="diagnosis-summary"><b>${average >= 70 ? "机会基础较强" : average >= 45 ? "具备推进基础" : "关键信息仍不足"}</b><p>当前最弱：${safe(weakest.label)} · ${safe(weakest.hint)}</p></div><div class="diagnosis-legend">${OPPORTUNITY_DIMENSIONS.map(dimension => { const score = diagnosis[dimension.key]; return `<article><span>${icon(dimension.icon)}</span><b>${safe(dimension.label)}</b><small>${diagnosisLevel(score)}</small><strong>${score}</strong></article>`; }).join("")}</div></div>
+    </div>
+    ${customer.opportunityDiagnosis.note ? `<p class="diagnosis-note">${icon("notebook-pen")} ${safe(customer.opportunityDiagnosis.note)}</p>` : ""}
+  </section>`;
+}
+
+function deriveBusinessBrief(customer) {
+  const raid = customer.raidFile || {};
+  const competitors = (raid.competitors || []).map(item => item?.name).filter(Boolean).join("、");
+  const operating = [customer.fields.revenue?.v, customer.fields.dau?.v].filter(Boolean).join("；");
+  return {
+    products: customer.businessBrief.products || customer.fields.product?.v || raid.basic?.scope || "",
+    revenueLogic: customer.businessBrief.revenueLogic || raid.basic?.model || customer.fields.revenue?.v || "",
+    operatingStatus: customer.businessBrief.operatingStatus || operating,
+    competitors: customer.businessBrief.competitors || competitors,
+    painHypothesis: customer.businessBrief.painHypothesis || customer.painPoints.map(item => typeof item === "string" ? item : item?.v).filter(Boolean).join("；"),
+  };
+}
+
+function renderBusinessBrief(customer) {
+  const brief = deriveBusinessBrief(customer);
+  const entries = [
+    ["核心产品", brief.products, "boxes"], ["赚钱逻辑", brief.revenueLogic, "badge-dollar-sign"],
+    ["经营状况", brief.operatingStatus, "activity"], ["相似竞品", brief.competitors, "git-compare-arrows"],
+  ];
+  const populated = entries.filter(([, value]) => value).length;
+  return `<section class="panel business-brief wide-panel">
+    <div class="section-heading"><div><p class="eyebrow">BUSINESS BRIEF</p><h2>产品与商业模式简报</h2></div><button class="text-button" data-action="edit-business-brief" data-customer="${safe(customer.id)}">${populated ? "确认与编辑" : "开始补充"} ${icon("square-pen")}</button></div>
+    <div class="business-brief-grid">${entries.map(([label, value, iconName]) => `<article><span>${icon(iconName)}</span><small>${label}</small><p>${safe(value || "待销售确认")}</p></article>`).join("")}</div>
+    ${brief.painHypothesis ? `<div class="business-pain-hypothesis"><b>可能的业务切入点</b><p>${safe(brief.painHypothesis)}</p></div>` : ""}
+  </section>`;
+}
+
+function renderMeetingPrepArchive(customer) {
+  const prep = [...customer.meetingPreps].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))[0];
+  if (!prep) return "";
+  const focus = Array.isArray(prep.focus) ? prep.focus.filter(Boolean) : [];
+  return `<section class="panel meeting-prep-archive wide-panel">
+    <div class="section-heading"><div><p class="eyebrow">MEETING BRIEF</p><h2>已保存的会前速记卡</h2></div><button class="text-button" data-action="open-meeting-card" data-customer="${safe(customer.id)}">新建一张 ${icon("plus")}</button></div>
+    <article class="meeting-prep-saved ${prep.status === "completed" ? "is-completed" : ""}">
+      <span class="meeting-prep-saved-icon">${icon("notebook-tabs")}</span>
+      <div class="meeting-prep-saved-copy"><small>${safe(formatDateTime(prep.updatedAt || prep.createdAt))} · ${prep.status === "completed" ? "已完成会后确认" : "待会后确认"}</small><h3>${safe(prep.objective || "未命名会议目标")}</h3>${focus.length ? `<p>${focus.length} 项待确认信息 · ${safe(focus[0])}</p>` : ""}${prep.hook ? `<span>${icon("corner-down-right")} ${safe(prep.hook)}</span>` : ""}</div>
+      <div class="meeting-prep-saved-actions"><button class="soft-button" data-action="open-meeting-card" data-customer="${safe(customer.id)}" data-prep="${safe(prep.id)}">${icon("square-pen")} 编辑</button><button class="primary-button" data-action="open-meeting-review" data-customer="${safe(customer.id)}" data-prep="${safe(prep.id)}">${icon(prep.status === "completed" ? "history" : "clipboard-check")} ${prep.status === "completed" ? "查看会后确认" : "会后确认"}</button></div>
+    </article>
+  </section>`;
+}
+
+function renderExternalSignals(customer) {
+  const news = [...customer.marketNews].sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)));
+  const hiring = [...customer.hiringSignals].sort((a, b) => String(b.postedAt).localeCompare(String(a.postedAt)));
+  return `<div class="external-signals-workspace">
+    <section class="external-signals-intro">
+      <div><p class="eyebrow">EXTERNAL SIGNALS</p><h2>外部机会信号</h2><p>只记录能改变销售动作的新闻与招聘线索；来源由销售补充并确认。</p></div>
+      <span>${icon("radar")} ${news.length + hiring.length} 条已确认线索</span>
+    </section>
+    <div class="external-signal-grid">
+      <section class="panel signal-column">
+        <div class="section-heading"><div><p class="eyebrow">GLOBAL NEWS</p><h2>全球新闻</h2></div><button class="soft-button" data-action="add-market-news" data-customer="${safe(customer.id)}">${icon("plus")} 添加新闻</button></div>
+        <div class="signal-list">${news.length ? news.map(item => `<article class="signal-card"><div class="signal-card-meta"><span>${safe(item.market || "市场未标注")}</span><time>${safe(formatShortDate(item.publishedAt))}</time></div><h3>${safe(item.title)}</h3>${item.signal ? `<p>${safe(item.signal)}</p>` : ""}${item.impact ? `<div><b>销售判断</b><span>${safe(item.impact)}</span></div>` : ""}${normalizeWebsiteUrl(item.sourceUrl) ? `<a href="${safe(normalizeWebsiteUrl(item.sourceUrl))}" target="_blank" rel="noopener noreferrer">查看来源 ${icon("external-link")}</a>` : ""}</article>`).join("") : emptyState("还没有新闻线索", "把融资、产品发布、海外增长等与机会相关的新闻记在这里。", "newspaper")}</div>
+      </section>
+      <section class="panel signal-column">
+        <div class="section-heading"><div><p class="eyebrow">HIRING SIGNALS</p><h2>招聘动向</h2></div><button class="soft-button" data-action="add-hiring-signal" data-customer="${safe(customer.id)}">${icon("plus")} 添加招聘</button></div>
+        <div class="signal-list">${hiring.length ? hiring.map(item => `<article class="signal-card hiring-card"><div class="signal-card-meta"><span>${safe(item.location || "地点未标注")}</span><time>${safe(formatShortDate(item.postedAt))}</time></div><h3>${safe(item.role)}</h3>${item.signal ? `<p>${safe(item.signal)}</p>` : ""}${item.opportunity ? `<div><b>可能切入</b><span>${safe(item.opportunity)}</span></div>` : ""}${normalizeWebsiteUrl(item.sourceUrl) ? `<a href="${safe(normalizeWebsiteUrl(item.sourceUrl))}" target="_blank" rel="noopener noreferrer">查看职位 ${icon("external-link")}</a>` : ""}</article>`).join("") : emptyState("还没有招聘线索", "海外运营、云平台、数据安全等岗位可能暴露新的业务方向。", "briefcase-business")}</div>
+      </section>
+    </div>
+  </div>`;
+}
+
+function getPainChain(customer) {
+  const stored = customer.painChain || {};
+  return {
+    signal: stored.signal || customer.marketNews[0]?.signal || customer.hiringSignals[0]?.signal || "",
+    pain: stored.pain || customer.painPoints[0]?.v || "",
+    impact: stored.impact || customer.businessBrief.operatingStatus || "",
+    solution: stored.solution || customer.solution[0]?.product || "",
+    question: stored.question || "",
+  };
+}
+
+function renderPainChain(customer) {
+  const chain = getPainChain(customer);
+  const steps = [
+    ["外部信号", chain.signal, "radar"], ["业务痛点", chain.pain, "heart-crack"],
+    ["经营影响", chain.impact, "trending-down"], ["腾讯云切入", chain.solution, "cloud"],
+    ["客户确认", chain.question, "message-circle-question"],
+  ];
+  const populated = steps.filter(([, value]) => value).length;
+  return `<section class="panel pain-chain-panel wide-panel">
+    <div class="section-heading"><div><p class="eyebrow">PAIN CHAIN</p><h2>机会痛苦链</h2></div><button class="text-button" data-action="edit-pain-chain" data-customer="${safe(customer.id)}">${populated ? "确认与编辑" : "开始梳理"} ${icon("square-pen")}</button></div>
+    <div class="pain-chain-flow">${steps.map(([label, value, iconName], index) => `<article class="${value ? "has-value" : "is-empty"}"><span>${icon(iconName)}</span><small>${safe(label)}</small><p>${safe(value || "待销售确认")}</p>${index < steps.length - 1 ? `<i>${icon("arrow-right")}</i>` : ""}</article>`).join("")}</div>
+  </section>`;
+}
+
+function workPlanStatus(status) {
+  return { todo: "待开始", doing: "进行中", done: "已完成" }[status] || "待开始";
+}
+
+function renderJointWorkPlan(customer) {
+  const items = [...customer.jointWorkPlan].sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+  return `<section class="panel joint-plan-panel wide-panel">
+    <div class="section-heading"><div><p class="eyebrow">MUTUAL ACTION PLAN</p><h2>联合工作计划</h2></div><button class="soft-button" data-action="add-work-plan" data-customer="${safe(customer.id)}">${icon("plus")} 添加里程碑</button></div>
+    <div class="joint-plan-list">${items.length ? items.map(item => `<article class="plan-item status-${safe(item.status || "todo")}"><button class="plan-status" data-action="toggle-work-plan" data-customer="${safe(customer.id)}" data-item="${safe(item.id)}" aria-label="切换里程碑状态">${icon(item.status === "done" ? "circle-check-big" : item.status === "doing" ? "loader-circle" : "circle")}</button><div class="plan-main"><div><h3>${safe(item.title)}</h3><span>${safe(workPlanStatus(item.status))}</span></div>${item.deliverable ? `<p>${safe(item.deliverable)}</p>` : ""}<small>我方：${safe(item.ourOwner || "待确认")} · 客户：${safe(item.customerOwner || "待确认")}</small></div><time>${safe(formatShortDate(item.dueDate))}</time><button class="plan-edit" data-action="edit-work-plan" data-customer="${safe(customer.id)}" data-item="${safe(item.id)}" aria-label="编辑${safe(item.title)}">${icon("square-pen")}</button></article>`).join("") : emptyState("还没有联合计划", "把双方承诺变成有负责人、有交付物、有日期的共同里程碑。", "calendar-range")}</div>
+  </section>`;
+}
+
+function openMarketNews(customerId) {
+  const customer = getCustomer(customerId); if (!customer) return;
+  showModal(`<div class="modal-head"><div><p class="eyebrow">GLOBAL NEWS</p><h2 id="modalTitle">添加全球新闻线索</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="market-news"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><label>新闻标题<input name="title" required placeholder="例如：海外产品发布或完成融资" /></label><div class="form-row"><label>市场 / 地区<input name="market" placeholder="例如：北美、东南亚" /></label><label>发布日期<input type="date" name="publishedAt" value="${todayStr()}" /></label></div><label>来源链接<input type="url" name="sourceUrl" placeholder="https://" /></label><label>这条新闻说明什么<textarea name="signal" rows="3" placeholder="只记录从新闻中可以确认的业务变化"></textarea></label><label>对本次销售机会的影响<textarea name="impact" rows="3" placeholder="例如：海外扩张加快，需要确认全球网络和合规规划"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存线索</button></div></form>`);
+}
+
+function submitMarketNews(form) {
+  const data = new FormData(form), customer = getCustomer(data.get("customerId")); if (!customer) return;
+  const title = String(data.get("title") || "").trim(); if (!title) return toast("请填写新闻标题");
+  customer.marketNews.push({ id: uid("news"), title, market: String(data.get("market") || "").trim(), publishedAt: String(data.get("publishedAt") || ""), sourceUrl: String(data.get("sourceUrl") || "").trim(), signal: String(data.get("signal") || "").trim(), impact: String(data.get("impact") || "").trim(), confirmedAt: nowDateTime() });
+  persist(); closeModal(); renderApp(); toast("新闻线索已保存");
+}
+
+function openHiringSignal(customerId) {
+  const customer = getCustomer(customerId); if (!customer) return;
+  showModal(`<div class="modal-head"><div><p class="eyebrow">HIRING SIGNAL</p><h2 id="modalTitle">添加招聘线索</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="hiring-signal"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><label>招聘岗位<input name="role" required placeholder="例如：海外社区运营、云平台工程师" /></label><div class="form-row"><label>地点<input name="location" placeholder="例如：深圳、新加坡" /></label><label>发布日期<input type="date" name="postedAt" value="${todayStr()}" /></label></div><label>职位链接<input type="url" name="sourceUrl" placeholder="https://" /></label><label>岗位释放的业务信号<textarea name="signal" rows="3" placeholder="例如：正在建立海外本地运营能力"></textarea></label><label>可能的销售切入点<textarea name="opportunity" rows="3" placeholder="例如：确认海外业务的网络、算力和数据合规需求"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存线索</button></div></form>`);
+}
+
+function submitHiringSignal(form) {
+  const data = new FormData(form), customer = getCustomer(data.get("customerId")); if (!customer) return;
+  const role = String(data.get("role") || "").trim(); if (!role) return toast("请填写招聘岗位");
+  customer.hiringSignals.push({ id: uid("job"), role, location: String(data.get("location") || "").trim(), postedAt: String(data.get("postedAt") || ""), sourceUrl: String(data.get("sourceUrl") || "").trim(), signal: String(data.get("signal") || "").trim(), opportunity: String(data.get("opportunity") || "").trim(), confirmedAt: nowDateTime() });
+  persist(); closeModal(); renderApp(); toast("招聘线索已保存");
+}
+
+function openPainChain(customerId) {
+  const customer = getCustomer(customerId); if (!customer) return;
+  const chain = getPainChain(customer);
+  const fields = [["signal","外部或经营信号","例如：海外招聘增加、产品在海外增长"],["pain","可能的业务痛点","需要在拜访中由客户确认的问题"],["impact","造成的经营影响","成本、效率、收入、体验或风险"],["solution","腾讯云切入点","能验证价值的产品或方案"],["question","客户确认问题","下一次沟通可以直接问的问题"]];
+  showModal(`<div class="modal-head"><div><p class="eyebrow">PAIN CHAIN</p><h2 id="modalTitle">梳理机会痛苦链</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="pain-chain"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><div class="signal-form-hint">${icon("route")}<p><b>把线索变成可验证的销售路径</b><span>不确定的内容保留为假设，最后一项必须写成可向客户确认的问题。</span></p></div>${fields.map(([key,label,placeholder]) => `<label>${label}<textarea name="${key}" rows="2" placeholder="${placeholder}">${safe(chain[key])}</textarea></label>`).join("")}<div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存痛苦链</button></div></form>`);
+}
+
+function submitPainChain(form) {
+  const data = new FormData(form), customer = getCustomer(data.get("customerId")); if (!customer) return;
+  customer.painChain = { signal: String(data.get("signal") || "").trim(), pain: String(data.get("pain") || "").trim(), impact: String(data.get("impact") || "").trim(), solution: String(data.get("solution") || "").trim(), question: String(data.get("question") || "").trim(), updatedAt: nowDateTime() };
+  persist(); closeModal(); renderApp(); toast("机会痛苦链已保存");
+}
+
+function openWorkPlanItem(customerId, itemId = "") {
+  const customer = getCustomer(customerId); if (!customer) return;
+  const item = customer.jointWorkPlan.find(entry => entry.id === itemId) || {};
+  showModal(`<div class="modal-head"><div><p class="eyebrow">MUTUAL ACTION PLAN</p><h2 id="modalTitle">${itemId ? "编辑" : "添加"}联合计划里程碑</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="work-plan"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><input type="hidden" name="itemId" value="${safe(itemId)}" /><label>共同里程碑<input name="title" required value="${safe(item.title || "")}" placeholder="例如：完成东南亚三地延迟 PoC" /></label><label>交付物<textarea name="deliverable" rows="2" placeholder="双方完成后能够共同确认的结果">${safe(item.deliverable || "")}</textarea></label><div class="form-row"><label>我方负责人<input name="ourOwner" value="${safe(item.ourOwner || "")}" /></label><label>客户负责人<input name="customerOwner" value="${safe(item.customerOwner || "")}" /></label></div><div class="form-row"><label>计划日期<input type="date" name="dueDate" value="${safe(item.dueDate || "")}" /></label><label>状态<div class="modern-select"><select name="status">${[["todo","待开始"],["doing","进行中"],["done","已完成"]].map(([key,label]) => `<option value="${key}" ${(item.status || "todo") === key ? "selected" : ""}>${label}</option>`).join("")}</select>${icon("chevron-down")}</div></label></div><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存里程碑</button></div></form>`);
+}
+
+function submitWorkPlan(form) {
+  const data = new FormData(form), customer = getCustomer(data.get("customerId")); if (!customer) return;
+  const title = String(data.get("title") || "").trim(); if (!title) return toast("请填写共同里程碑");
+  const itemId = String(data.get("itemId") || ""), existing = customer.jointWorkPlan.find(item => item.id === itemId);
+  const record = { id: existing?.id || uid("map"), title, deliverable: String(data.get("deliverable") || "").trim(), ourOwner: String(data.get("ourOwner") || "").trim(), customerOwner: String(data.get("customerOwner") || "").trim(), dueDate: String(data.get("dueDate") || ""), status: String(data.get("status") || "todo"), updatedAt: nowDateTime() };
+  existing ? Object.assign(existing, record) : customer.jointWorkPlan.push(record);
+  persist(); closeModal(); renderApp(); toast(existing ? "联合计划已更新" : "联合计划里程碑已添加");
+}
+
+function toggleWorkPlanItem(customerId, itemId) {
+  const customer = getCustomer(customerId), item = customer?.jointWorkPlan.find(entry => entry.id === itemId); if (!item) return;
+  item.status = item.status === "todo" ? "doing" : item.status === "doing" ? "done" : "todo";
+  item.updatedAt = nowDateTime(); persist(); renderApp();
+}
+
+function deriveNegotiationBrief(customer) {
+  const stored = customer.negotiationBrief || {};
+  const nextPlan = customer.jointWorkPlan.find(item => item.status !== "done");
+  const latestReview = [...customer.meetingReviews].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))[0];
+  return {
+    objective: stored.objective || nextPlan?.title || "",
+    customerPosition: stored.customerPosition || customer.raidFile?.dm?.concern || "",
+    valueAnchor: stored.valueAnchor || customer.painChain?.impact || customer.raidFile?.dm?.coreDemand || "",
+    mustHave: stored.mustHave || "",
+    flexible: stored.flexible || "",
+    giveGet: stored.giveGet || "",
+    redLine: stored.redLine || "",
+    objections: stored.objections || customer.raidFile?.dm?.concern || "",
+    response: stored.response || customer.raidFile?.solution?.biz || "",
+    closeAction: stored.closeAction || latestReview?.next || getNextTask(customer)?.text || "",
+  };
+}
+
+function renderClosingWorkspace(customer) {
+  return `<div class="closing-workspace">
+    <section class="closing-intro"><div><p class="eyebrow">CLOSING WORKSPACE</p><h2>成交工具</h2><p>先明确谈判边界，再把已确认信息整理成可以直接使用的销售资产。</p></div><span>${icon("shield-check")} 事实来自客户档案</span></section>
+    ${renderNegotiationAssistant(customer)}
+    ${renderSalesAssetStudio(customer)}
+  </div>`;
+}
+
+function renderNegotiationAssistant(customer) {
+  const brief = deriveNegotiationBrief(customer);
+  const keys = ["objective", "customerPosition", "valueAnchor", "mustHave", "flexible", "giveGet", "redLine", "objections", "response", "closeAction"];
+  const readiness = Math.round(keys.filter(key => brief[key]).length / keys.length * 100);
+  const lane = (tone, iconName, label, title, value) => `<article class="negotiation-lane ${tone}"><span>${icon(iconName)}</span><small>${safe(label)}</small><h3>${safe(title)}</h3><p>${safe(value || "待销售确认")}</p></article>`;
+  return `<section class="panel negotiation-board">
+    <div class="section-heading"><div><p class="eyebrow">NEGOTIATION ASSISTANT</p><h2>谈判助手</h2></div><div class="negotiation-heading-actions"><span>准备度 ${readiness}%</span><button class="text-button" data-action="edit-negotiation-brief" data-customer="${safe(customer.id)}">确认与编辑 ${icon("square-pen")}</button></div></div>
+    <div class="negotiation-objective"><span>${icon("target")}</span><div><small>目标结果</small><h3>${safe(brief.objective || "待明确本轮谈判希望达成的结果")}</h3></div></div>
+    <div class="negotiation-lanes">
+      ${lane("protect", "shield", "必须守住", "成交前提", brief.mustHave)}
+      ${lane("move", "move-horizontal", "可以交换", "可让步空间", brief.flexible)}
+      ${lane("exchange", "repeat-2", "交换条件", "Give / Get", brief.giveGet)}
+      ${lane("redline", "octagon-alert", "红线", "不可接受", brief.redLine)}
+    </div>
+    <div class="negotiation-response-grid"><article><small>客户立场</small><p>${safe(brief.customerPosition || "待确认客户当前诉求和条件")}</p></article><article><small>价值锚点</small><p>${safe(brief.valueAnchor || "待量化客户认可的业务价值")}</p></article><article><small>主要异议</small><p>${safe(brief.objections || "待记录客户明确提出的异议")}</p></article><article><small>回应策略</small><p>${safe(brief.response || "待准备有事实依据的回应")}</p></article></div>
+    <div class="negotiation-close"><span>${icon("flag")}</span><div><small>本轮收口动作</small><b>${safe(brief.closeAction || "待明确会议结束前必须确认的下一步")}</b></div></div>
+  </section>`;
+}
+
+function renderSalesAssetStudio(customer) {
+  const assets = [...customer.salesAssets].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return `<section class="panel sales-asset-studio">
+    <div class="section-heading"><div><p class="eyebrow">SALES ASSET STUDIO</p><h2>销售资产生成</h2></div><span class="asset-count">已保存 ${assets.length} 份</span></div>
+    <div class="sales-asset-grid">${SALES_ASSET_TYPES.map(type => `<article><span>${icon(type.icon)}</span><div><h3>${safe(type.label)}</h3><p>${safe(type.description)}</p></div><button class="soft-button" data-action="generate-sales-asset" data-customer="${safe(customer.id)}" data-type="${safe(type.key)}">${icon("sparkles")} 生成</button></article>`).join("")}</div>
+    ${assets.length ? `<div class="saved-assets"><div class="saved-assets-heading"><b>已生成资产</b><small>可打开、复制或下载纯文本</small></div>${assets.map(asset => `<article><button class="saved-asset-main" data-action="open-sales-asset" data-customer="${safe(customer.id)}" data-asset="${safe(asset.id)}"><span>${icon(SALES_ASSET_TYPES.find(type => type.key === asset.type)?.icon || "file-text")}</span><div><b>${safe(asset.title)}</b><small>${safe(formatDateTime(asset.createdAt))}</small></div></button><div class="saved-asset-actions"><button data-action="copy-sales-asset" data-customer="${safe(customer.id)}" data-asset="${safe(asset.id)}" aria-label="复制${safe(asset.title)}">${icon("copy")}</button><button data-action="download-sales-asset" data-customer="${safe(customer.id)}" data-asset="${safe(asset.id)}" aria-label="下载${safe(asset.title)}">${icon("download")}</button><button data-action="remove-sales-asset" data-customer="${safe(customer.id)}" data-asset="${safe(asset.id)}" aria-label="删除${safe(asset.title)}">${icon("trash-2")}</button></div></article>`).join("")}</div>` : `<div class="asset-empty-note">${icon("files")}<span><b>尚未生成销售资产</b><small>选择上方模板，系统只会整理客户档案中已有的事实。</small></span></div>`}
+  </section>`;
+}
+
+function openNegotiationBrief(customerId) {
+  const customer = getCustomer(customerId); if (!customer) return;
+  const brief = deriveNegotiationBrief(customer);
+  const fields = [
+    ["objective", "目标结果", "本轮谈判结束时希望双方明确什么"],
+    ["customerPosition", "客户当前立场", "客户提出的条件、价格预期或采购要求"],
+    ["valueAnchor", "价值锚点", "客户已认可、可以支撑报价的业务价值"],
+    ["mustHave", "必须守住", "成交必须满足的范围、责任或回款条件"],
+    ["flexible", "可以交换", "可调整的资源、价格、周期或服务内容"],
+    ["giveGet", "交换条件", "每一次让步要换回什么承诺、范围或时间表"],
+    ["redLine", "红线", "不能接受的无限责任、无条件折扣或模糊承诺"],
+    ["objections", "主要异议", "客户已经明确提出的顾虑"],
+    ["response", "回应策略", "基于事实、验证路径和客户价值的回应"],
+    ["closeAction", "本轮收口动作", "会议结束前必须确认的下一步"],
+  ];
+  showModal(`<div class="modal-head"><div><p class="eyebrow">NEGOTIATION BRIEF</p><h2 id="modalTitle">编辑谈判作战卡</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form negotiation-form" data-form="negotiation-brief"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><div class="signal-form-hint">${icon("handshake")}<p><b>先交换，后让步</b><span>系统只预填已有档案内容；价格、边界和红线必须由销售确认。</span></p></div>${fields.map(([key,label,placeholder]) => `<label>${label}<textarea name="${key}" rows="2" placeholder="${placeholder}">${safe(brief[key])}</textarea></label>`).join("")}<div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存谈判卡</button></div></form>`);
+}
+
+function submitNegotiationBrief(form) {
+  const data = new FormData(form), customer = getCustomer(data.get("customerId")); if (!customer) return;
+  customer.negotiationBrief = ["objective", "customerPosition", "valueAnchor", "mustHave", "flexible", "giveGet", "redLine", "objections", "response", "closeAction"].reduce((result, key) => { result[key] = String(data.get(key) || "").trim(); return result; }, { updatedAt: nowDateTime() });
+  persist(); closeModal(); renderApp(); toast("谈判作战卡已保存");
+}
+
+function assetFact(value) {
+  return String(value || "").trim() || "待确认";
+}
+
+function buildSalesAssetContent(customer, type) {
+  const brief = deriveBusinessBrief(customer);
+  const negotiation = deriveNegotiationBrief(customer);
+  const pain = customer.painChain?.pain || customer.painPoints[0]?.v;
+  const solution = customer.painChain?.solution || customer.solution[0]?.product;
+  const next = getNextTask(customer)?.text || negotiation.closeAction;
+  const decisionMaker = customer.orgChain.find(person => Number(person.level) === 1);
+  const latestReview = [...customer.meetingReviews].sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))[0];
+  const plan = customer.jointWorkPlan.filter(item => item.status !== "done").slice(0, 3);
+  const common = { name: customer.name, industry: customer.fields.industry?.v, stage: stageLabel(customer.stage), grade: customer.grade, pain, solution, next, decisionMaker: decisionMaker ? `${decisionMaker.name}（${decisionMaker.role || "职位待确认"}）` : "待确认" };
+  if (type === "followup-email") return {
+    title: "会后跟进邮件",
+    content: `主题：${assetFact(customer.name)}｜本次沟通确认与下一步\n\n您好，\n\n感谢今天的交流。根据本次沟通，我们对以下事项形成了共同理解：\n\n1. 当前重点：${assetFact(latestReview?.summary || pain)}\n2. 已确认事实：${assetFact(latestReview?.confirmed)}\n3. 建议验证方向：${assetFact(solution)}\n4. 双方下一步：${assetFact(latestReview?.next || next)}${latestReview?.nextDate ? `（计划于 ${formatShortDate(latestReview.nextDate)} 前完成）` : ""}\n\n${latestReview?.hookResult ? `下次沟通约定：${latestReview.hookResult}\n\n` : ""}如有理解偏差，请直接回复指正。确认后我们将按上述范围准备下一步材料。\n\n谢谢。`,
+  };
+  if (type === "solution-outline") return {
+    title: "方案大纲",
+    content: `${assetFact(customer.name)} 方案大纲\n\n一、客户背景\n- 行业：${assetFact(common.industry)}\n- 核心产品：${assetFact(brief.products)}\n- 经营重点：${assetFact(brief.operatingStatus)}\n\n二、已确认问题\n- 业务痛点：${assetFact(pain)}\n- 经营影响：${assetFact(customer.painChain?.impact)}\n- 客户确认问题：${assetFact(customer.painChain?.question)}\n\n三、建议方案\n- 切入方案：${assetFact(solution)}\n- 价值锚点：${assetFact(negotiation.valueAnchor)}\n- 设计原则：先验证关键指标，再根据实测结果扩大范围。\n\n四、验证与交付计划\n${plan.length ? plan.map((item, index) => `${index + 1}. ${item.title}｜交付物：${assetFact(item.deliverable)}｜双方负责人：${assetFact(item.ourOwner)} / ${assetFact(item.customerOwner)}｜日期：${assetFact(formatShortDate(item.dueDate))}`).join("\n") : "1. 待双方确认验证范围、成功标准、负责人和时间表。"}\n\n五、下一步\n${assetFact(next)}`,
+  };
+  if (type === "negotiation-card") return {
+    title: "谈判作战卡",
+    content: `${assetFact(customer.name)} 谈判作战卡\n\n目标结果\n${assetFact(negotiation.objective)}\n\n客户当前立场\n${assetFact(negotiation.customerPosition)}\n\n价值锚点\n${assetFact(negotiation.valueAnchor)}\n\n必须守住\n${assetFact(negotiation.mustHave)}\n\n可以交换\n${assetFact(negotiation.flexible)}\n\n交换条件（Give / Get）\n${assetFact(negotiation.giveGet)}\n\n红线\n${assetFact(negotiation.redLine)}\n\n主要异议与回应\n异议：${assetFact(negotiation.objections)}\n回应：${assetFact(negotiation.response)}\n\n本轮收口动作\n${assetFact(negotiation.closeAction)}`,
+  };
+  return {
+    title: "客户一页纸",
+    content: `${assetFact(customer.name)} 客户一页纸\n\n客户概况\n- 行业：${assetFact(common.industry)}\n- 阶段：${assetFact(common.stage)}\n- 优先级：${assetFact(common.grade)}\n- 核心产品：${assetFact(brief.products)}\n- 赚钱逻辑：${assetFact(brief.revenueLogic)}\n\n核心机会\n- 客户痛点：${assetFact(pain)}\n- 经营影响：${assetFact(customer.painChain?.impact)}\n- 推荐切入：${assetFact(solution)}\n- 价值锚点：${assetFact(negotiation.valueAnchor)}\n\n关键关系\n- 决策人：${assetFact(common.decisionMaker)}\n- 当前关系：${assetFact(customer.fields.relation?.v)}\n\n主要风险\n${assetFact(customer.raidFile?.dm?.concern || negotiation.objections)}\n\n下一步行动\n${assetFact(next)}`,
+  };
+}
+
+function generateSalesAsset(customerId, type) {
+  const customer = getCustomer(customerId), definition = SALES_ASSET_TYPES.find(item => item.key === type); if (!customer || !definition) return;
+  const built = buildSalesAssetContent(customer, type);
+  const asset = { id: uid("sa"), type, title: built.title, content: built.content, createdAt: nowDateTime() };
+  customer.salesAssets.unshift(asset); persist(); renderApp(); openSalesAsset(customer.id, asset.id); toast(`${definition.label}已生成并保存`);
+}
+
+function openSalesAsset(customerId, assetId) {
+  const customer = getCustomer(customerId), asset = customer?.salesAssets.find(item => item.id === assetId); if (!asset) return;
+  showModal(`<div class="modal-head"><div><p class="eyebrow">SALES ASSET</p><h2 id="modalTitle">${safe(asset.title)}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><div class="sales-asset-preview"><pre>${safe(asset.content)}</pre><div class="modal-actions"><button class="secondary-button" data-action="copy-sales-asset" data-customer="${safe(customer.id)}" data-asset="${safe(asset.id)}">${icon("copy")} 复制内容</button><button class="primary-button" data-action="download-sales-asset" data-customer="${safe(customer.id)}" data-asset="${safe(asset.id)}">${icon("download")} 下载文本</button></div></div>`);
+}
+
+async function copySalesAsset(customerId, assetId) {
+  const asset = getCustomer(customerId)?.salesAssets.find(item => item.id === assetId); if (!asset) return;
+  try { await navigator.clipboard.writeText(asset.content); toast("内容已复制"); }
+  catch (error) { console.warn("Clipboard unavailable", error); toast("复制失败，请打开资产后手动复制"); }
+}
+
+function downloadTextFile(fileName, content) {
+  const blob = new Blob(["\uFEFF" + content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob), link = document.createElement("a");
+  link.href = url; link.download = fileName; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function downloadSalesAsset(customerId, assetId) {
+  const customer = getCustomer(customerId), asset = customer?.salesAssets.find(item => item.id === assetId); if (!customer || !asset) return;
+  downloadTextFile(`${customer.name}_${asset.title}_${todayStr()}.txt`, asset.content); toast("销售资产已下载");
+}
+
+function removeSalesAsset(customerId, assetId) {
+  const customer = getCustomer(customerId); if (!customer) return;
+  customer.salesAssets = customer.salesAssets.filter(item => item.id !== assetId); persist(); renderApp(); toast("销售资产已删除");
 }
 
 function renderCompactContact(person) {
@@ -628,7 +1260,7 @@ function renderAnalytics() {
     <div class="analytics-workspace">
       <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">PIPELINE</p><h2>推进阶段分布</h2></div></div><div class="bar-chart">${CRM_STAGES.map(stage => { const count=customers.filter(c=>c.stage===stage.key).length; return `<div><span>${stage.label}</span><i><b style="width:${count/maxStage*100}%;--bar:${stage.color}"></b></i><strong>${count}</strong></div>`; }).join("")}</div></section>
       <div class="analytics-side">
-        <section class="td-panel stalled-customers"><div class="section-heading"><div><p class="eyebrow">FOLLOW-UP RISK</p><h2>停滞重点客户</h2></div><span>${stalledPriority.length}</span></div>${stalledPriority.length ? `<div class="stalled-list">${stalledPriority.map(item => `<button data-action="open-customer" data-id="${item.customer.id}">${avatar(item.customer)}<span><b>${safe(item.customer.name)}</b><small>${stageLabel(item.customer.stage)} · ${item.days} 天未更新</small></span>${icon("arrow-right")}</button>`).join("")}</div>` : emptyState("重点客户推进正常", "暂时没有超过两周未更新的 S/A 客户。")}</section>
+        <section class="td-panel stalled-customers"><div class="section-heading"><div><p class="eyebrow">FOLLOW-UP RISK</p><h2>停滞重点客户</h2></div><span>${stalledPriority.length}</span></div>${stalledPriority.length ? `<div class="stalled-list">${stalledPriority.map(item => `<button data-action="open-customer" data-id="${item.customer.id}"><span><b>${safe(item.customer.name)}</b><small>${stageLabel(item.customer.stage)} · ${item.days} 天未更新</small></span>${icon("arrow-right")}</button>`).join("")}</div>` : emptyState("重点客户推进正常", "暂时没有超过两周未更新的 S/A 客户。")}</section>
         <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">GRADE STRUCTURE</p><h2>客户等级结构</h2></div></div><div class="grade-chart">${GRADES.map(g => `<article style="--grade:${g.color}"><b>${g.key}</b><strong>${customers.filter(c=>c.grade===g.key).length}</strong><small>${safe(g.label.split("·").at(-1).trim())}</small></article>`).join("")}</div></section>
       </div>
     </div>
@@ -967,6 +1599,138 @@ function downloadCustomerImportTemplate() {
   URL.revokeObjectURL(url);
 }
 
+function meetingPrepSuggestion(customer) {
+  const pain = customer.painPoints.find(item => item?.v)?.v || "当前业务最需要解决的问题";
+  const cloudStatus = customer.fields.cloudStatus?.v?.trim() || "当前技术与云资源现状";
+  const decisionMaker = customer.orgChain.find(person => Number(person.level) === 1);
+  const nextTask = getNextTask(customer);
+  const objective = nextTask?.text || ({
+    lead: "确认客户当前业务重点与是否值得继续推进",
+    contact: "确认客户需求并约出一次正式交流",
+    meeting: "确认核心痛点、影响范围与决策链",
+    proposal: "确认方案范围、成功标准与评审流程",
+    won: "确认交付计划与后续扩展机会",
+    lost: "复盘流失原因并判断是否保留重新激活机会",
+  })[customer.stage] || "明确本次沟通目标";
+  const diagnosis = getOpportunityDiagnosis(customer);
+  const weakDimensions = [...OPPORTUNITY_DIMENSIONS].sort((a, b) => diagnosis[a.key] - diagnosis[b.key]).slice(0, 2);
+  const diagnosticQuestions = {
+    pain: `“${pain}”目前对业务造成的具体影响是什么？`,
+    power: decisionMaker ? `除${decisionMaker.name}外，预算、技术评估和采购分别由谁参与？` : "谁会参与最终决策，预算、技术和采购流程分别如何进行？",
+    vision: "如果问题得到解决，客户认为必须具备哪些能力，哪些结果才算成功？",
+    value: "这个问题若继续存在会带来多少成本或损失，改善后希望获得什么可量化收益？",
+    control: "接下来客户内部需要经过哪些评审、测试和审批，谁负责推动每一步？",
+    milestone: "双方下一项可验证的里程碑是什么，负责人和完成时间分别是什么？",
+  };
+  const questions = [
+    ...weakDimensions.map(dimension => diagnosticQuestions[dimension.key]),
+    `“${pain}”目前对业务造成的具体影响是什么？`,
+    `${cloudStatus}中，客户最希望优先改善的是成本、体验还是效率？`,
+    decisionMaker ? `除${decisionMaker.name}外，预算、技术评估和采购分别由谁参与？` : "谁会参与最终决策，预算、技术和采购流程分别如何进行？",
+  ].filter((question, index, list) => list.indexOf(question) === index).slice(0, 3);
+  const hook = customer.stage === "proposal"
+    ? "建议约定一次方案预审，并共同确认成功标准、责任人和时间表。"
+    : "建议根据本次确认的信息，下一次带一份针对性的分析或方案进行专项交流。";
+  return { objective, questions, hook, weakDimensions };
+}
+
+function openMeetingPrep(customerId, prepId = "") {
+  const customer = getCustomer(customerId);
+  if (!customer) return toast("请先选择客户");
+  const existing = customer.meetingPreps.find(item => item.id === prepId);
+  const suggestion = meetingPrepSuggestion(customer);
+  const draft = existing ? {
+    objective: existing.objective || suggestion.objective,
+    questions: Array.isArray(existing.focus) && existing.focus.length ? existing.focus : suggestion.questions,
+    hook: existing.hook || suggestion.hook,
+    notes: existing.notes || "",
+  } : { ...suggestion, notes: "" };
+  const fieldValue = input => safe(input || "");
+  showModal(`<div class="modal-head"><div><p class="eyebrow">MEETING BRIEF</p><h2 id="modalTitle">${safe(customer.name)} · ${existing ? "编辑会前速记卡" : "会前速记卡"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
+    <form class="modal-form meeting-prep-form" data-form="meeting-prep">
+      <input type="hidden" name="customerId" value="${safe(customer.id)}" />
+      <input type="hidden" name="prepId" value="${safe(prepId)}" />
+      <div class="meeting-prep-hint">${penguinSVG("scratch")}<p><b>Sales Buddy 已根据客户档案预填</b><span>你可以直接修改，确认保存后才会进入客户档案。</span></p></div>
+      <label>本次会议目标<textarea name="objective" rows="2" required>${fieldValue(draft.objective)}</textarea></label>
+      <fieldset class="meeting-question-list"><legend>本次建议确认的信息</legend>${draft.questions.map((question, index) => `<label><input type="checkbox" name="focus" value="${fieldValue(question)}" checked /><span><i>${index + 1}</i>${safe(question)}</span></label>`).join("")}</fieldset>
+      <label>下次会议钩子<textarea name="hook" rows="3">${fieldValue(draft.hook)}</textarea></label>
+      <label>销售补充<textarea name="notes" rows="3" placeholder="补充参会人、客户背景或你特别想确认的内容">${fieldValue(draft.notes)}</textarea></label>
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存速记卡</button></div>
+    </form>`);
+}
+
+function submitMeetingPrep(form) {
+  const data = new FormData(form);
+  const customer = getCustomer(data.get("customerId"));
+  if (!customer) return toast("客户不存在，请刷新后重试");
+  const objective = String(data.get("objective") || "").trim();
+  const hook = String(data.get("hook") || "").trim();
+  const focus = data.getAll("focus").map(item => String(item).trim()).filter(Boolean);
+  if (!objective) return toast("请填写本次会议目标");
+  const prepId = String(data.get("prepId") || "");
+  const existing = customer.meetingPreps.find(item => item.id === prepId);
+  const record = { id: existing?.id || uid("mp"), createdAt: existing?.createdAt || nowDateTime(), updatedAt: nowDateTime(), objective, focus, hook, notes: String(data.get("notes") || "").trim(), status: "ready" };
+  existing ? Object.assign(existing, record) : customer.meetingPreps.push(record);
+  customer.guidedActions["meeting-prep"] = { status: "resolved", updatedAt: nowDateTime() };
+  persist();
+  closeModal();
+  renderApp();
+  toast(existing ? "会前速记卡已更新" : "会前速记卡已保存到客户档案");
+}
+
+function openMeetingReview(customerId, prepId) {
+  const customer = getCustomer(customerId);
+  const prep = customer?.meetingPreps.find(item => item.id === prepId);
+  if (!customer || !prep) return toast("找不到对应的会前速记卡");
+  const review = customer.meetingReviews.find(item => item.prepId === prepId) || {};
+  showModal(`<div class="modal-head"><div><p class="eyebrow">MEETING FOLLOW-UP</p><h2 id="modalTitle">${safe(customer.name)} · 会后确认</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
+    <form class="modal-form meeting-review-form" data-form="meeting-review">
+      <input type="hidden" name="customerId" value="${safe(customer.id)}" />
+      <input type="hidden" name="prepId" value="${safe(prep.id)}" />
+      <div class="meeting-review-context"><small>本次原定目标</small><b>${safe(prep.objective)}</b><p>${prep.focus?.length ? `原计划确认 ${prep.focus.length} 项信息` : "未设置摸排项"} · 钩子：${safe(prep.hook || "未设置")}</p></div>
+      <label>会议结果摘要<textarea name="summary" rows="4" required placeholder="客户说了什么、态度如何、会议达成了什么">${safe(review.summary || "")}</textarea></label>
+      <label>本次确认的关键事实<textarea name="confirmed" rows="3" placeholder="痛点、影响、预算、决策人、时间表等已被客户确认的信息">${safe(review.confirmed || "")}</textarea></label>
+      <label>钩子结果 / 下次会议约定<textarea name="hookResult" rows="3" placeholder="客户是否接受下一步交流？约定带什么材料、由谁参加？">${safe(review.hookResult || "")}</textarea></label>
+      <div class="form-row"><label>下一步行动<input name="next" value="${safe(review.next || "")}" placeholder="例如：发送测试方案" /></label><label>计划日期<input type="date" name="nextDate" value="${safe(review.nextDate || "")}" /></label></div>
+      <label>主要对接人<input name="contact" value="${safe(review.contact || "")}" placeholder="姓名或职位" /></label>
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存会后确认</button></div>
+    </form>`);
+}
+
+function submitMeetingReview(form) {
+  const data = new FormData(form);
+  const customer = getCustomer(data.get("customerId"));
+  const prepId = String(data.get("prepId") || "");
+  const prep = customer?.meetingPreps.find(item => item.id === prepId);
+  if (!customer || !prep) return toast("找不到对应的会前速记卡");
+  const summary = String(data.get("summary") || "").trim();
+  if (!summary) return toast("请填写会议结果摘要");
+  const existing = customer.meetingReviews.find(item => item.prepId === prepId);
+  const noteId = existing?.noteId || uid("n");
+  const record = {
+    id: existing?.id || uid("mr"), prepId, noteId,
+    createdAt: existing?.createdAt || nowDateTime(), updatedAt: nowDateTime(),
+    summary,
+    confirmed: String(data.get("confirmed") || "").trim(),
+    hookResult: String(data.get("hookResult") || "").trim(),
+    next: String(data.get("next") || "").trim(),
+    nextDate: String(data.get("nextDate") || ""),
+    contact: String(data.get("contact") || "").trim(),
+  };
+  if (existing) Object.assign(existing, record);
+  else customer.meetingReviews.push(record);
+  const progressNote = { id: noteId, method: "meeting", date: record.updatedAt, contact: record.contact, place: "", content: [record.summary, record.confirmed, record.hookResult].filter(Boolean).join("\n"), next: record.next, nextDate: record.nextDate, source: "meeting-review", attachments: [], taskDone: false };
+  const noteIndex = customer.notes.findIndex(note => note.id === noteId);
+  if (noteIndex >= 0) customer.notes[noteIndex] = { ...customer.notes[noteIndex], ...progressNote };
+  else customer.notes.push(progressNote);
+  prep.status = "completed";
+  prep.completedAt = nowDateTime();
+  persist();
+  closeModal();
+  renderApp();
+  toast(existing ? "会后确认已更新" : "会后确认已保存，并生成推进记录");
+}
+
 function openManualEntry(customerId, noteId = "") {
   const selected = customerId || state.customerId || "";
   const customer = getCustomer(selected);
@@ -1221,7 +1985,12 @@ function reportBuilderUnavailable() {
 
 function buildReport(customer, builder = getReportBuilder()) {
   if (!builder) return "";
-  return builder.build(customer, {
+  const reportSource = {
+    ...customer,
+    opportunityDiagnosis: { ...getOpportunityDiagnosis(customer), note: customer.opportunityDiagnosis.note || "" },
+    businessBrief: deriveBusinessBrief(customer),
+  };
+  return builder.build(reportSource, {
     fieldDefs: FIELD_DEFS,
     stages: CRM_STAGES,
     methods: CONTACT_METHODS,
@@ -1301,7 +2070,6 @@ function stagePenguinPose(stage) {
 function stageLabel(stage) { return CRM_STAGES.find(s=>s.key===stage)?.label || "未设置"; }
 function assetTypeLabel(type) { return ASSET_TYPES.find(t=>t.key===type)?.label || "其他附件"; }
 function customerColor(index) { return ["#2864dc","#7357d9","#0f9f78","#dc6754","#d28b21"][index%5]; }
-function avatar(customer,size="") { return `<span class="customer-avatar ${size}" style="--avatar:${safe(customer.color||"#2864dc")}">${safe(customer.logo||customer.name?.[0]||"客")}</span>`; }
 function dateDiff(from,to) { const a=parseDate(from),b=parseDate(to); return Math.round((b-a)/86400000); }
 function daysSince(date) { const d=parseDate(date); return d ? Math.max(0,Math.floor((new Date()-d)/86400000)) : 0; }
 function parseDate(value) { if(!value)return null; const normalized=String(value).replace(" ","T"); const d=new Date(normalized); return Number.isNaN(d.getTime())?null:d; }
