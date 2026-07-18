@@ -112,7 +112,7 @@ const CloudAuth = {
           <div class="cb-login-logo">
             <svg viewBox="0 0 24 24" width="26" height="26" fill="none"><path d="M4 13.5 L10 19 L20 6" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </div>
-          <div class="cb-login-title">腾讯云 · 销售获客工作台</div>
+          <div class="cb-login-title">Sales Buddy</div>
           <div class="cb-login-sub">登录后你的客户数据将安全存储在云端，多设备同步</div>
           ${phoneBlock}
           ${divider}
@@ -333,7 +333,7 @@ const ApiAuth = {
         gate.innerHTML = `
           <div class="cb-login-card api-login-card">
             <div class="cb-login-logo"><svg viewBox="0 0 24 24" width="26" height="26" fill="none"><path d="M4 13.5 L10 19 L20 6" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-            <div class="cb-login-title">云销副驾</div>
+            <div class="cb-login-title">Sales Buddy</div>
             <div class="cb-login-sub">${registering ? "创建账号，开始管理你的客户推进" : "登录后客户数据按账号安全隔离"}</div>
             <div class="auth-tabs" role="tablist">
               <button type="button" class="${!registering ? "active" : ""}" data-auth-mode="login" role="tab" aria-selected="${!registering}">登录</button>

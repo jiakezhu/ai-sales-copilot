@@ -27,6 +27,7 @@ const state = {
   aiDraft: null,
   copilotAttachments: [],
   recording: false,
+  taskFocus: null,
 };
 
 const NAV_ITEMS = [
@@ -150,7 +151,8 @@ async function handleAction(event) {
   if (action === "open-customer") return openCustomer(trigger.dataset.id);
   if (action === "customer-tab") return switchCustomerTab(trigger.dataset.tab);
   if (action === "back-customers") { state.customerId = null; return renderApp(); }
-  if (action === "complete-task") return completeTask(trigger.dataset.customer, trigger.dataset.note);
+  if (action === "complete-task") return setTaskCompletion(trigger.dataset.customer, trigger.dataset.note, true);
+  if (action === "restore-task") return setTaskCompletion(trigger.dataset.customer, trigger.dataset.note, false);
   if (action === "open-report") return openReport(trigger.dataset.id || state.customerId);
   if (action === "close-report") return closeReport();
   if (action === "export-pdf") return window.print();
@@ -206,6 +208,7 @@ function navigate(page) {
   state.page = page;
   state.customerId = null;
   state.customerTab = "overview";
+  state.taskFocus = null;
   renderApp();
   $("#pageRoot").focus({ preventScroll: true });
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -247,7 +250,6 @@ function renderToday() {
     <div class="page today-page">
       <header class="today-command">
         <div><p class="eyebrow">${formatLongDate(new Date())}</p><h1>早上好，先推进最重要的客户</h1><p>商务鹅帮你整理信息，你负责确认和决策。</p></div>
-        <button class="td-button td-button--outline" data-action="manual-entry">${icon("square-pen")} 手动记录</button>
       </header>
       <section class="ai-assistant-card" id="copilotCard">
         <span class="qq-penguin qq-penguin--assistant" aria-hidden="true">${penguinSVG("wave")}</span>
@@ -361,6 +363,7 @@ function openCustomer(id) {
   state.page = "customers";
   state.customerId = id;
   state.customerTab = "overview";
+  state.taskFocus = null;
   renderApp();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -374,7 +377,10 @@ function switchCustomerTab(tab) {
 
 function renderCustomerDetail(customer) {
   if (!customer) return renderCustomers();
-  const next = getNextTask(customer);
+  const focusedTask = state.taskFocus?.customerId === customer.id
+    ? getTasks(customer).find(task => task.note.id === state.taskFocus.noteId)
+    : null;
+  const next = focusedTask || getNextTask(customer) || getLatestCompletedTask(customer);
   const tabs = [
     ["overview", "作战概览"], ["timeline", "推进记录"], ["relations", "关键关系"], ["intel", "情报与证据"],
   ];
@@ -385,13 +391,26 @@ function renderCustomerDetail(customer) {
       <div class="customer-hero-actions"><button class="secondary-button" data-action="manual-entry" data-customer="${customer.id}">${icon("square-pen")} 手动记录</button><button class="report-button" data-action="open-report" data-id="${customer.id}"><span>${icon("file-text")}</span><b>生成全景报告</b><small>汇总全部客户信息</small></button></div>
     </header>
     <section class="customer-control-bar">
-      ${renderChoiceControl(customer, "stage")}
-      <div class="stage-track">${CRM_STAGES.filter(s => s.key !== "lost").map((s, i) => `<span class="${stageIndex(customer.stage) >= i ? "done" : ""} ${customer.stage === s.key ? "current" : ""}"><i></i>${s.label}</span>`).join("")}</div>
+      ${renderStageTrack(customer)}
       ${renderChoiceControl(customer, "grade")}
     </section>
-    ${next ? `<section class="next-action-banner ${next.overdue ? "overdue" : ""}"><span class="next-icon">${icon("move-right")}</span><div><small>${next.overdue ? "当前最紧急 · 已逾期" : "下一步行动"}</small><b>${safe(next.text)}</b><p>${safe(next.note.contact || "未指定联系人")} · ${formatShortDate(next.date)}</p></div><button class="primary-button" data-action="complete-task" data-customer="${customer.id}" data-note="${next.note.id}">${icon("check")} 标记完成</button></section>` : ""}
+    ${next ? `<section class="next-action-banner ${next.overdue ? "overdue" : ""} ${next.done ? "completed" : ""}"><span class="next-icon">${icon(next.done ? "circle-check" : "move-right")}</span><div><small>${next.done ? "最近完成" : next.overdue ? "当前最紧急 · 已逾期" : "下一步行动"}</small><b>${safe(next.text)}</b><p>${safe(next.note.contact || "未指定联系人")} · ${formatShortDate(next.date)}</p></div><button class="${next.done ? "secondary-button" : "primary-button"}" data-action="${next.done ? "restore-task" : "complete-task"}" data-customer="${customer.id}" data-note="${next.note.id}">${icon(next.done ? "rotate-ccw" : "check")} ${next.done ? "取消完成" : "标记完成"}</button></section>` : ""}
     <nav class="detail-section-nav" aria-label="客户档案分区">${tabs.map(([key,label]) => `<button class="${state.customerTab === key ? "active" : ""}" data-action="customer-tab" data-tab="${key}" aria-current="${state.customerTab === key ? "page" : "false"}">${label}</button>`).join("")}</nav>
     <section class="customer-tab-content">${renderCustomerTab(customer)}</section>
+  </div>`;
+}
+
+function renderStageTrack(customer) {
+  const pipelineStages = CRM_STAGES.filter(stage => stage.key !== "lost");
+  const currentIndex = pipelineStages.findIndex(stage => stage.key === customer.stage);
+  const reachedIndex = customer.stage === "lost" ? pipelineStages.findIndex(stage => stage.key === "proposal") : currentIndex;
+  const motion = stageMotion(customer.stage);
+  const lostStage = CRM_STAGES.find(stage => stage.key === "lost");
+  return `<div class="stage-track" data-customer="${safe(customer.id)}" aria-label="销售阶段：${safe(stageLabel(customer.stage))}">
+    <span class="stage-track-title">销售阶段</span>
+    <span class="stage-penguin" data-customer="${safe(customer.id)}" style="--penguin-left:${motion.left}%;--penguin-top:${motion.top}px" aria-hidden="true">${penguinSVG("stand")}</span>
+    <div class="stage-track-steps">${pipelineStages.map((stage, index) => `<button class="stage-step ${reachedIndex >= index ? "done" : ""} ${customer.stage === stage.key ? "current" : ""}" data-action="set-stage" data-customer="${safe(customer.id)}" data-value="${safe(stage.key)}" aria-label="切换到${safe(stage.label)}" aria-pressed="${customer.stage === stage.key}"><i></i><span>${safe(stage.label)}</span></button>`).join("")}</div>
+    ${lostStage ? `<button class="stage-step stage-step--lost ${customer.stage === "lost" ? "current" : ""}" data-action="set-stage" data-customer="${safe(customer.id)}" data-value="lost" aria-label="切换到${safe(lostStage.label)}" aria-pressed="${customer.stage === "lost"}"><i></i><span>${safe(lostStage.label)}</span></button>` : ""}
   </div>`;
 }
 
@@ -562,7 +581,9 @@ function renderTasks() {
 }
 
 function renderTaskRow(task) {
-  return `<article class="task-row ${task.done ? "done" : ""}"><button class="task-check ${task.done ? "checked" : ""}" ${task.done ? "disabled" : `data-action="complete-task" data-customer="${task.customer.id}" data-note="${task.note.id}"`} aria-label="${task.done ? "已完成" : "完成待办"}">${task.done ? icon("check") : ""}</button><button class="task-content" data-action="open-customer" data-id="${task.customer.id}"><b>${safe(task.text)}</b><span>${safe(task.customer.name)} · ${safe(task.note.contact || "未指定联系人")}</span></button><b class="grade-dot grade-${task.customer.grade}">${task.customer.grade}</b><time class="${task.overdue && !task.done ? "danger-text" : ""}">${formatShortDate(task.date)}</time></article>`;
+  const taskAction = task.done ? "restore-task" : "complete-task";
+  const taskLabel = task.done ? "取消完成" : "完成待办";
+  return `<article class="task-row ${task.done ? "done" : ""}"><button class="task-check ${task.done ? "checked task-check--undo" : ""}" data-action="${taskAction}" data-customer="${task.customer.id}" data-note="${task.note.id}" aria-label="${taskLabel}">${task.done ? `${icon("rotate-ccw")}<span>取消完成</span>` : ""}</button><button class="task-content" data-action="open-customer" data-id="${task.customer.id}"><b>${safe(task.text)}</b><span>${safe(task.customer.name)} · ${safe(task.note.contact || "未指定联系人")}</span></button><b class="grade-dot grade-${task.customer.grade}">${task.customer.grade}</b><time class="${task.overdue && !task.done ? "danger-text" : ""}">${formatShortDate(task.date)}</time></article>`;
 }
 
 function getStalledPriorityCustomers(customerList = customers) {
@@ -1059,8 +1080,44 @@ function deleteEvidenceAsset(customerId, assetId) {
 }
 
 function updateCustomerStage(customerId, stage) {
-  const customer=getCustomer(customerId); if(!customer || customer.stage===stage)return;
-  customer.stage=stage; customer.stageHistory.push({stage,date:nowDateTime(),note:"手动更新阶段"}); persist("客户阶段已更新"); renderApp();
+  const customer = getCustomer(customerId);
+  if (!customer || customer.stage === stage || !CRM_STAGES.some(item => item.key === stage)) return;
+  const previousStage = customer.stage;
+  const previousHistoryLength = customer.stageHistory.length;
+  try {
+    customer.stage = stage;
+    customer.stageHistory.push({ stage, date: nowDateTime(), note: "点击进度条更新阶段" });
+    persist();
+    renderApp();
+    animateStagePenguin(customerId, previousStage, stage);
+    toast(`已进入「${stageLabel(stage)}」阶段`);
+  } catch (error) {
+    customer.stage = previousStage;
+    customer.stageHistory.splice(previousHistoryLength);
+    renderApp();
+    console.warn("Customer stage update failed", error);
+    toast("阶段更新失败，请重试");
+  }
+}
+
+function animateStagePenguin(customerId, fromStage, toStage) {
+  const penguin = $(".stage-penguin");
+  if (!penguin || penguin.dataset.customer !== customerId) return;
+  const from = stageMotion(fromStage);
+  const to = stageMotion(toStage);
+  penguin.style.setProperty("--penguin-left", `${from.left}%`);
+  penguin.style.setProperty("--penguin-top", `${from.top}px`);
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || (from.left === to.left && from.top === to.top)) {
+    penguin.style.setProperty("--penguin-left", `${to.left}%`);
+    penguin.style.setProperty("--penguin-top", `${to.top}px`);
+    return;
+  }
+  penguin.classList.add("is-moving");
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    penguin.style.setProperty("--penguin-left", `${to.left}%`);
+    penguin.style.setProperty("--penguin-top", `${to.top}px`);
+  }));
+  penguin.addEventListener("transitionend", () => penguin.classList.remove("is-moving"), { once: true });
 }
 function updateCustomerGrade(customerId, grade) { const customer=getCustomer(customerId); if(!customer)return; customer.grade=grade; persist("客户优先级已更新"); renderApp(); }
 function updateIntelField(target) { const customer=getCustomer(target.dataset.customer); if(!customer)return; customer.fields[target.dataset.intelField] = {v:target.value.trim()}; persist(); toast("情报已保存"); }
@@ -1173,12 +1230,44 @@ function getTasks(onlyCustomer) {
   }));
 }
 function getNextTask(customer) { return getTasks(customer).filter(t=>!t.done).sort(taskPriority)[0] || null; }
+function getLatestCompletedTask(customer) { return getTasks(customer).filter(task => task.done).sort((a, b) => String(b.note.completedAt || b.date).localeCompare(String(a.note.completedAt || a.date)))[0] || null; }
 function taskPriority(a,b) { if(a.done!==b.done)return a.done?1:-1; const grade={S:0,A:1,B:2,C:3}; if(a.overdue!==b.overdue)return a.overdue?-1:1; if(a.date!==b.date)return String(a.date).localeCompare(String(b.date)); return grade[a.customer.grade]-grade[b.customer.grade]; }
-function completeTask(customerId,noteId) { const c=getCustomer(customerId), note=c?.notes.find(n=>n.id===noteId); if(!note)return; note.taskDone=true; note.completedAt=nowDateTime(); persist(); renderApp(); toast("已完成，历史记录已保留"); }
+function applyTaskCompletion(customer, noteId, done, completedAt) {
+  const note = customer?.notes.find(item => item.id === noteId);
+  if (!note) return null;
+  note.taskDone = done;
+  if (done) note.completedAt = completedAt || nowDateTime();
+  else delete note.completedAt;
+  return note;
+}
+function setTaskCompletion(customerId, noteId, done) {
+  const customer = getCustomer(customerId);
+  const previous = customer?.notes.find(item => item.id === noteId);
+  if (!previous) return;
+  const previousDone = Boolean(previous.taskDone);
+  const previousCompletedAt = previous.completedAt;
+  applyTaskCompletion(customer, noteId, done);
+  try {
+    persist();
+    state.taskFocus = { customerId, noteId };
+    renderApp();
+    toast(done ? "已完成，历史记录已保留" : "已取消完成，待办已恢复");
+  } catch (error) {
+    applyTaskCompletion(customer, noteId, previousDone, previousCompletedAt);
+    console.warn("Task status update failed", error);
+    renderApp();
+    toast("待办状态更新失败，请重试");
+  }
+}
 function getNotesThisWeek() { const start=new Date(); const day=(start.getDay()+6)%7; start.setDate(start.getDate()-day); start.setHours(0,0,0,0); return customers.flatMap(c=>c.notes).filter(n=>parseDate(n.date)>=start); }
 function lastActivityDate(customer) { return [...customer.notes].map(n=>n.date).filter(Boolean).sort().at(-1) || customer.stageHistory?.at(-1)?.date || todayStr(); }
 function profileCompleteness(customer) { const fieldCount=FIELD_DEFS.filter(d=>customer.fields[d.key]?.v?.trim()).length; const total=FIELD_DEFS.length+4; const bonus=[customer.notes.length,customer.orgChain.length,customer.painPoints.length,customer.assets.length].filter(Boolean).length; return Math.round((fieldCount+bonus)/total*100); }
-function stageIndex(stage) { return CRM_STAGES.filter(s=>s.key!=="lost").findIndex(s=>s.key===stage); }
+function stageMotion(stage) {
+  if (stage === "lost") return { left: 75, top: 58 };
+  const pipelineStages = CRM_STAGES.filter(item => item.key !== "lost");
+  const index = pipelineStages.findIndex(item => item.key === stage);
+  return { left: pipelineStages.length <= 1 || index < 0 ? 0 : index / (pipelineStages.length - 1) * 100, top: 4 };
+}
 function stageLabel(stage) { return CRM_STAGES.find(s=>s.key===stage)?.label || "未设置"; }
 function assetTypeLabel(type) { return ASSET_TYPES.find(t=>t.key===type)?.label || "其他附件"; }
 function customerColor(index) { return ["#2864dc","#7357d9","#0f9f78","#dc6754","#d28b21"][index%5]; }
