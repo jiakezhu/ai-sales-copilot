@@ -54,7 +54,7 @@ async function init() {
   renderApp();
 }
 
-// 把 HTML 里 [data-penguin] 占位符填充为对应姿态的 SVG 企鹅
+// 把 HTML 里 [data-penguin] 占位符填充为对应姿态的企鹅图片
 function updateCurrentUserUI() {
   const user = typeof AuthCoordinator !== "undefined" ? AuthCoordinator.user : null;
   const name = user?.name || user?.displayName || user?.email || "我的工作台";
@@ -249,11 +249,11 @@ function renderToday() {
   return `
     <div class="page today-page">
       <header class="today-command">
-        <div><p class="eyebrow">${formatLongDate(new Date())}</p><h1>早上好，先推进最重要的客户</h1><p>商务鹅帮你整理信息，你负责确认和决策。</p></div>
+        <div class="today-heading"><p class="today-date">${icon("calendar-days")}<span>${formatHomeDate(new Date())}</span></p><h1>今日优先事项</h1></div>
       </header>
       <section class="ai-assistant-card" id="copilotCard">
         <span class="qq-penguin qq-penguin--assistant" aria-hidden="true">${penguinSVG("wave")}</span>
-        <div class="ai-assistant-copy"><span>商务鹅</span><h2>刚发生了什么？说给商务鹅听</h2><p>会议、电话、微信和材料，随口一说就整理成客户推进记录。</p></div>
+        <div class="ai-assistant-copy"><span>Sales Buddy</span><h2>告诉 Sales Buddy 刚发生了什么</h2><p>会议、电话、微信和材料，都可以整理成清晰的客户推进记录。</p></div>
         <div class="ai-compose">${renderCopilotComposer()}</div>
         <div id="aiDraft"></div>
       </section>
@@ -387,8 +387,8 @@ function renderCustomerDetail(customer) {
   return `<div class="page customer-detail">
     <button class="back-link" data-action="back-customers">${icon("arrow-left")} 返回客户列表</button>
     <header class="customer-summary-header">
-      <div class="customer-title-group">${avatar(customer, "large")}<div><div class="title-line"><h1>${safe(customer.name)}</h1><b class="grade-badge grade-${customer.grade}">${customer.grade}</b></div><p>${safe(customer.fields.industry?.v || "行业未填写")} · 最近更新 ${formatRelative(lastActivityDate(customer))}</p></div></div>
-      <div class="customer-hero-actions"><button class="secondary-button" data-action="manual-entry" data-customer="${customer.id}">${icon("square-pen")} 手动记录</button><button class="report-button" data-action="open-report" data-id="${customer.id}"><span>${icon("file-text")}</span><b>生成全景报告</b><small>汇总全部客户信息</small></button></div>
+      <div class="customer-title-group">${avatar(customer, "large")}<div class="customer-title-copy"><div class="title-line"><h1>${safe(customer.name)}</h1><b class="grade-badge grade-${customer.grade}">${customer.grade}</b></div><p>${safe(customer.fields.industry?.v || "行业未填写")} · 最近更新 ${formatRelative(lastActivityDate(customer))}</p>${renderCustomerFacts(customer)}</div></div>
+      <div class="customer-hero-actions"><button class="report-button" data-action="open-report" data-id="${customer.id}"><span>${icon("file-text")}</span><b>生成全景报告</b><small>汇总全部客户信息</small></button></div>
     </header>
     <section class="customer-control-bar">
       ${renderStageTrack(customer)}
@@ -408,10 +408,37 @@ function renderStageTrack(customer) {
   const lostStage = CRM_STAGES.find(stage => stage.key === "lost");
   return `<div class="stage-track" data-customer="${safe(customer.id)}" aria-label="销售阶段：${safe(stageLabel(customer.stage))}">
     <span class="stage-track-title">销售阶段</span>
-    <span class="stage-penguin" data-customer="${safe(customer.id)}" style="--penguin-left:${motion.left}%;--penguin-top:${motion.top}px" aria-hidden="true">${penguinSVG("stand")}</span>
+    <span class="stage-penguin stage-penguin--${safe(customer.stage)}" data-customer="${safe(customer.id)}" data-stage="${safe(customer.stage)}" style="--penguin-left:${motion.left}%;--penguin-top:${motion.top}px" aria-hidden="true">${penguinSVG(stagePenguinPose(customer.stage))}</span>
     <div class="stage-track-steps">${pipelineStages.map((stage, index) => `<button class="stage-step ${reachedIndex >= index ? "done" : ""} ${customer.stage === stage.key ? "current" : ""}" data-action="set-stage" data-customer="${safe(customer.id)}" data-value="${safe(stage.key)}" aria-label="切换到${safe(stage.label)}" aria-pressed="${customer.stage === stage.key}"><i></i><span>${safe(stage.label)}</span></button>`).join("")}</div>
     ${lostStage ? `<button class="stage-step stage-step--lost ${customer.stage === "lost" ? "current" : ""}" data-action="set-stage" data-customer="${safe(customer.id)}" data-value="lost" aria-label="切换到${safe(lostStage.label)}" aria-pressed="${customer.stage === "lost"}"><i></i><span>${safe(lostStage.label)}</span></button>` : ""}
   </div>`;
+}
+
+function renderCustomerFacts(customer) {
+  const staff = customer.fields.staff?.v?.trim() || "待补充";
+  const funding = customer.fields.funding?.v?.trim() || "待补充";
+  const website = customer.fields.website?.v?.trim() || "";
+  const websiteUrl = normalizeWebsiteUrl(website);
+  const websiteValue = website ? website.replace(/^https?:\/\//i, "").replace(/\/$/, "") : "待补充";
+  const websiteFact = websiteUrl
+    ? `<a href="${safe(websiteUrl)}" target="_blank" rel="noopener noreferrer" title="${safe(website)}">${icon("globe-2")}<span><small>官网</small><b>${safe(websiteValue)}</b></span></a>`
+    : `<span>${icon("globe-2")}<span><small>官网</small><b>${safe(websiteValue)}</b></span></span>`;
+  return `<div class="customer-facts">
+    <span title="${safe(staff)}">${icon("users")}<span><small>团队</small><b>${safe(staff)}</b></span></span>
+    <span title="${safe(funding)}">${icon("landmark")}<span><small>融资</small><b>${safe(funding)}</b></span></span>
+    ${websiteFact}
+  </div>`;
+}
+
+function normalizeWebsiteUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : "";
+  } catch {
+    return "";
+  }
 }
 
 function renderChoiceControl(customer, type) {
@@ -485,7 +512,7 @@ function renderTimeline(customer) {
   const notes = [...customer.notes].sort((a,b) => String(b.date).localeCompare(String(a.date)));
   return `<div class="content-layout">
     <section class="panel timeline-panel">
-      <div class="section-heading"><div><p class="eyebrow">PROGRESS JOURNEY</p><h2>全流程客户推进记录</h2></div><button class="primary-button" data-action="manual-entry" data-customer="${customer.id}">${icon("plus")} 记录推进</button></div>
+      <div class="section-heading"><div><p class="eyebrow">PROGRESS JOURNEY</p><h2>全流程客户推进记录</h2></div></div>
       <div class="full-timeline">${notes.length ? notes.map(note => renderTimelineItem(customer, note)).join("") : emptyState("还没有推进记录", "电话、会议、微信、材料与阶段变化都会沉淀在这里。")}</div>
     </section>
     <aside class="panel timeline-aside"><h3>${icon("workflow")} 推进记录会自动关联</h3><ul><li>联系人与沟通方式</li><li>下一步行动和提醒</li><li>阶段及情报变化</li><li>附件和佐证材料</li></ul><button class="soft-button full" data-action="focus-copilot">${icon("sparkles")} 用 AI 整理记录</button></aside>
@@ -573,7 +600,7 @@ function renderTasks() {
   const open = tasks.filter(t => !t.done);
   const done = tasks.filter(t => t.done);
   return `<div class="page tasks-page">
-    <section class="page-heading"><div><p class="eyebrow">ACTION CENTER</p><h1>待办</h1><p>所有客户的下一步行动集中管理，完成后保留历史。</p></div><button class="primary-button" data-action="manual-entry">${icon("plus")} 新建推进</button></section>
+    <section class="page-heading"><div><p class="eyebrow">ACTION CENTER</p><h1>待办</h1><p>所有客户的下一步行动集中管理，完成后保留历史。</p></div></section>
     <div class="task-summary"><span><b>${open.filter(t => t.overdue).length}</b> 已逾期</span><span><b>${open.filter(t => t.today).length}</b> 今天</span><span><b>${open.filter(t => !t.overdue && !t.today).length}</b> 即将开始</span></div>
     <section class="td-panel task-worktable"><div class="section-heading"><h2>待处理</h2><span>${open.length}</span></div><div class="task-list">${open.length ? open.map(renderTaskRow).join("") : emptyState("没有待处理任务", "新的下一步行动会自动出现在这里。", "success")}</div></section>
     ${done.length ? `<section class="td-panel task-worktable completed-worktable"><div class="section-heading"><h2>已完成</h2><span>${done.length}</span></div><div class="task-list completed">${done.slice(0,8).map(renderTaskRow).join("")}</div></section>` : ""}
@@ -1266,7 +1293,10 @@ function stageMotion(stage) {
   if (stage === "lost") return { left: 75, top: 58 };
   const pipelineStages = CRM_STAGES.filter(item => item.key !== "lost");
   const index = pipelineStages.findIndex(item => item.key === stage);
-  return { left: pipelineStages.length <= 1 || index < 0 ? 0 : index / (pipelineStages.length - 1) * 100, top: 4 };
+  return { left: pipelineStages.length <= 1 || index < 0 ? 50 : (index + .5) / pipelineStages.length * 100, top: 2 };
+}
+function stagePenguinPose(stage) {
+  return ({ lead: "search", contact: "wave", meeting: "stand", proposal: "scratch", won: "success", lost: "lost" })[stage] || "stand";
 }
 function stageLabel(stage) { return CRM_STAGES.find(s=>s.key===stage)?.label || "未设置"; }
 function assetTypeLabel(type) { return ASSET_TYPES.find(t=>t.key===type)?.label || "其他附件"; }
@@ -1278,6 +1308,7 @@ function parseDate(value) { if(!value)return null; const normalized=String(value
 function formatShortDate(value) { const d=parseDate(value); if(!d)return "未排期"; return `${d.getMonth()+1}月${d.getDate()}日`; }
 function formatDateTime(value) { const d=parseDate(value); if(!d)return safe(value||""); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; }
 function formatLongDate(date) { return `${date.getFullYear()}年${date.getMonth()+1}月${date.getDate()}日 · 星期${"日一二三四五六"[date.getDay()]}`; }
+function formatHomeDate(date) { return `${date.getMonth()+1}月${date.getDate()}日 · 星期${"日一二三四五六"[date.getDay()]}`; }
 function formatRelative(value) { const days=daysSince(value); if(days===0)return "今天"; if(days===1)return "昨天"; if(days<30)return `${days} 天前`; return formatShortDate(value); }
 function toLocalInput(date) { const p=n=>String(n).padStart(2,"0"); return `${date.getFullYear()}-${p(date.getMonth()+1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`; }
 function normalizeDateInput(value) { return String(value||"").replace("T"," ") || nowDateTime(); }
@@ -1395,11 +1426,11 @@ function toast(message) { const el=$("#toast"); clearTimeout(toastTimer); el.tex
 function emptyState(title,copy,pose="scratch") { return `<div class="empty-state"><span class="empty-penguin">${penguinSVG(pose)}</span><b>${safe(title)}</b><p>${safe(copy)}</p></div>`; }
 
 // ===================================================================
-// QQ 企鹅：直接使用用户提供参考图裁出的透明 PNG（零重绘、像素级还原）
-// 5 个姿态各一张图：assets/penguin/{stand,wave,scratch,search,success}.png
-// pose: stand(站姿) / wave(招手) / scratch(挠头) / search(找东西) / success(比耶)
+// Sales Buddy：使用统一画风的透明 PNG，每个客户阶段对应一个明确姿态。
+// assets/penguin/{stand,wave,scratch,search,success,lost}.png
+// pose: stand(站姿) / wave(招手) / scratch(思考) / search(搜索) / success(庆祝) / lost(哭泣)
 // ===================================================================
-const PENGUIN_POSES = ["stand", "wave", "scratch", "search", "success"];
+const PENGUIN_POSES = ["stand", "wave", "scratch", "search", "success", "lost"];
 function penguinSVG(pose = "stand") {
   const p = PENGUIN_POSES.includes(pose) ? pose : "stand";
   return `<img class="pg-img" src="assets/penguin/${p}.png" alt="" draggable="false" aria-hidden="true" />`;
