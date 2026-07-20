@@ -291,6 +291,16 @@
       if (names !== undefined) body.customerNames = names;
       return normalizeAI(await request("/api/ai/extract", { method: "POST", body }));
     },
+
+    async polishReview(summary) {
+      const payload = payloadOf(await request("/api/ai/polish-review", {
+        method: "POST",
+        body: { summary: requiredText(summary, "周期总结") },
+      }));
+      const polished = stringValue(payload?.summary || payload?.polishedSummary);
+      if (!polished) throw new SalesAPIError("AI 未返回润色后的总结", { code: "INVALID_RESPONSE" });
+      return polished;
+    },
   });
 
   global.SalesAPI = SalesAPI;

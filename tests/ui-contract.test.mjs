@@ -29,7 +29,7 @@ function loadWorkspaceTestApi(openMenus = []) {
     localStorage: { setItem() {} },
     THEME_KEY: "theme",
   };
-  vm.runInNewContext(`${read("app.js")}\n;globalThis.__workspaceTestApi = { closeRowMenus, prepareRowMenusForAction, handleAction, getStalledPriorityCustomers, stagePenguinPose, penguinSVG };`, sandbox);
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__workspaceTestApi = { closeRowMenus, prepareRowMenusForAction, handleAction, getStalledPriorityCustomers, getAnalyticsPeriod, stagePenguinPose, penguinSVG };`, sandbox);
   return { api: sandbox.__workspaceTestApi, sandbox };
 }
 
@@ -726,18 +726,37 @@ test("customer and task worktables share TDesign surfaces and remain readable in
   assert.match(css, /\.task-row:hover\s*\{[^}]*var\(--td-brand-color-light\)[^}]*var\(--td-bg-container\)/i);
 });
 
-test("analytics retains only actionable responsive workspaces", () => {
+test("analytics provides an actionable weekly and monthly review workspace", () => {
   const js = read("app.js");
   const css = read("style.css");
-  const start = js.indexOf("function renderAnalytics");
+  const start = js.indexOf("const ANALYTICS_PERIODS");
   const end = js.indexOf("function renderCopilotComposer", start);
   const analytics = js.slice(start, end);
-  assert.match(analytics, /推进阶段分布/);
-  assert.match(analytics, /停滞重点客户/);
-  assert.match(analytics, /客户等级结构/);
-  assert.doesNotMatch(analytics, /analytics-metrics|整体转化率|近 30 天跟进/);
-  assert.match(css, /\.analytics-workspace\s*\{[^}]*grid-template-columns:\s*minmax\(0,1\.25fr\)\s+minmax\(280px,\.75fr\)/i);
-  assert.match(css, /@media\s*\(max-width:900px\)[\s\S]*?\.analytics-workspace\s*\{[^}]*grid-template-columns:\s*1fr/i);
+  for (const label of ["本周", "上周", "本月", "上月", "新增客户", "有效跟进", "阶段推进", "完成待办", "逾期待办", "成交 / 流失", "关键进展", "风险与阻塞", "下周期重点行动", "复制总结", "AI 润色", "推进阶段分布", "客户等级结构"]) {
+    assert.match(analytics, new RegExp(label.replace(" / ", " \\/ ")));
+  }
+  assert.match(analytics, /buildPeriodReviewSummary/);
+  assert.match(analytics, /data-action="open-analytics-metric"/);
+  assert.match(analytics, /data-action="toggle-review-action"/);
+  assert.match(analytics, /SalesAPI\.polishReview/);
+  assert.match(css, /\.analytics-metrics\s*\{[^}]*grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/i);
+  assert.match(css, /\.period-review-grid\s*\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/i);
+  assert.match(css, /@media\s*\(max-width:900px\)[\s\S]*?\.analytics-metrics\s*\{[^}]*grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/i);
+  assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.analytics-metrics\s*\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/i);
+});
+
+test("analytics periods use Monday-based local calendar boundaries", () => {
+  const { api } = loadWorkspaceTestApi();
+  const current = api.getAnalyticsPeriod("this-week", new Date(2026, 6, 20, 15, 0));
+  assert.equal(current.start.getFullYear(), 2026);
+  assert.equal(current.start.getMonth(), 6);
+  assert.equal(current.start.getDate(), 20);
+  assert.equal(current.end.getDate(), 27);
+  const lastMonth = api.getAnalyticsPeriod("last-month", new Date(2026, 0, 15, 9, 0));
+  assert.equal(lastMonth.start.getFullYear(), 2025);
+  assert.equal(lastMonth.start.getMonth(), 11);
+  assert.equal(lastMonth.end.getFullYear(), 2026);
+  assert.equal(lastMonth.end.getMonth(), 0);
 });
 
 test("stalled priority customers exclude won and lost terminal stages", () => {
