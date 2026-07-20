@@ -148,6 +148,32 @@ test("AI 未配置时返回明确的 503 错误", async t => {
   assert.match(result.json.error.message, /AI.*配置/);
 });
 
+test("周期总结 AI 未配置时保留明确的 503 契约", async t => {
+  const baseUrl = await startTestServer(t);
+  const user = await register(baseUrl, "review@example.com");
+
+  const result = await request(baseUrl, "/api/ai/polish-review", {
+    method: "POST",
+    token: user.token,
+    body: { summary: "本周有效跟进 3 次。" },
+  });
+  assert.equal(result.response.status, 503);
+  assert.equal(result.json.error.code, "AI_NOT_CONFIGURED");
+});
+
+test("周期总结润色拒绝空内容", async t => {
+  const baseUrl = await startTestServer(t);
+  const user = await register(baseUrl, "empty-review@example.com");
+
+  const result = await request(baseUrl, "/api/ai/polish-review", {
+    method: "POST",
+    token: user.token,
+    body: { summary: "   " },
+  });
+  assert.equal(result.response.status, 400);
+  assert.equal(result.json.error.code, "INVALID_SUMMARY");
+});
+
 test("静态资源 HEAD 请求可重复完成且不返回正文", async t => {
   const baseUrl = await startTestServer(t);
   for (let index = 0; index < 50; index += 1) {

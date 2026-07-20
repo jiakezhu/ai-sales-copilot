@@ -420,6 +420,68 @@ async function extractWithAi(text, customerNames, config) {
   return extraction;
 }
 
+function reviewIntegrityTokens(summary) {
+  const numericFacts = summary.match(/\d{1,4}(?:-\d{1,2}){0,2}|\d+(?:\.\d+)?%?/g) || [];
+  const namedFacts = summary.split("\n")
+    .filter(line => line.trim().startsWith("- ") && line.includes("："))
+    .map(line => line.trim().slice(2).split("：")[0].trim())
+    .filter(Boolean);
+  const actionSection = summary.split(/\n四、下周期重点行动\n/)[1] || "";
+  const actionFacts = actionSection.split("\n").map(line => line.trim()).filter(line => line.startsWith("- "));
+  return [...new Set([...numericFacts, ...namedFacts, ...actionFacts])];
+}
+
+async function polishReviewWithAi(summary, config) {
+  if (!config.apiUrl || !config.apiKey || !config.model) {
+    error(503, "AI_NOT_CONFIGURED", "AI 服务尚未配置，请设置 AI_API_URL、AI_API_KEY 和 AI_MODEL");
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  let response;
+  try {
+    response = await fetch(aiEndpoint(config.apiUrl), {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "system",
+            content: "你是销售周期复盘编辑。只优化语言表达和结构，不得改变、删减或新增任何数字、客户名、日期、事实、风险和行动项。保持原有四段结构，直接返回润色后的中文正文，不要解释。",
+          },
+          { role: "user", content: summary },
+        ],
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") error(504, "AI_TIMEOUT", "AI 服务响应超时");
+    error(502, "AI_UNAVAILABLE", "暂时无法连接 AI 服务");
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!response.ok) error(502, "AI_UPSTREAM_ERROR", `AI 服务返回错误（HTTP ${response.status}）`);
+  let upstream;
+  try {
+    upstream = await response.json();
+  } catch {
+    error(502, "AI_INVALID_RESPONSE", "AI 服务返回了无效响应");
+  }
+  const content = upstream?.choices?.[0]?.message?.content;
+  const polished = Array.isArray(content)
+    ? content.map(part => typeof part === "string" ? part : part?.text || "").join("").trim()
+    : typeof content === "string" ? content.trim() : "";
+  if (!polished) error(502, "AI_INVALID_RESPONSE", "AI 服务未返回润色后的总结");
+  const normalized = polished.replace(/^```(?:markdown|text)?\s*/i, "").replace(/\s*```$/, "").trim();
+  const missingFacts = reviewIntegrityTokens(summary).filter(token => !normalized.includes(token));
+  if (missingFacts.length) error(502, "AI_FACT_MISMATCH", "AI 润色结果改变了关键事实，已保留规则总结");
+  return normalized;
+}
+
 async function serveStatic(request, response, rootDir, pathname) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     error(405, "METHOD_NOT_ALLOWED", "不支持该请求方法");
@@ -577,6 +639,20 @@ export function createApp(options = {}) {
         }
         const extraction = await extractWithAi(text, customerNames.map(name => name.trim()), ai);
         sendJson(response, 200, { extraction });
+        return;
+      }
+
+      if (pathname === "/api/ai/polish-review" && request.method === "POST") {
+        const userId = requireAuth(request, tokenSecret);
+        const actor = `${userId}:${request.socket.remoteAddress || "unknown"}`;
+        checkAiMinuteRate(`${actor}:minute`);
+        checkAiDailyRate(`${actor}:day`);
+        const body = await readJsonBody(request);
+        const summary = typeof body.summary === "string" ? body.summary.trim() : "";
+        if (!summary) error(400, "INVALID_SUMMARY", "summary 不能为空");
+        if (summary.length > AI_TEXT_LIMIT) error(400, "INVALID_SUMMARY", `summary 不能超过 ${AI_TEXT_LIMIT} 个字符`);
+        const polishedSummary = await polishReviewWithAi(summary, ai);
+        sendJson(response, 200, { summary: polishedSummary });
         return;
       }
 

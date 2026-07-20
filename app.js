@@ -28,6 +28,12 @@ const state = {
   copilotAttachments: [],
   recording: false,
   taskFocus: null,
+  analyticsPeriod: "this-week",
+  analyticsMetric: "",
+  analyticsAiSummary: "",
+  analyticsAiPeriodKey: "",
+  analyticsAiLoading: false,
+  analyticsActionSelections: {},
 };
 
 const NAV_ITEMS = [
@@ -233,6 +239,12 @@ async function handleAction(event) {
   if (action === "set-stage") { closeChoiceMenus(); return updateCustomerStage(trigger.dataset.customer, trigger.dataset.value); }
   if (action === "set-grade") { closeChoiceMenus(); return updateCustomerGrade(trigger.dataset.customer, trigger.dataset.value); }
   if (action === "filter-stage") { state.stageFilter = trigger.dataset.value; return renderApp(); }
+  if (action === "set-analytics-period") return setAnalyticsPeriod(trigger.dataset.period);
+  if (action === "open-analytics-metric") return openAnalyticsMetric(trigger.dataset.metric);
+  if (action === "open-analytics-customer") { closeModal(); return openCustomer(trigger.dataset.id); }
+  if (action === "copy-period-review") return copyPeriodReview();
+  if (action === "polish-period-review") return polishPeriodReview();
+  if (action === "toggle-review-action") return toggleReviewAction(trigger.dataset.actionId, trigger.checked);
   if (action === "reset-filters") { state.query = ""; state.stageFilter = "all"; $("#globalSearch").value = ""; return renderApp(); }
 }
 
@@ -1252,19 +1264,271 @@ function getStalledPriorityCustomers(customerList = customers) {
     .sort((a, b) => b.days - a.days);
 }
 
+const ANALYTICS_PERIODS = [
+  { key: "this-week", label: "本周" },
+  { key: "last-week", label: "上周" },
+  { key: "this-month", label: "本月" },
+  { key: "last-month", label: "上月" },
+];
+
+function startOfWeek(date) {
+  const result = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  result.setDate(result.getDate() - ((result.getDay() + 6) % 7));
+  return result;
+}
+
+function addCalendarDays(date, days) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+function getAnalyticsPeriod(periodKey = "this-week", baseDate = new Date()) {
+  const weekStart = startOfWeek(baseDate);
+  const monthStart = new Date(baseDate.getFullYear(), baseDate.getMonth(), 1);
+  const definitions = {
+    "this-week": { start: weekStart, end: addCalendarDays(weekStart, 7), compareStart: addCalendarDays(weekStart, -7), compareEnd: weekStart },
+    "last-week": { start: addCalendarDays(weekStart, -7), end: weekStart, compareStart: addCalendarDays(weekStart, -14), compareEnd: addCalendarDays(weekStart, -7) },
+    "this-month": { start: monthStart, end: new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 1), compareStart: new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1), compareEnd: monthStart },
+    "last-month": { start: new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1), end: monthStart, compareStart: new Date(baseDate.getFullYear(), baseDate.getMonth() - 2, 1), compareEnd: new Date(baseDate.getFullYear(), baseDate.getMonth() - 1, 1) },
+  };
+  const selected = definitions[periodKey] || definitions["this-week"];
+  return { ...selected, key: periodKey, label: ANALYTICS_PERIODS.find(item => item.key === periodKey)?.label || "本周" };
+}
+
+function isDateInRange(value, start, end) {
+  const date = parseDate(value);
+  return Boolean(date && date >= start && date < end);
+}
+
+function collectAnalyticsMetrics(range) {
+  const newCustomers = customers.filter(customer => isDateInRange(customer.createdAt, range.start, range.end));
+  const followups = customers.flatMap(customer => customer.notes.filter(note => isDateInRange(note.date, range.start, range.end)).map(note => ({ customer, note })));
+  const stageChanges = customers.flatMap(customer => (customer.stageHistory || [])
+    .filter(item => isDateInRange(item.date, range.start, range.end) && !["当前阶段", "批量导入"].includes(item.note))
+    .map(history => ({ customer, history })));
+  const completedTasks = customers.flatMap(customer => customer.notes
+    .filter(note => note.taskDone && isDateInRange(note.completedAt, range.start, range.end))
+    .map(note => ({ customer, note })));
+  const today = todayStr();
+  const overdueTasks = customers.flatMap(customer => customer.notes
+    .filter(note => note.next && note.nextDate && !note.taskDone && note.nextDate < today && isDateInRange(note.nextDate, range.start, range.end))
+    .map(note => ({ customer, note })));
+  const outcomes = stageChanges.filter(item => ["won", "lost"].includes(item.history.stage));
+  const coveredCustomerIds = new Set(followups.map(item => item.customer.id));
+  return {
+    newCustomers, followups, stageChanges, completedTasks, overdueTasks, outcomes,
+    values: {
+      newCustomers: newCustomers.length,
+      followups: followups.length,
+      coveredCustomers: coveredCustomerIds.size,
+      stageChanges: stageChanges.length,
+      completedTasks: completedTasks.length,
+      overdueTasks: overdueTasks.length,
+      outcomes: outcomes.length,
+    },
+  };
+}
+
+function analyticsCutoff(period, now = new Date()) {
+  return period.end < now ? period.end : now;
+}
+
+function customerStageAt(customer, cutoff) {
+  const latest = (customer.stageHistory || [])
+    .filter(item => { const date = parseDate(item.date); return date && date < cutoff; })
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+  return latest?.stage || customer.stage;
+}
+
+function noteOpenAt(note, cutoff) {
+  const createdAt = parseDate(note.date);
+  const completedAt = parseDate(note.completedAt);
+  return Boolean(note.next && note.nextDate && (!createdAt || createdAt < cutoff) && (!completedAt || completedAt >= cutoff));
+}
+
+function getAnalyticsRisks(period) {
+  const risks = [];
+  const cutoff = analyticsCutoff(period);
+  const cutoffDate = dateString(cutoff);
+  customers.forEach(customer => {
+    const stage = customerStageAt(customer, cutoff);
+    customer.notes.filter(note => noteOpenAt(note, cutoff) && note.nextDate < cutoffDate).forEach(note => risks.push({
+      id: `overdue-${customer.id}-${note.id}`, customer, level: "high", title: note.next,
+      detail: `截至周期末已逾期 · 原计划 ${formatShortDate(note.nextDate)}`,
+    }));
+    if (["won", "lost"].includes(stage)) return;
+    const notesBeforeCutoff = customer.notes
+      .filter(note => { const date = parseDate(note.date); return date && date < cutoff; })
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const latest = notesBeforeCutoff[0];
+    const latestActivity = latest?.date || (customer.stageHistory || []).filter(item => { const date = parseDate(item.date); return date && date < cutoff; }).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0]?.date;
+    const inactiveDays = latestActivity ? Math.max(0, Math.floor((cutoff - parseDate(latestActivity)) / 86400000)) : 0;
+    if (["S", "A"].includes(customer.grade) && inactiveDays >= 14) risks.push({
+      id: `stalled-${customer.id}`, customer, level: "medium", title: `${customer.name} 已停滞`,
+      detail: `${stageLabel(stage)} · 截至周期末 ${inactiveDays} 天未更新`,
+    });
+    if (latest && !latest.next) risks.push({ id: `no-next-${customer.id}`, customer, level: "medium", title: `${customer.name} 缺少下一步`, detail: "周期末最近跟进尚未形成明确行动" });
+    if (stage === "proposal" && (!customer.painPoints.length || !customer.solution.length || !customer.orgChain.some(person => Number(person.level) === 1))) {
+      risks.push({ id: `proposal-gap-${customer.id}`, customer, level: "medium", title: `${customer.name} 提案信息不完整`, detail: "需补齐痛点、方案或决策人" });
+    }
+  });
+  return risks.sort((a, b) => (a.level === "high" ? -1 : 1) - (b.level === "high" ? -1 : 1)).slice(0, 10);
+}
+
+function getNextPeriodActions(risks, period) {
+  const cutoff = analyticsCutoff(period);
+  const actions = [];
+  const openTasks = customers.flatMap(customer => customer.notes
+    .filter(note => noteOpenAt(note, cutoff))
+    .map(note => ({ customer, note, text: note.next, date: note.nextDate, done: false, overdue: note.nextDate < dateString(cutoff) })));
+  openTasks.sort(taskPriority).slice(0, 6).forEach(task => actions.push({
+    id: `task-${task.customer.id}-${task.note.id}`, customer: task.customer, text: task.text,
+    detail: `${task.overdue ? "周期末已逾期 · " : "计划 "}${formatShortDate(task.date)}`,
+  }));
+  risks.filter(risk => !actions.some(action => action.customer.id === risk.customer.id)).slice(0, 4).forEach(risk => actions.push({
+    id: `risk-${risk.id}`, customer: risk.customer, text: risk.title, detail: risk.detail,
+  }));
+  return actions.slice(0, 8);
+}
+
+function buildAnalyticsReview(periodKey = state.analyticsPeriod, baseDate = new Date()) {
+  const period = getAnalyticsPeriod(periodKey, baseDate);
+  const metrics = collectAnalyticsMetrics(period);
+  const previous = collectAnalyticsMetrics({ start: period.compareStart, end: period.compareEnd });
+  const progress = [
+    ...metrics.stageChanges.map(item => ({ date: item.history.date, customer: item.customer, title: `${item.customer.name} 推进至${stageLabel(item.history.stage)}`, detail: item.history.note || "阶段已更新", tone: item.history.stage === "won" ? "success" : item.history.stage === "lost" ? "danger" : "info" })),
+    ...metrics.followups.map(item => ({ date: item.note.date, customer: item.customer, title: `${item.customer.name} 新增跟进`, detail: item.note.content || item.note.next || "已记录客户沟通", tone: "info" })),
+  ].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 8);
+  const risks = getAnalyticsRisks(period);
+  const actions = getNextPeriodActions(risks, period);
+  const review = { period, metrics, previous, progress, risks, actions };
+  review.summary = buildPeriodReviewSummary(review);
+  return review;
+}
+
+function selectedReviewActions(review) {
+  return review.actions.filter(action => state.analyticsActionSelections[action.id] !== false);
+}
+
+function buildPeriodReviewSummary(review) {
+  const { period, metrics, progress, risks } = review;
+  const values = metrics.values;
+  const actionLines = selectedReviewActions(review).map(item => `- ${item.customer.name}：${item.text}`);
+  const progressLines = progress.slice(0, 5).map(item => `- ${item.title}：${item.detail}`);
+  const riskLines = risks.slice(0, 5).map(item => `- ${item.title}：${item.detail}`);
+  return `${period.label}销售复盘（${dateString(period.start)} 至 ${dateString(addCalendarDays(period.end, -1))}）\n\n一、本周期概览\n- 新增客户 ${values.newCustomers} 个\n- 有效跟进 ${values.followups} 次，覆盖 ${values.coveredCustomers} 个客户\n- 阶段推进 ${values.stageChanges} 次\n- 完成待办 ${values.completedTasks} 项\n- 本周期到期且仍逾期 ${values.overdueTasks} 项\n- 成交/流失 ${values.outcomes} 个\n\n二、关键客户进展\n${progressLines.length ? progressLines.join("\n") : "- 本周期暂无可识别的关键进展"}\n\n三、风险与阻塞\n${riskLines.length ? riskLines.join("\n") : "- 当前未识别到重点风险"}\n\n四、下周期重点行动\n${actionLines.length ? actionLines.join("\n") : "- 暂无待安排的重点行动"}`;
+}
+
+function analyticsMetricDefinitions(review) {
+  const current = review.metrics.values;
+  const previous = review.previous.values;
+  return [
+    { key: "newCustomers", label: "新增客户", value: current.newCustomers, previous: previous.newCustomers, hint: "仅统计有创建时间的客户", icon: "user-plus" },
+    { key: "followups", label: "有效跟进", value: current.followups, previous: previous.followups, hint: `覆盖 ${current.coveredCustomers} 个客户`, icon: "messages-square" },
+    { key: "stageChanges", label: "阶段推进", value: current.stageChanges, previous: previous.stageChanges, hint: "排除初始阶段和批量导入", icon: "route" },
+    { key: "completedTasks", label: "完成待办", value: current.completedTasks, previous: previous.completedTasks, hint: "按实际完成时间统计", icon: "circle-check" },
+    { key: "overdueTasks", label: "逾期待办", value: current.overdueTasks, previous: previous.overdueTasks, hint: "本周期到期且目前未完成", icon: "triangle-alert" },
+    { key: "outcomes", label: "成交 / 流失", value: current.outcomes, previous: previous.outcomes, hint: "本周期关单变化", icon: "flag" },
+  ];
+}
+
+function renderAnalyticsMetric(metric) {
+  const delta = metric.value - metric.previous;
+  return `<button class="analytics-metric" data-action="open-analytics-metric" data-metric="${metric.key}"><span>${icon(metric.icon)}</span><small>${metric.label}</small><strong>${metric.value}</strong><em class="${delta > 0 ? "up" : delta < 0 ? "down" : "flat"}">${delta > 0 ? "+" : ""}${delta} 较上期</em><p>${safe(metric.hint)}</p></button>`;
+}
+
+function renderReviewList(items, emptyTitle, emptyCopy, type) {
+  if (!items.length) return emptyState(emptyTitle, emptyCopy, type === "risk" ? "success" : "scratch");
+  return `<div class="review-list ${type}">${items.map(item => `<button data-action="open-customer" data-id="${item.customer.id}"><span class="review-list-icon">${icon(type === "risk" ? "triangle-alert" : "arrow-up-right")}</span><span><b>${safe(item.title)}</b><small>${safe(item.detail)}</small></span>${icon("chevron-right")}</button>`).join("")}</div>`;
+}
+
 function renderAnalytics() {
+  const review = buildAnalyticsReview();
+  const metrics = analyticsMetricDefinitions(review);
   const maxStage = Math.max(1, ...CRM_STAGES.map(s => customers.filter(c => c.stage === s.key).length));
-  const stalledPriority = getStalledPriorityCustomers();
+  const summary = state.analyticsAiPeriodKey === review.period.key && state.analyticsAiSummary ? state.analyticsAiSummary : review.summary;
   return `<div class="page analytics-page">
-    <section class="page-heading"><div><p class="eyebrow">PERFORMANCE</p><h1>分析</h1><p>看推进节奏和客户结构，不重复展示无行动价值的数据。</p></div></section>
-    <div class="analytics-workspace">
+    <section class="page-heading analytics-heading"><div><p class="eyebrow">PERFORMANCE REVIEW</p><h1>分析与复盘</h1><p>把客户记录转成周期进展、风险和下一步行动。</p></div><div class="analytics-periods" role="group" aria-label="复盘周期">${ANALYTICS_PERIODS.map(item => `<button class="${state.analyticsPeriod === item.key ? "active" : ""}" data-action="set-analytics-period" data-period="${item.key}" aria-pressed="${state.analyticsPeriod === item.key}">${item.label}</button>`).join("")}</div></section>
+    <section class="analytics-period-strip"><span>${icon("calendar-range")} ${dateString(review.period.start)} 至 ${dateString(addCalendarDays(review.period.end, -1))}</span><small>数字与事实由客户记录自动计算</small></section>
+    <section class="analytics-metrics">${metrics.map(renderAnalyticsMetric).join("")}</section>
+    <section class="td-panel period-summary-panel">
+      <div class="section-heading"><div><p class="eyebrow">PERIOD SUMMARY</p><h2>${review.period.label}总结</h2></div><div class="summary-actions"><button class="soft-button" data-action="copy-period-review">${icon("copy")} 复制总结</button><button class="primary-button" data-action="polish-period-review" ${state.analyticsAiLoading ? "disabled" : ""}>${icon("sparkles")} ${state.analyticsAiLoading ? "润色中" : "AI 润色"}</button></div></div>
+      <pre id="periodReviewSummary">${safe(summary)}</pre>
+      <p class="summary-source">${state.analyticsAiPeriodKey === review.period.key && state.analyticsAiSummary ? "AI 仅润色表达，事实与数字来自规则计算。" : "当前为规则生成总结；未配置 AI 也可正常使用。"}</p>
+    </section>
+    <div class="period-review-grid">
+      <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">KEY PROGRESS</p><h2>关键进展</h2></div><span>${review.progress.length}</span></div>${renderReviewList(review.progress, "暂无关键进展", "本周期还没有跟进或阶段变化。", "progress")}</section>
+      <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">RISKS</p><h2>风险与阻塞</h2></div><span>${review.risks.length}</span></div>${renderReviewList(review.risks, "未发现重点风险", "客户节奏和待办状态正常。", "risk")}</section>
+    </div>
+    <section class="td-panel next-period-panel"><div class="section-heading"><div><p class="eyebrow">NEXT PERIOD</p><h2>下周期重点行动</h2></div><span>勾选后会进入复制总结</span></div>${review.actions.length ? `<div class="next-period-actions">${review.actions.map(action => `<label><input type="checkbox" data-action="toggle-review-action" data-action-id="${safe(action.id)}" ${state.analyticsActionSelections[action.id] === false ? "" : "checked"}><span><b>${safe(action.customer.name)} · ${safe(action.text)}</b><small>${safe(action.detail)}</small></span><button type="button" data-action="open-customer" data-id="${safe(action.customer.id)}" aria-label="打开${safe(action.customer.name)}">${icon("arrow-up-right")}</button></label>`).join("")}</div>` : emptyState("暂无重点行动", "补充下一步或客户风险后会自动生成。", "success")}</section>
+    <div class="analytics-workspace analytics-baseline">
       <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">PIPELINE</p><h2>推进阶段分布</h2></div></div><div class="bar-chart">${CRM_STAGES.map(stage => { const count=customers.filter(c=>c.stage===stage.key).length; return `<div><span>${stage.label}</span><i><b style="width:${count/maxStage*100}%;--bar:${stage.color}"></b></i><strong>${count}</strong></div>`; }).join("")}</div></section>
-      <div class="analytics-side">
-        <section class="td-panel stalled-customers"><div class="section-heading"><div><p class="eyebrow">FOLLOW-UP RISK</p><h2>停滞重点客户</h2></div><span>${stalledPriority.length}</span></div>${stalledPriority.length ? `<div class="stalled-list">${stalledPriority.map(item => `<button data-action="open-customer" data-id="${item.customer.id}"><span><b>${safe(item.customer.name)}</b><small>${stageLabel(item.customer.stage)} · ${item.days} 天未更新</small></span>${icon("arrow-right")}</button>`).join("")}</div>` : emptyState("重点客户推进正常", "暂时没有超过两周未更新的 S/A 客户。")}</section>
-        <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">GRADE STRUCTURE</p><h2>客户等级结构</h2></div></div><div class="grade-chart">${GRADES.map(g => `<article style="--grade:${g.color}"><b>${g.key}</b><strong>${customers.filter(c=>c.grade===g.key).length}</strong><small>${safe(g.label.split("·").at(-1).trim())}</small></article>`).join("")}</div></section>
-      </div>
+      <section class="td-panel"><div class="section-heading"><div><p class="eyebrow">GRADE STRUCTURE</p><h2>客户等级结构</h2></div></div><div class="grade-chart">${GRADES.map(g => `<article style="--grade:${g.color}"><b>${g.key}</b><strong>${customers.filter(c=>c.grade===g.key).length}</strong><small>${safe(g.label.split("·").at(-1).trim())}</small></article>`).join("")}</div></section>
     </div>
   </div>`;
+}
+
+function setAnalyticsPeriod(periodKey) {
+  if (!ANALYTICS_PERIODS.some(item => item.key === periodKey)) return;
+  state.analyticsPeriod = periodKey;
+  state.analyticsAiSummary = "";
+  state.analyticsAiPeriodKey = "";
+  renderApp();
+}
+
+function metricDetailItems(review, metricKey) {
+  const metrics = review.metrics;
+  if (metricKey === "newCustomers") return metrics.newCustomers.map(customer => ({ customer, title: customer.name, detail: `创建于 ${formatDateTime(customer.createdAt)}` }));
+  if (metricKey === "followups") return metrics.followups.map(({ customer, note }) => ({ customer, title: customer.name, detail: note.content || note.next || formatDateTime(note.date) }));
+  if (metricKey === "stageChanges") return metrics.stageChanges.map(({ customer, history }) => ({ customer, title: customer.name, detail: `推进至${stageLabel(history.stage)} · ${formatDateTime(history.date)}` }));
+  if (metricKey === "completedTasks") return metrics.completedTasks.map(({ customer, note }) => ({ customer, title: customer.name, detail: note.next || "已完成待办" }));
+  if (metricKey === "overdueTasks") return metrics.overdueTasks.map(({ customer, note }) => ({ customer, title: customer.name, detail: `${note.next} · ${formatShortDate(note.nextDate)}` }));
+  return metrics.outcomes.map(({ customer, history }) => ({ customer, title: customer.name, detail: `${stageLabel(history.stage)} · ${formatDateTime(history.date)}` }));
+}
+
+function openAnalyticsMetric(metricKey) {
+  const review = buildAnalyticsReview();
+  const metric = analyticsMetricDefinitions(review).find(item => item.key === metricKey);
+  if (!metric) return;
+  const items = metricDetailItems(review, metricKey);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">METRIC DETAIL</p><h2 id="modalTitle">${safe(review.period.label)} · ${safe(metric.label)}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
+    <div class="metric-detail-list">${items.length ? items.map(item => `<button data-action="open-analytics-customer" data-id="${safe(item.customer.id)}"><span><b>${safe(item.title)}</b><small>${safe(item.detail)}</small></span>${icon("arrow-right")}</button>`).join("") : emptyState("没有对应记录", "当前周期暂未产生这类数据。")}</div>`);
+}
+
+function toggleReviewAction(actionId, checked) {
+  if (!actionId) return;
+  state.analyticsActionSelections[actionId] = Boolean(checked);
+  state.analyticsAiSummary = "";
+  state.analyticsAiPeriodKey = "";
+  renderApp();
+}
+
+async function copyPeriodReview() {
+  const review = buildAnalyticsReview();
+  const summary = state.analyticsAiPeriodKey === review.period.key && state.analyticsAiSummary ? state.analyticsAiSummary : review.summary;
+  try { await navigator.clipboard.writeText(summary); toast("周期总结已复制"); }
+  catch (error) { console.warn("Copy period review failed", error); toast("复制失败，请手动选择总结内容"); }
+}
+
+async function polishPeriodReview() {
+  const review = buildAnalyticsReview();
+  if (typeof SalesAPI === "undefined" || !SalesAPI.polishReview) return toast("当前模式暂不支持 AI 润色，规则总结仍可使用");
+  const requestedPeriod = review.period.key;
+  const requestedSummary = review.summary;
+  state.analyticsAiLoading = true;
+  renderApp();
+  try {
+    const polished = await SalesAPI.polishReview(requestedSummary);
+    if (state.analyticsPeriod !== requestedPeriod || buildAnalyticsReview().summary !== requestedSummary) return;
+    state.analyticsAiSummary = polished;
+    state.analyticsAiPeriodKey = requestedPeriod;
+    toast("AI 已完成表达润色，数字和事实保持不变");
+  } catch (error) {
+    console.warn("AI review polish failed", error);
+    toast(error?.status === 503 ? "AI 尚未配置，继续使用规则总结" : "AI 润色失败，规则总结已保留");
+  } finally {
+    state.analyticsAiLoading = false;
+    renderApp();
+  }
 }
 
 // ---------- AI 信息收件箱 ----------
@@ -1515,7 +1779,7 @@ function submitNewCustomer(form) {
   const website = normalizeWebsiteUrl(rawWebsite);
   if (!name) return;
   if (rawWebsite && !website) return toast("请输入有效的官方网站地址");
-  const customer = ensureCustomerShape({ id: uid(), name, logo: name[0], color: customerColor(customers.length), stage: "lead", grade: "B", fields: {}, notes: [], assets: [], orgChain: [], painPoints: [], solution: [] });
+  const customer = ensureCustomerShape({ id: uid(), name, createdAt: nowDateTime(), logo: name[0], color: customerColor(customers.length), stage: "lead", grade: "B", fields: {}, notes: [], assets: [], orgChain: [], painPoints: [], solution: [] });
   customer.fields.industry.v = String(data.get("industry") || "").trim();
   customer.fields.website.v = website;
   customers.unshift(customer);

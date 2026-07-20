@@ -188,6 +188,7 @@
     const customer = {
       id,
       name,
+      createdAt: `${today} 00:00`,
       logo: Array.from(name)[0] || "客",
       color: COLORS[(sequence - 1) % COLORS.length],
       stage: normalizeStage(values.stage),

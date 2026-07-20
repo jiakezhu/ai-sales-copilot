@@ -27,6 +27,7 @@ test("中文 CSV 转为兼容现有 CRM 的完整客户结构", () => {
   assert.equal(result.errors.length, 0);
   const customer = result.customers[0];
   assert.equal(customer.name, "星云科技");
+  assert.equal(customer.createdAt, "2026-07-17 00:00");
   assert.equal(customer.stage, "meeting");
   assert.equal(customer.grade, "A");
   assert.equal(customer.fields.industry.v, "企业服务");

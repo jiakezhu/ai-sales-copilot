@@ -135,6 +135,19 @@ test("extractAI normalizes the server result for the existing CRM model", async 
   });
 });
 
+test("polishReview sends the rule summary and returns polished text", async () => {
+  const harness = loadAPI([
+    jsonResponse(200, { summary: "本周完成了三次有效跟进。" }),
+  ], { storage: { sales_api_token: "valid-token" } });
+
+  const result = await harness.api.polishReview("本周有效跟进 3 次");
+
+  assert.equal(result, "本周完成了三次有效跟进。");
+  assert.equal(harness.calls[0].url, "/api/ai/polish-review");
+  assert.equal(harness.calls[0].init.headers.Authorization, "Bearer valid-token");
+  assert.deepEqual(JSON.parse(harness.calls[0].init.body), { summary: "本周有效跟进 3 次" });
+});
+
 test("isConfigured only enables API calls on HTTP(S) pages", () => {
   assert.equal(loadAPI([], { protocol: "https:" }).api.isConfigured(), true);
   assert.equal(loadAPI([], { protocol: "http:" }).api.isConfigured(), true);
