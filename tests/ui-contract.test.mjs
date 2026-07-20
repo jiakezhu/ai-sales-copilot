@@ -282,6 +282,32 @@ test("customer header surfaces staff, funding, and website facts", () => {
   assert.match(data, /key:\s*"website"/);
 });
 
+test("customer rows expose one full-row navigation target without covering row actions", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  const row = js.slice(js.indexOf("function renderCustomerRow"), js.indexOf("function openCustomer"));
+  assert.match(row, /class="customer-cell identity-cell"[^>]*data-action="open-customer"/);
+  assert.match(row, /class="report-mini"[^>]*data-action="open-report"/);
+  assert.match(row, /summary data-action="toggle-row-menu"/);
+  assert.match(css, /\.customer-row\s*\{[^}]*position:relative[^}]*cursor:pointer/);
+  assert.match(css, /\.identity-cell::after\s*\{[^}]*position:absolute[^}]*inset:0/);
+  assert.match(css, /\.customer-row>\.row-actions\s*\{[^}]*z-index:2[^}]*pointer-events:none/);
+  assert.match(css, /\.customer-row>\.row-actions>button,\.customer-row>\.row-actions>details\s*\{[^}]*pointer-events:auto/);
+  assert.match(css, /\.identity-cell:focus-visible::after\s*\{[^}]*outline:2px/);
+});
+
+test("new customer creation captures website while keeping the default B grade", () => {
+  const js = read("app.js");
+  const source = js.slice(js.indexOf("function openNewCustomer"), js.indexOf("function openCustomerImport"));
+  assert.match(source, /官方网站<input name="website"/);
+  assert.doesNotMatch(source, /name="grade"/);
+  assert.match(source, /grade:\s*"B"/);
+  assert.match(source, /normalizeWebsiteUrl\(rawWebsite\)/);
+  assert.match(source, /customer\.fields\.website\.v = website/);
+  assert.match(source, /请输入有效的官方网站地址/);
+  assert.doesNotMatch(source, /customer\.(?:website|domain)\s*=/);
+});
+
 test("customer detail is driven by a small set of confirmable Sales Buddy action cards", () => {
   const js = read("app.js");
   const css = read("style.css");
@@ -353,14 +379,24 @@ test("phase one exposes a six-dimension opportunity diagnosis that sales can cal
   assert.match(css, /\.diagnosis-radar\s*\{[^}]*overflow:hidden/);
 });
 
-test("customer overview uses an explicit balanced two-column composition", () => {
+test("customer overview follows the approved business-first reading order", () => {
   const js = read("app.js");
   const css = read("style.css");
   const overview = js.slice(js.indexOf("function renderOverview"), js.indexOf("function inferOpportunityDiagnosis"));
-  assert.match(overview, /class="panel overview-summary"/);
-  assert.match(overview, /class="panel recent-progress-panel wide-panel"/);
-  assert.ok(overview.indexOf("痛点与方案") < overview.indexOf("最近推进"));
+  const summary = overview.indexOf('class="panel overview-summary"');
+  const recent = overview.indexOf('class="panel recent-progress-panel"');
+  const business = overview.indexOf("renderBusinessBrief(customer)");
+  const relations = overview.indexOf('class="panel overview-relations-panel"');
+  const pain = overview.indexOf('class="panel overview-pain-solution-panel"');
+  const diagnosis = overview.indexOf("renderOpportunityDiagnosis(customer)");
+  assert.ok(summary > 0 && recent > summary && business > recent && relations > business && pain > relations && diagnosis > pain);
+  assert.doesNotMatch(overview, /recent-progress-panel wide-panel/);
+  assert.match(js, /class="panel opportunity-diagnosis wide-panel"/);
   assert.match(css, /\.overview-grid\s*\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(css, /\.recent-progress-panel,\.overview-pain-solution-panel\s*\{[^}]*min-height:0[^}]*height:max-content[^}]*align-self:start/);
+  assert.doesNotMatch(css, /\.recent-progress-panel\s*\{[^}]*min-height:250px/);
+  assert.match(css, /\.opportunity-diagnosis\.wide-panel \.diagnosis-visual/);
+  assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.opportunity-diagnosis\.wide-panel \.diagnosis-visual\s*\{[^}]*grid-template-columns:1fr/);
 });
 
 test("phase one includes an editable product and business model brief", () => {
