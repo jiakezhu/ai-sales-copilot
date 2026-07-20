@@ -110,9 +110,8 @@ const CloudAuth = {
       gate.innerHTML = `
         <div class="cb-login-card">
           <div class="cb-login-logo">
-            <img src="assets/penguin/stand.png" alt="Sales Buddy" />
+            <img src="assets/sales-buddy-logo-option-1.png" alt="Sales Buddy" />
           </div>
-          <div class="cb-login-title">Sales Buddy</div>
           <div class="cb-login-sub">登录后你的客户数据将安全存储在云端，多设备同步</div>
           ${phoneBlock}
           ${divider}
@@ -332,8 +331,7 @@ const ApiAuth = {
         const registering = mode === "register";
         gate.innerHTML = `
           <div class="cb-login-card api-login-card">
-            <div class="cb-login-logo"><img src="assets/penguin/stand.png" alt="Sales Buddy" /></div>
-            <div class="cb-login-title">Sales Buddy</div>
+            <div class="cb-login-logo"><img src="assets/sales-buddy-logo-option-1.png" alt="Sales Buddy" /></div>
             <div class="cb-login-sub">${registering ? "创建账号，开始管理你的客户推进" : "登录后客户数据按账号安全隔离"}</div>
             <div class="auth-tabs" role="tablist">
               <button type="button" class="${!registering ? "active" : ""}" data-auth-mode="login" role="tab" aria-selected="${!registering}">登录</button>
