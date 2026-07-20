@@ -743,25 +743,25 @@ function renderOverview(customer) {
       </div>
       ${customer.raidFile?.plan?.action ? `<div class="strategy-callout"><span>策略</span><p>${safe(customer.raidFile.plan.action)}</p></div>` : ""}
     </section>
-    ${renderOpportunityDiagnosis(customer)}
+    <section class="panel recent-progress-panel">
+      <div class="section-heading"><h2>最近推进</h2><button class="text-button" data-action="customer-tab" data-tab="timeline">查看全部 ${icon("arrow-right")}</button></div>
+      <div class="mini-timeline">${recent.length ? recent.map(note => renderMiniTimeline(note)).join("") : emptyState("还没有推进记录", "记录第一次沟通。")}</div>
+    </section>
     ${renderBusinessBrief(customer)}
-    ${renderMeetingPrepArchive(customer)}
-    ${renderPainChain(customer)}
-    ${renderJointWorkPlan(customer)}
-    <section class="panel">
+    <section class="panel overview-relations-panel">
       <div class="section-heading"><h2>关键关系</h2><button class="text-button" data-action="customer-tab" data-tab="relations">查看关系图 ${icon("arrow-right")}</button></div>
       <div class="contact-stack">${contacts.length ? contacts.map(renderCompactContact).join("") : emptyState("还没有联系人", "先添加一个关键人。")}</div>
       <button class="soft-button full" data-action="add-contact" data-customer="${customer.id}">${icon("user-plus")} 添加联系人</button>
     </section>
-    <section class="panel">
+    <section class="panel overview-pain-solution-panel">
       <div class="section-heading"><h2>痛点与方案</h2><button class="text-button" data-action="customer-tab" data-tab="intel">编辑 ${icon("arrow-right")}</button></div>
       <div class="tag-list">${customer.painPoints.slice(0,3).map(p => `<span>${safe(p.v)}</span>`).join("") || `<span class="empty-tag">待补充痛点</span>`}</div>
       <div class="solution-preview">${customer.solution.slice(0,2).map(s => `<article><b>${safe(s.product)}</b><small>${safe(s.reason)}</small></article>`).join("") || `<p class="muted">补充痛点后再匹配方案。</p>`}</div>
     </section>
-    <section class="panel recent-progress-panel wide-panel">
-      <div class="section-heading"><h2>最近推进</h2><button class="text-button" data-action="customer-tab" data-tab="timeline">查看全部 ${icon("arrow-right")}</button></div>
-      <div class="mini-timeline">${recent.length ? recent.map(note => renderMiniTimeline(note)).join("") : emptyState("还没有推进记录", "记录第一次沟通。")}</div>
-    </section>
+    ${renderMeetingPrepArchive(customer)}
+    ${renderPainChain(customer)}
+    ${renderJointWorkPlan(customer)}
+    ${renderOpportunityDiagnosis(customer)}
   </div>`;
 }
 
@@ -820,7 +820,7 @@ function renderOpportunityDiagnosis(customer) {
   const diagnosis = getOpportunityDiagnosis(customer);
   const average = Math.round(OPPORTUNITY_DIMENSIONS.reduce((sum, dimension) => sum + diagnosis[dimension.key], 0) / OPPORTUNITY_DIMENSIONS.length * 10);
   const weakest = [...OPPORTUNITY_DIMENSIONS].sort((a, b) => diagnosis[a.key] - diagnosis[b.key])[0];
-  return `<section class="panel opportunity-diagnosis">
+  return `<section class="panel opportunity-diagnosis wide-panel">
     <div class="section-heading"><div><p class="eyebrow">OPPORTUNITY CHECK</p><h2>六维机会诊断</h2></div><button class="text-button" data-action="edit-opportunity-diagnosis" data-customer="${safe(customer.id)}">校准诊断 ${icon("sliders-horizontal")}</button></div>
     <div class="diagnosis-visual">
       <div class="diagnosis-chart">${renderDiagnosisRadar(diagnosis)}<strong>${average}<small>/100</small></strong></div>
@@ -1505,15 +1505,19 @@ function startVoiceCapture(button) {
 
 // ---------- 手动录入 ----------
 function openNewCustomer() {
-  showModal(`<div class="modal-head"><div><p class="eyebrow">NEW ACCOUNT</p><h2 id="modalTitle">新建客户</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="new-customer"><label>客户名称<input name="name" required autofocus placeholder="公司或组织名称" /></label><label>所属行业<input name="industry" placeholder="例如：游戏、零售、SaaS" /></label><fieldset class="choice-fieldset"><legend>重点等级</legend><div class="option-cards grade-options">${GRADES.map(g => `<label><input type="radio" name="grade" value="${g.key}" ${g.key === "B" ? "checked" : ""}/><span class="grade-option grade-${g.key}">${g.key}</span><b>${safe(g.label.split("·").at(-1).trim())}</b></label>`).join("")}</div></fieldset><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("arrow-right")} 创建并进入档案</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">NEW ACCOUNT</p><h2 id="modalTitle">新建客户</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="new-customer"><label>客户名称<input name="name" required autofocus placeholder="公司或组织名称" /></label><label>所属行业<input name="industry" placeholder="例如：游戏、零售、SaaS" /></label><label>官方网站<input name="website" inputmode="url" autocomplete="url" placeholder="例如：https://example.com" /></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("arrow-right")} 创建并进入档案</button></div></form>`);
 }
 
 function submitNewCustomer(form) {
   const data = new FormData(form);
   const name = String(data.get("name") || "").trim();
+  const rawWebsite = String(data.get("website") || "").trim();
+  const website = normalizeWebsiteUrl(rawWebsite);
   if (!name) return;
-  const customer = ensureCustomerShape({ id: uid(), name, logo: name[0], color: customerColor(customers.length), stage: "lead", grade: data.get("grade") || "B", fields: {}, notes: [], assets: [], orgChain: [], painPoints: [], solution: [] });
+  if (rawWebsite && !website) return toast("请输入有效的官方网站地址");
+  const customer = ensureCustomerShape({ id: uid(), name, logo: name[0], color: customerColor(customers.length), stage: "lead", grade: "B", fields: {}, notes: [], assets: [], orgChain: [], painPoints: [], solution: [] });
   customer.fields.industry.v = String(data.get("industry") || "").trim();
+  customer.fields.website.v = website;
   customers.unshift(customer);
   persist(); closeModal(); openCustomer(customer.id); toast("客户已创建，可手动填写或交给 AI 整理信息");
 }
