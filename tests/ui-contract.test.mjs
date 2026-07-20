@@ -203,16 +203,16 @@ test("QQ penguin pose assets match the approved reference set", () => {
   }
 });
 
-test("desktop and mobile brands both reserve the approved stand pose", () => {
+test("desktop brand uses the selected option one logo while mobile keeps the approved stand pose", () => {
   const html = read("index.html");
   const js = read("app.js");
   const desktopBrand = html.match(/<button class="brand"[\s\S]*?<\/button>/)?.[0] || "";
   const mobileBrand = html.match(/<button class="mobile-brand"[\s\S]*?<\/button>/)?.[0] || "";
   const mascot = /<span class="qq-penguin qq-penguin--brand" data-penguin="stand" aria-hidden="true"><\/span>/;
 
-  assert.match(desktopBrand, mascot);
+  assert.match(desktopBrand, /<img class="brand-logo" src="assets\/sales-buddy-logo-option-1\.png" alt="Sales Buddy" \/>/);
   assert.match(mobileBrand, mascot);
-  assert.equal((html.match(/data-penguin="stand"/g) || []).length, 2);
+  assert.equal((html.match(/data-penguin="stand"/g) || []).length, 1);
   assert.match(js, /const PENGUIN_POSES = \["stand", "wave", "scratch", "search", "success", "lost"\]/);
   assert.match(js, /src="assets\/penguin\/\$\{p\}\.png"/);
 });
@@ -253,11 +253,10 @@ test("Sales Buddy brand and the single global manual entry stay consistent", () 
   const js = read("app.js");
   const auth = read("auth.js");
   assert.match(html, /<title>Sales Buddy · AI 客户推进工作台<\/title>/);
-  assert.match(html, /class="brand-copy"[^>]*><b>Sales Buddy<\/b>/);
-  assert.doesNotMatch(html, /客户推进工作台<\/small>/);
+  assert.match(html, /class="brand-logo" src="assets\/sales-buddy-logo-option-1\.png" alt="Sales Buddy"/);
   assert.match(html, /class="mobile-brand"[\s\S]*?Sales Buddy/);
-  assert.match(auth, /class="cb-login-title">Sales Buddy<\/div>/);
-  assert.equal((auth.match(/assets\/penguin\/stand\.png/g) || []).length, 2);
+  assert.equal((auth.match(/assets\/sales-buddy-logo-option-1\.png/g) || []).length, 2);
+  assert.doesNotMatch(auth, /class="cb-login-title">Sales Buddy<\/div>/);
   assert.equal((html.match(/data-action="manual-entry"/g) || []).length, 1);
   assert.equal((js.match(/data-action="manual-entry"/g) || []).length, 0);
   const today = js.slice(js.indexOf("function renderToday"), js.indexOf("function renderCopilotComposer"));
@@ -392,8 +391,8 @@ test("customer overview follows the approved business-first reading order", () =
   assert.ok(summary > 0 && recent > summary && business > recent && relations > business && pain > relations && diagnosis > pain);
   assert.doesNotMatch(overview, /recent-progress-panel wide-panel/);
   assert.match(js, /class="panel opportunity-diagnosis wide-panel"/);
-  assert.match(css, /\.overview-grid\s*\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-  assert.match(css, /\.recent-progress-panel,\.overview-pain-solution-panel\s*\{[^}]*min-height:0[^}]*height:max-content[^}]*align-self:start/);
+  assert.match(css, /\.overview-grid\s*\{[^}]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)[^}]*align-items:stretch/);
+  assert.match(css, /\.recent-progress-panel,\.overview-pain-solution-panel\s*\{[^}]*min-height:0[^}]*height:auto[^}]*align-self:stretch/);
   assert.doesNotMatch(css, /\.recent-progress-panel\s*\{[^}]*min-height:250px/);
   assert.match(css, /\.opportunity-diagnosis\.wide-panel \.diagnosis-visual/);
   assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.opportunity-diagnosis\.wide-panel \.diagnosis-visual\s*\{[^}]*grid-template-columns:1fr/);
