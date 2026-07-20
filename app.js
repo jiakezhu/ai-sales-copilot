@@ -326,11 +326,11 @@ function renderToday() {
   return `
     <div class="page today-page">
       <header class="today-command">
-        <div class="today-heading"><p class="today-date">${icon("calendar-days")}<span>${formatHomeDate(new Date())}</span></p><h1>今日优先事项</h1></div>
+        <div class="today-heading"><p class="today-date">${icon("calendar-days")}<span>${formatHomeDate(new Date())}</span></p><h1>帮助客户成功，就是你的成功</h1></div>
       </header>
       <section class="ai-assistant-card" id="copilotCard">
         <span class="qq-penguin qq-penguin--assistant" aria-hidden="true">${penguinSVG("wave")}</span>
-        <div class="ai-assistant-copy"><span>Sales Buddy</span><h2>告诉 Sales Buddy 刚发生了什么</h2><p>会议、电话、微信和材料，都可以整理成清晰的客户推进记录。</p></div>
+        <div class="ai-assistant-copy"><h2>告诉 Sales Buddy 刚发生了什么</h2><p>会议、电话、微信和材料，都可以整理成清晰的客户推进记录。</p></div>
         <div class="ai-compose">${renderCopilotComposer()}</div>
         <div id="aiDraft"></div>
       </section>

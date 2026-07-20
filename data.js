@@ -32,6 +32,22 @@ const FIELD_DEFS = [
   { key: "product",     label: "主力产品",   public: true,  ph: "如：MMORPG《九州幻想》" },
   { key: "dau",         label: "活跃数据",   public: true,  ph: "如：DAU 210 万 / MAU 860 万" },
   { key: "revenue",     label: "营收/流水",  public: true,  ph: "如：年流水约 9 亿，海外占 35%" },
+
+  // —— 以下为对接 B2B 公司调研（企查查/天眼查/公开检索）可补充的客户情报维度 ——
+  { key: "creditCode",   label: "统一社会信用代码", public: true, ph: "如：91110108MA01ABCD2X" },
+  { key: "legalPerson",  label: "法定代表人",   public: true,  ph: "如：周明远" },
+  { key: "regCapital",   label: "注册资本",     public: true,  ph: "如：5000 万人民币" },
+  { key: "regAddress",   label: "注册地址",     public: true,  ph: "如：北京市海淀区 xx 路 xx 号" },
+  { key: "businessModel",label: "业务模式",     public: true,  ph: "如：研运一体，靠长线运营拉高 LTV" },
+  { key: "techStack",    label: "技术栈",       public: true,  ph: "如：Go + Kubernetes + 自研调度" },
+  { key: "shareholders", label: "股东与股权",   public: true,  ph: "如：红杉持股 18%，创始人 42%" },
+  { key: "parentSubs",   label: "母公司与子公司", public: true, ph: "如：母公司 XX 集团，子公司 3 家" },
+  { key: "supplyChain",  label: "上下游关系",   public: true,  ph: "如：上游阿里云，下游渠道代理" },
+  { key: "recentNews",   label: "近期动态",     public: true,  ph: "如：2026-06 完成 C 轮，拓展中东" },
+  { key: "hiring",       label: "招聘信号",     public: true,  ph: "如：急招海外运营/云架构师，扩张中" },
+  { key: "riskNote",     label: "风险与竞争",   public: true,  ph: "如：友商 A 存量大，迁移惯性高" },
+  { key: "triggerEvents",label: "触发事件",     public: true,  ph: "如：融资到位、换帅、新区域扩张" },
+
   { key: "cloudStatus", label: "上云现状",   public: false, ph: "客户现在用什么云？年支出？" },
   { key: "billNote",    label: "账单结构",   public: false, ph: "CVM/CDN/数据库各占多少？" },
   { key: "relation",    label: "客户关系",   public: false, ph: "上次沟通到哪一步？谁的态度如何？" },
