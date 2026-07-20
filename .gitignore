@@ -16,3 +16,4 @@ node_modules/
 .env
 .data/
 .workbuddy/memory/
+/outputs/
