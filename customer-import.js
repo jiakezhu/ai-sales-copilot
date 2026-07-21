@@ -169,7 +169,7 @@
 
   function makeFields(industry) {
     const fields = {};
-    FIELD_KEYS.forEach(key => { fields[key] = { v: key === "industry" ? clean(industry) : "" }; });
+    FIELD_KEYS.forEach(key => { fields[key] = { v: key === "industry" ? clean(industry) : "", source: "", confidence: "unverified", verifiedAt: "" }; });
     return fields;
   }
 
@@ -206,7 +206,7 @@
     if (contactName) {
       customer.orgChain.push({
         id: `${id}-contact-1`, pid: null, name: contactName, role: clean(values.role), level: 3,
-        phone: clean(values.phone), wechat: "", email: clean(values.email), note: clean(values.remarks),
+        phone: clean(values.phone), phoneType: "unverified", wechat: "", email: clean(values.email), note: clean(values.remarks),
       });
     }
     const nextDate = normalizeImportDate(values.nextDate);
@@ -258,7 +258,12 @@
       target.orgChain.push(contact);
       return;
     }
-    ["role", "phone", "email", "note"].forEach(key => { if (clean(contact[key])) matched[key] = contact[key]; });
+    ["role", "email", "note"].forEach(key => { if (clean(contact[key])) matched[key] = contact[key]; });
+    if (clean(contact.phone) && clean(contact.phone) !== clean(matched.phone)) {
+      matched.phone = contact.phone;
+      matched.phoneType = "unverified";
+      matched.phoneVerifiedAt = "";
+    }
   }
 
   function mergeCustomer(target, incoming, values) {

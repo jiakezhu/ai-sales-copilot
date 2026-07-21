@@ -59,6 +59,15 @@ const SALES_ASSET_TYPES = [
   { key: "negotiation-card", label: "谈判作战卡", icon: "handshake", description: "目标、交换条件、红线与异议处理的一页作战卡" },
 ];
 
+const INTEL_SOURCES = [
+  ["", "来源待补充"], ["customer", "客户自报"], ["website", "官网"], ["qcc", "企查查"],
+  ["tyc", "天眼查"], ["web", "全网检索"], ["panshi", "磐石"],
+];
+const INTEL_CONFIDENCES = [["unverified", "待核"], ["high", "高置信"], ["medium", "中置信"], ["low", "低置信"]];
+const ADMITTANCE_CHANNELS = [["", "待核"], ["direct", "官网直客"], ["longtail", "长尾"], ["ka", "KA"], ["region", "区域"], ["partner", "渠道/合作伙伴"]];
+const ADMITTANCE_STATUSES = [["unverified", "待核"], ["clear", "无主报备"], ["reported", "已报备"], ["followed", "已有人跟"]];
+const PHONE_TYPES = [["unverified", "待核验"], ["direct", "直联号码"], ["agent", "代记账/第三方"]];
+
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
@@ -102,12 +111,22 @@ function ensureCustomerShape(customer) {
   const seed = typeof SEED_CUSTOMERS !== "undefined" ? SEED_CUSTOMERS.find(item => item.id === customer.id) : null;
   const seedCopy = key => JSON.parse(JSON.stringify(seed?.[key] || (["painChain", "negotiationBrief"].includes(key) ? {} : [])));
   customer.fields ||= {};
-  FIELD_DEFS.forEach(def => customer.fields[def.key] ||= { v: "" });
+  FIELD_DEFS.forEach(def => {
+    const current = customer.fields[def.key];
+    customer.fields[def.key] = current && typeof current === "object"
+      ? { v: "", source: "", confidence: "unverified", verifiedAt: "", ...current }
+      : { v: String(current || ""), source: "", confidence: "unverified", verifiedAt: "" };
+  });
   customer.notes ||= [];
   customer.assets ||= [];
   customer.orgChain ||= [];
+  customer.orgChain.forEach(person => { if (person.phone && !person.phoneType) person.phoneType = "unverified"; });
   customer.painPoints ||= [];
   customer.solution ||= [];
+  customer.solution = customer.solution.map(item => item && typeof item === "object" ? { ...item } : item);
+  customer.admittance = { status: "unverified", reportedBy: "", channel: "", uin: "", groupGid: "", source: "", confidence: "unverified", verifiedAt: "", ...(customer.admittance || {}) };
+  customer.bidding ||= [];
+  customer.qualifications ||= [];
   customer.guidedActions ||= {};
   customer.guidedConfirmations ||= {};
   customer.meetingPreps ||= [];
@@ -228,6 +247,10 @@ async function handleAction(event) {
   if (action === "close-modal") return closeModal();
   if (action === "add-contact") return openContactForm(trigger.dataset.customer || state.customerId);
   if (action === "edit-contact") return openContactForm(trigger.dataset.customer, trigger.dataset.contact);
+  if (action === "add-bidding") return openBiddingForm(trigger.dataset.customer || state.customerId);
+  if (action === "remove-bidding") return removeBidding(trigger.dataset.customer, trigger.dataset.item);
+  if (action === "add-qualification") return openQualificationForm(trigger.dataset.customer || state.customerId);
+  if (action === "remove-qualification") return removeQualification(trigger.dataset.customer, trigger.dataset.item);
   if (action === "add-pain") return openPainForm(trigger.dataset.customer || state.customerId);
   if (action === "add-solution") return openSolutionForm(trigger.dataset.customer || state.customerId);
   if (action === "remove-pain") return removePain(trigger.dataset.customer, Number(trigger.dataset.index));
@@ -259,6 +282,8 @@ async function handleChange(event) {
   if (target.matches("[data-customer-stage]")) return updateCustomerStage(target.dataset.customerStage, target.value);
   if (target.matches("[data-customer-grade]")) return updateCustomerGrade(target.dataset.customerGrade, target.value);
   if (target.matches("[data-intel-field]")) return updateIntelField(target);
+  if (target.matches("[data-intel-meta]")) return updateIntelMeta(target);
+  if (target.matches("[data-admittance-field]")) return updateAdmittanceField(target);
   if (target.id === "copilotFiles") return handleCopilotFiles(target.files);
   if (target.matches(".diagnosis-range")) {
     const output = target.closest("label")?.querySelector("output");
@@ -289,6 +314,8 @@ async function handleSubmit(event) {
   if (type === "work-plan") return submitWorkPlan(event.target);
   if (type === "negotiation-brief") return submitNegotiationBrief(event.target);
   if (type === "contact") return submitContact(event.target);
+  if (type === "bidding") return submitBidding(event.target);
+  if (type === "qualification") return submitQualification(event.target);
   if (type === "pain") return submitPain(event.target);
   if (type === "solution") return submitSolution(event.target);
 }
@@ -473,7 +500,7 @@ function renderCustomerDetail(customer) {
     : null;
   const next = focusedTask || getNextTask(customer) || getLatestCompletedTask(customer);
   const tabs = [
-    ["overview", "作战概览"], ["timeline", "推进记录"], ["relations", "关键关系"], ["signals", "外部信号"], ["closing", "成交工具"], ["intel", "情报与证据"],
+    ["overview", "作战概览"], ["admittance", "客户准入"], ["intel", "情报与证据"], ["timeline", "推进记录"], ["relations", "关键关系"], ["signals", "外部信号"], ["closing", "成交工具"],
   ];
   return `<div class="page customer-detail">
     <button class="back-link" data-action="back-customers">${icon("arrow-left")} 返回客户列表</button>
@@ -732,11 +759,12 @@ function renderChoiceControl(customer, type) {
 }
 
 function renderCustomerTab(customer) {
+  if (state.customerTab === "admittance") return renderAdmittanceWorkspace(customer);
+  if (state.customerTab === "intel") return renderIntelligence(customer);
   if (state.customerTab === "timeline") return renderTimeline(customer);
   if (state.customerTab === "relations") return renderRelations(customer);
   if (state.customerTab === "signals") return renderExternalSignals(customer);
   if (state.customerTab === "closing") return renderClosingWorkspace(customer);
-  if (state.customerTab === "intel") return renderIntelligence(customer);
   return renderOverview(customer);
 }
 
@@ -924,7 +952,7 @@ function renderPainChain(customer) {
   ];
   const populated = steps.filter(([, value]) => value).length;
   return `<section class="panel pain-chain-panel wide-panel">
-    <div class="section-heading"><div><p class="eyebrow">PAIN CHAIN</p><h2>机会痛苦链</h2></div><button class="text-button" data-action="edit-pain-chain" data-customer="${safe(customer.id)}">${populated ? "确认与编辑" : "开始梳理"} ${icon("square-pen")}</button></div>
+    <div class="section-heading"><div><p class="eyebrow">PAIN CHAIN</p><h2>机会痛苦链</h2><small class="inference-label">销售假设 · 待客户确认</small></div><button class="text-button" data-action="edit-pain-chain" data-customer="${safe(customer.id)}">${populated ? "确认与编辑" : "开始梳理"} ${icon("square-pen")}</button></div>
     <div class="pain-chain-flow">${steps.map(([label, value, iconName], index) => `<article class="${value ? "has-value" : "is-empty"}"><span>${icon(iconName)}</span><small>${safe(label)}</small><p>${safe(value || "待销售确认")}</p>${index < steps.length - 1 ? `<i>${icon("arrow-right")}</i>` : ""}</article>`).join("")}</div>
   </section>`;
 }
@@ -974,7 +1002,7 @@ function openPainChain(customerId) {
 
 function submitPainChain(form) {
   const data = new FormData(form), customer = getCustomer(data.get("customerId")); if (!customer) return;
-  customer.painChain = { signal: String(data.get("signal") || "").trim(), pain: String(data.get("pain") || "").trim(), impact: String(data.get("impact") || "").trim(), solution: String(data.get("solution") || "").trim(), question: String(data.get("question") || "").trim(), updatedAt: nowDateTime() };
+  customer.painChain = { signal: String(data.get("signal") || "").trim(), pain: String(data.get("pain") || "").trim(), impact: String(data.get("impact") || "").trim(), solution: String(data.get("solution") || "").trim(), question: String(data.get("question") || "").trim(), inferred: true, updatedAt: nowDateTime() };
   persist(); closeModal(); renderApp(); toast("机会痛苦链已保存");
 }
 
@@ -1174,6 +1202,11 @@ function renderTimelineItem(customer, note) {
   </article>`;
 }
 
+function phoneTypeMeta(type) {
+  const [key, label] = PHONE_TYPES.find(([option]) => option === type) || PHONE_TYPES[0];
+  return { key, label };
+}
+
 function renderRelations(customer) {
   const roots = customer.orgChain.filter(person => !person.pid || !customer.orgChain.some(p => p.id === person.pid));
   return `<section class="panel relations-panel">
@@ -1188,21 +1221,67 @@ function renderOrgBranch(customer, person, visited) {
   const nextVisited = new Set(visited); nextVisited.add(person.id);
   const children = customer.orgChain.filter(p => p.pid === person.id);
   const built = Boolean(person.phone || person.wechat || person.email || person.note);
-  return `<div class="org-branch"><article class="person-card ${built ? "connected" : ""}"><div class="person-main"><span class="person-avatar large">${safe(person.name?.[0] || "人")}</span><div><b>${safe(person.name)}</b><small>${safe(person.role || "职位未填写")}</small></div><span class="influence-pill">${person.level === 1 ? "决策" : person.level === 2 ? "影响" : "执行"}</span></div><div class="person-contact">${person.phone ? `<span>${icon("phone")} ${safe(person.phone)}</span>` : ""}${person.wechat ? `<span>${icon("message-circle")} ${safe(person.wechat)}</span>` : ""}${person.email ? `<span>${icon("mail")} ${safe(person.email)}</span>` : ""}</div><p>${safe(person.note || "尚未补充关系备注")}</p><div class="person-actions"><button data-action="edit-contact" data-customer="${customer.id}" data-contact="${person.id}">${icon("pencil")} 编辑</button><button data-action="remove-contact" data-customer="${customer.id}" data-contact="${person.id}">${icon("trash-2")} 删除</button></div></article>${children.length ? `<div class="org-children">${children.map(child => renderOrgBranch(customer, child, nextVisited)).join("")}</div>` : ""}</div>`;
+  const phoneType = phoneTypeMeta(person.phoneType);
+  return `<div class="org-branch"><article class="person-card ${built ? "connected" : ""}"><div class="person-main"><span class="person-avatar large">${safe(person.name?.[0] || "人")}</span><div><b>${safe(person.name)}</b><small>${safe(person.role || "职位未填写")}</small></div><span class="influence-pill">${person.level === 1 ? "决策" : person.level === 2 ? "影响" : "执行"}</span></div><div class="person-contact">${person.phone ? `<span>${icon("phone")} ${safe(person.phone)} <i class="phone-status phone-status--${safe(phoneType.key)}">${safe(phoneType.label)}</i></span>` : ""}${person.wechat ? `<span>${icon("message-circle")} ${safe(person.wechat)}</span>` : ""}${person.email ? `<span>${icon("mail")} ${safe(person.email)}</span>` : ""}</div><p>${safe(person.note || "尚未补充关系备注")}</p><div class="person-actions"><button data-action="edit-contact" data-customer="${customer.id}" data-contact="${person.id}">${icon("pencil")} 编辑</button><button data-action="remove-contact" data-customer="${customer.id}" data-contact="${person.id}">${icon("trash-2")} 删除</button></div></article>${children.length ? `<div class="org-children">${children.map(child => renderOrgBranch(customer, child, nextVisited)).join("")}</div>` : ""}</div>`;
 }
 
+function intelSourceLabel(source) { return (INTEL_SOURCES.find(([key]) => key === source) || INTEL_SOURCES[0])[1]; }
+function intelConfidenceLabel(confidence) { return (INTEL_CONFIDENCES.find(([key]) => key === confidence) || INTEL_CONFIDENCES[0])[1]; }
+function intelFieldRecord(customer, key) {
+  const field = customer.fields[key] || {};
+  return { v: "", source: "", confidence: "unverified", verifiedAt: "", ...field };
+}
+function selectOptions(options, selected) { return options.map(([key, label]) => `<option value="${safe(key)}" ${key === selected ? "selected" : ""}>${safe(label)}</option>`).join(""); }
+function admittanceStatus(admittance) {
+  const isVerified = Boolean(admittance.verifiedAt) && ["clear", "reported", "followed"].includes(admittance.status);
+  if (!isVerified) return { key: "unverified", label: "待核", detail: "当前信息尚未完成准入核验，不构成准入结论" };
+  const label = (ADMITTANCE_STATUSES.find(([key]) => key === admittance.status) || ADMITTANCE_STATUSES[0])[1];
+  return { key: admittance.status, label, detail: `已于 ${admittance.verifiedAt} 核验` };
+}
+function renderAdmittance(customer) {
+  const admittance = customer.admittance;
+  const status = admittanceStatus(admittance);
+  return `<div class="intel-section admittance-section"><div class="intel-section-title"><span>准入</span><div><b>客户准入与存量</b><small>仅已选状态且填写核验日期后，才形成准入结论</small></div><em class="admittance-status admittance-status--${status.key}" title="${safe(status.detail)}">${safe(status.label)}</em></div><div class="intel-form-grid admittance-grid"><label class="intel-field"><span>核验结论</span><div class="modern-select"><select data-admittance-field="status" data-customer="${safe(customer.id)}">${selectOptions(ADMITTANCE_STATUSES, admittance.status)}</select>${icon("chevron-down")}</div></label><label class="intel-field"><span>主商务 / 报备人</span><input data-admittance-field="reportedBy" data-customer="${safe(customer.id)}" value="${safe(admittance.reportedBy)}" placeholder="录入后仍需核验" /></label><label class="intel-field"><span>归属通路</span><div class="modern-select"><select data-admittance-field="channel" data-customer="${safe(customer.id)}">${selectOptions(ADMITTANCE_CHANNELS, admittance.channel)}</select>${icon("chevron-down")}</div></label><label class="intel-field"><span>腾讯云 UIN</span><input data-admittance-field="uin" data-customer="${safe(customer.id)}" value="${safe(admittance.uin)}" placeholder="有则为存量客户" /></label><label class="intel-field"><span>集团 GID</span><input data-admittance-field="groupGid" data-customer="${safe(customer.id)}" value="${safe(admittance.groupGid)}" placeholder="用于关联集团主体" /></label><label class="intel-field"><span>来源</span><div class="modern-select"><select data-admittance-field="source" data-customer="${safe(customer.id)}">${selectOptions(INTEL_SOURCES, admittance.source)}</select>${icon("chevron-down")}</div></label><label class="intel-field"><span>置信度</span><div class="modern-select"><select data-admittance-field="confidence" data-customer="${safe(customer.id)}">${selectOptions(INTEL_CONFIDENCES, admittance.confidence)}</select>${icon("chevron-down")}</div></label><label class="intel-field"><span>核验日期</span><input type="date" data-admittance-field="verifiedAt" data-customer="${safe(customer.id)}" value="${safe(admittance.verifiedAt)}" /></label></div></div>`;
+}
+function renderAdmittanceWorkspace(customer) {
+  const status = admittanceStatus(customer.admittance);
+  return `<div class="admittance-workspace">
+    <section class="admittance-intro">
+      <div><p class="eyebrow">ADMISSION CHECK</p><h2>客户准入与存量核验</h2><p>先确认归属和存量状态，再核验招投标与资质事实。</p></div>
+      <span class="admittance-intro-status admittance-status--${safe(status.key)}">${safe(status.label)}</span>
+    </section>
+    <section class="panel admittance-panel">${renderAdmittance(customer)}</section>
+    <div class="admittance-fact-grid">
+      ${renderBidding(customer)}
+      ${renderQualifications(customer)}
+    </div>
+  </div>`;
+}
+
+function intelEvidenceMeta(item) {
+  const verified = item?.verifiedAt ? `核验 ${item.verifiedAt}` : "待核";
+  return [intelSourceLabel(item?.source), intelConfidenceLabel(item?.confidence), verified].join(" · ");
+}
+function renderBidding(customer) {
+  const items = [...customer.bidding].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  return `<section class="panel intelligence-records"><div class="section-heading"><div><h2>招投标 / 中标</h2><small>来源和核验齐全后才作为已核实事实</small></div><button class="text-button" data-action="add-bidding" data-customer="${safe(customer.id)}">${icon("plus")} 添加</button></div>${items.length ? `<div class="intel-record-list">${items.map(item => `<article><div><b>${safe(item.project)}</b><small>${safe([item.purchaser, item.role, item.amount, formatShortDate(item.date)].filter(Boolean).join(" · "))}</small><small>${safe(intelEvidenceMeta(item))}</small>${item.signal ? `<p>${safe(item.signal)}</p>` : ""}${normalizeWebsiteUrl(item.sourceUrl) ? `<a href="${safe(normalizeWebsiteUrl(item.sourceUrl))}" target="_blank" rel="noopener noreferrer">查看来源 ${icon("external-link")}</a>` : ""}</div><button data-action="remove-bidding" data-customer="${safe(customer.id)}" data-item="${safe(item.id)}" aria-label="删除招投标记录">${icon("x")}</button></article>`).join("")}</div>` : emptyState("还没有招投标信息", "记录项目、采购方、金额和中标角色。")}</section>`;
+}
+function renderQualifications(customer) {
+  const items = customer.qualifications;
+  return `<section class="panel intelligence-records"><div class="section-heading"><div><h2>资质与许可</h2><small>来源和核验齐全后才作为已核实事实</small></div><button class="text-button" data-action="add-qualification" data-customer="${safe(customer.id)}">${icon("plus")} 添加</button></div>${items.length ? `<div class="intel-record-list">${items.map(item => `<article><div><b>${safe(item.name)}</b><small>${safe([item.type, item.authority, item.validTo ? `有效至 ${item.validTo}` : ""].filter(Boolean).join(" · "))}</small><small>${safe(intelEvidenceMeta(item))}</small>${normalizeWebsiteUrl(item.sourceUrl) ? `<a href="${safe(normalizeWebsiteUrl(item.sourceUrl))}" target="_blank" rel="noopener noreferrer">查看来源 ${icon("external-link")}</a>` : ""}</div><button data-action="remove-qualification" data-customer="${safe(customer.id)}" data-item="${safe(item.id)}" aria-label="删除资质记录">${icon("x")}</button></article>`).join("")}</div>` : emptyState("还没有资质信息", "可记录版号、等保、ICP 或行业许可。")}</section>`;
+}
 function renderIntelligence(customer) {
   const publicFields = FIELD_DEFS.filter(d => d.public);
   const privateFields = FIELD_DEFS.filter(d => !d.public);
   return `<div class="intel-layout">
     <section class="panel intelligence-panel">
       <div class="section-heading"><div><p class="eyebrow">CUSTOMER INTELLIGENCE</p><h2>情报与证据</h2></div><span class="save-hint">修改后自动保存</span></div>
-      <div class="intel-section"><div class="intel-section-title"><span>公开</span><div><b>基础信息</b><small>可通过公开渠道核实</small></div></div><div class="intel-form-grid">${publicFields.map(def => intelField(customer, def)).join("")}</div></div>
+      <div class="intel-section"><div class="intel-section-title"><span>公开</span><div><b>基础信息</b><small>逐条标注来源、置信度与核验时间</small></div></div><div class="intel-form-grid">${publicFields.map(def => intelField(customer, def)).join("")}</div></div>
       <div class="intel-section"><div class="intel-section-title private"><span>私有</span><div><b>一线情报</b><small>来自真实沟通，是推进关键</small></div></div><div class="intel-form-grid single">${privateFields.map(def => intelField(customer, def, true)).join("")}</div></div>
     </section>
     <aside class="intel-side">
       <section class="panel"><div class="section-heading"><h2>核心痛点</h2><button class="text-button" data-action="add-pain" data-customer="${customer.id}">${icon("plus")} 添加</button></div><div class="editable-list">${customer.painPoints.length ? customer.painPoints.map((p,i) => `<article><span>${safe(p.v)}</span><button data-action="remove-pain" data-customer="${customer.id}" data-index="${i}" aria-label="删除痛点">${icon("x")}</button></article>`).join("") : emptyState("尚未记录痛点", "从沟通中持续补充。")}</div></section>
-      <section class="panel"><div class="section-heading"><h2>匹配方案</h2><button class="text-button" data-action="add-solution" data-customer="${customer.id}">${icon("plus")} 添加</button></div><div class="solution-list">${customer.solution.length ? customer.solution.map(s => `<article><b>${safe(s.product)}</b><p>${safe(s.reason)}</p></article>`).join("") : emptyState("尚未匹配方案", "基于明确痛点再提供方案。")}</div></section>
+      <section class="panel"><div class="section-heading"><div><h2>匹配方案</h2><small>销售假设，需客户确认</small></div><button class="text-button" data-action="add-solution" data-customer="${customer.id}">${icon("plus")} 添加</button></div><div class="solution-list">${customer.solution.length ? customer.solution.map(s => `<article><b>${safe(s.product)}</b><p>${safe(s.reason)}</p><small class="inference-label">推测供参考 · 非事实</small></article>`).join("") : emptyState("尚未匹配方案", "基于明确痛点再提供方案。")}</div></section>
       <section class="panel"><div class="section-heading"><h2>证据材料</h2><span>${customer.assets.length}</span></div>${customer.assets.length ? `<div class="asset-list">${customer.assets.map(a => renderEvidenceItem(customer, a)).join("")}</div>` : emptyState("还没有证据材料", "可在记录推进时上传文件。")}</section>
     </aside>
   </div>`;
@@ -1235,8 +1314,11 @@ function renderEvidenceItem(customer, asset) {
 }
 
 function intelField(customer, def, multiline = false) {
-  const value = customer.fields[def.key]?.v || "";
-  return `<label class="intel-field ${multiline ? "wide" : ""}"><span>${safe(def.label)}</span>${multiline ? `<textarea rows="3" data-intel-field="${def.key}" data-customer="${customer.id}" placeholder="${safe(def.ph)}">${safe(value)}</textarea>` : `<input data-intel-field="${def.key}" data-customer="${customer.id}" value="${safe(value)}" placeholder="${safe(def.ph)}" />`}</label>`;
+  const field = intelFieldRecord(customer, def.key);
+  const valueControl = multiline
+    ? `<textarea rows="3" data-intel-field="${def.key}" data-customer="${customer.id}" placeholder="${safe(def.ph)}">${safe(field.v)}</textarea>`
+    : `<input data-intel-field="${def.key}" data-customer="${customer.id}" value="${safe(field.v)}" placeholder="${safe(def.ph)}" />`;
+  return `<label class="intel-field ${multiline ? "wide" : ""}"><span>${safe(def.label)}</span>${valueControl}</label>`;
 }
 
 function renderTasks() {
@@ -1680,7 +1762,7 @@ function renderAIDraft() {
     <div class="review-head"><div><span class="review-kicker">${draft.source === "api" ? "AI API 已整理" : "本地规则已整理"} · 等待确认</span><h3>准备写入客户档案</h3></div><label>关联客户<div class="modern-select"><select id="aiTargetSelect"><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${draft.customerId === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label></div>
     <div class="review-items">
       <label class="review-item main-review"><input class="draft-check" type="checkbox" data-kind="note" checked /><span class="review-check"></span><div><small>新增推进记录 · ${safe(methodMeta(draft.method).label)}</small><b>${safe(draft.raw)}</b>${draft.contact ? `<p>对接人：${safe(draft.contact)}</p>` : ""}</div></label>
-      ${fields.map(([key,value]) => { const def=FIELD_DEFS.find(d=>d.key===key); return `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="field" data-key="${key}" checked /><span class="review-check"></span><div><small>更新情报 · ${safe(def?.label || key)}</small><b>${safe(value)}</b></div></label>`; }).join("")}
+      ${fields.map(([key,value]) => { const def=FIELD_DEFS.find(d=>d.key===key); return `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="field" data-key="${key}" checked /><span class="review-check"></span><div><small>更新情报 · ${safe(def?.label || key)} · AI 提取后待核</small><b>${safe(value)}</b></div></label>`; }).join("")}
       ${draft.next ? `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="task" checked /><span class="review-check"></span><div><small>创建下一步${draft.nextDate ? ` · ${formatShortDate(draft.nextDate)}` : ""}</small><b>${safe(draft.next)}</b></div></label>` : ""}
       ${draft.attachments?.length ? `<article class="review-item review-attachment"><span class="review-file-icon">${icon("files")}</span><div><small>随推进记录保存 · ${draft.attachments.length} 份资料</small><b>${draft.attachments.map(attachment => safe(attachment.name)).join("、")}</b></div></article>` : ""}
     </div>
@@ -1715,7 +1797,9 @@ function applyAIDraftSelection(customer, draft, selection, createdAt, noteId) {
   const fieldKeys = Array.isArray(selection?.fields) ? selection.fields : [];
   const createNote = Boolean(selection?.note || selection?.task);
   if (!createNote && !fieldKeys.length) return { persisted: false };
-  fieldKeys.forEach(key => { customer.fields[key] = { v: draft.found[key] }; });
+  fieldKeys.forEach(key => {
+    customer.fields[key] = { ...intelFieldRecord(customer, key), v: draft.found[key], source: "", confidence: "unverified", verifiedAt: "" };
+  });
   if (createNote) {
     const attachments = [...(draft.attachments || [])];
     customer.assets.push(...attachments);
@@ -2038,14 +2122,43 @@ function openContactForm(customerId, contactId = "") {
   if (!customer) return;
   const person = customer.orgChain.find(item => item.id === contactId);
   const value = input => safe(input || "");
-  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">${person ? "编辑关键联系人" : "添加关键联系人"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><input type="hidden" name="contactId" value="${value(contactId)}" /><div class="form-row"><label>姓名<input name="name" required value="${value(person?.name)}" /></label><label>职位<input name="role" value="${value(person?.role)}" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options">${[[1,"crown","决策层"],[2,"users","影响层"],[3,"wrench","执行层"]].map(([level,iconName,label]) => `<label><input type="radio" name="level" value="${level}" ${(person?.level || 2) === level ? "checked" : ""}/><span>${icon(iconName)}</span><b>${label}</b></label>`).join("")}</div></fieldset><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.filter(p => p.id !== contactId).map(p => `<option value="${p.id}" ${person?.pid === p.id ? "selected" : ""}>${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><div class="form-row"><label>电话<input name="phone" value="${value(person?.phone)}" /></label><label>微信<input name="wechat" value="${value(person?.wechat)}" /></label></div><label>邮箱<input name="email" type="email" value="${value(person?.email)}" /></label><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点、建联情况">${value(person?.note)}</textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon(person ? "check" : "user-plus")} ${person ? "保存修改" : "保存联系人"}</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">${person ? "编辑关键联系人" : "添加关键联系人"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><input type="hidden" name="contactId" value="${value(contactId)}" /><div class="form-row"><label>姓名<input name="name" required value="${value(person?.name)}" /></label><label>职位<input name="role" value="${value(person?.role)}" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options">${[[1,"crown","决策层"],[2,"users","影响层"],[3,"wrench","执行层"]].map(([level,iconName,label]) => `<label><input type="radio" name="level" value="${level}" ${(person?.level || 2) === level ? "checked" : ""}/><span>${icon(iconName)}</span><b>${label}</b></label>`).join("")}</div></fieldset><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.filter(p => p.id !== contactId).map(p => `<option value="${p.id}" ${person?.pid === p.id ? "selected" : ""}>${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><div class="form-row"><label>电话<input name="phone" value="${value(person?.phone)}" /></label><label>电话核验状态<div class="modern-select"><select name="phoneType">${selectOptions(PHONE_TYPES, person?.phoneType || "unverified")}</select>${icon("chevron-down")}</div></label></div><div class="form-row"><label>微信<input name="wechat" value="${value(person?.wechat)}" /></label><label>邮箱<input name="email" type="email" value="${value(person?.email)}" /></label></div><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点、建联情况">${value(person?.note)}</textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon(person ? "check" : "user-plus")} ${person ? "保存修改" : "保存联系人"}</button></div></form>`);
 }
 
 function submitContact(form) {
   const data = new FormData(form); const customer = getCustomer(data.get("customerId")); if (!customer) return;
   const contactId = String(data.get("contactId") || "");
-  upsertContact(customer, { id: contactId || uid("o"), pid: data.get("pid") || null, name: String(data.get("name") || "").trim(), role: String(data.get("role") || "").trim(), level: Number(data.get("level") || 2), phone: String(data.get("phone") || "").trim(), wechat: String(data.get("wechat") || "").trim(), email: String(data.get("email") || "").trim(), note: String(data.get("note") || "").trim(), photo: customer.orgChain.find(p => p.id === contactId)?.photo || "" });
+  upsertContact(customer, { id: contactId || uid("o"), pid: data.get("pid") || null, name: String(data.get("name") || "").trim(), role: String(data.get("role") || "").trim(), level: Number(data.get("level") || 2), phone: String(data.get("phone") || "").trim(), phoneType: String(data.get("phoneType") || "unverified"), wechat: String(data.get("wechat") || "").trim(), email: String(data.get("email") || "").trim(), note: String(data.get("note") || "").trim(), photo: customer.orgChain.find(p => p.id === contactId)?.photo || "" });
   persist(); closeModal(); renderApp(); toast(contactId ? "联系人已更新" : "联系人已加入关系图");
+}
+
+function openBiddingForm(customerId) {
+  const customer = getCustomer(customerId); if (!customer) return;
+  showModal(`<div class="modal-head"><div><p class="eyebrow">BIDDING SIGNAL</p><h2 id="modalTitle">添加招投标 / 中标信息</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="bidding"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><label>项目名称<input name="project" required placeholder="例如：XX 平台云资源采购" /></label><div class="form-row"><label>采购方<input name="purchaser" placeholder="项目采购主体" /></label><label>中标角色<div class="modern-select"><select name="role"><option value="">未标注</option><option value="总包">总包</option><option value="分包">分包</option></select>${icon("chevron-down")}</div></label></div><div class="form-row"><label>中标金额<input name="amount" placeholder="例如：320 万元" /></label><label>公告日期<input type="date" name="date" value="${todayStr()}" /></label></div><label>来源链接<input type="url" name="sourceUrl" placeholder="https://" /></label><div class="form-row"><label>来源<div class="modern-select"><select name="source">${selectOptions(INTEL_SOURCES, "")}</select>${icon("chevron-down")}</div></label><label>置信度<div class="modern-select"><select name="confidence">${selectOptions(INTEL_CONFIDENCES, "unverified")}</select>${icon("chevron-down")}</div></label></div><label>核验日期<input type="date" name="verifiedAt" /></label><label>业务信号<textarea name="signal" rows="3" placeholder="仅记录从项目中可确认的投入方向"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存信息</button></div></form>`);
+}
+function submitBidding(form) {
+  const data = new FormData(form), customer = getCustomer(data.get("customerId")); if (!customer) return;
+  const project = String(data.get("project") || "").trim(); if (!project) return toast("请填写项目名称");
+  customer.bidding.push({ id: uid("bid"), project, purchaser: String(data.get("purchaser") || "").trim(), role: String(data.get("role") || "").trim(), amount: String(data.get("amount") || "").trim(), date: String(data.get("date") || ""), source: String(data.get("source") || ""), sourceUrl: String(data.get("sourceUrl") || "").trim(), confidence: String(data.get("confidence") || "unverified"), verifiedAt: String(data.get("verifiedAt") || ""), signal: String(data.get("signal") || "").trim(), capturedAt: nowDateTime() });
+  persist(); closeModal(); renderApp(); toast("招投标信息已保存");
+}
+function removeBidding(customerId, itemId) {
+  const customer = getCustomer(customerId); if (!customer) return;
+  customer.bidding = customer.bidding.filter(item => item.id !== itemId); persist(); renderApp(); toast("招投标信息已删除");
+}
+function openQualificationForm(customerId) {
+  const customer = getCustomer(customerId); if (!customer) return;
+  showModal(`<div class="modal-head"><div><p class="eyebrow">QUALIFICATION</p><h2 id="modalTitle">添加资质或许可</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="qualification"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><label>资质名称<input name="name" required placeholder="例如：增值电信业务经营许可证" /></label><div class="form-row"><label>资质类型<input name="type" placeholder="例如：ICP / 等保 / 版号" /></label><label>颁发机构<input name="authority" placeholder="例如：通信管理局" /></label></div><label>有效期至<input type="date" name="validTo" /></label><label>来源链接<input type="url" name="sourceUrl" placeholder="https://" /></label><div class="form-row"><label>来源<div class="modern-select"><select name="source">${selectOptions(INTEL_SOURCES, "")}</select>${icon("chevron-down")}</div></label><label>置信度<div class="modern-select"><select name="confidence">${selectOptions(INTEL_CONFIDENCES, "unverified")}</select>${icon("chevron-down")}</div></label></div><label>核验日期<input type="date" name="verifiedAt" /></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存资质</button></div></form>`);
+}
+function submitQualification(form) {
+  const data = new FormData(form), customer = getCustomer(data.get("customerId")); if (!customer) return;
+  const name = String(data.get("name") || "").trim(); if (!name) return toast("请填写资质名称");
+  customer.qualifications.push({ id: uid("qual"), name, type: String(data.get("type") || "").trim(), authority: String(data.get("authority") || "").trim(), validTo: String(data.get("validTo") || ""), source: String(data.get("source") || ""), sourceUrl: String(data.get("sourceUrl") || "").trim(), confidence: String(data.get("confidence") || "unverified"), verifiedAt: String(data.get("verifiedAt") || ""), capturedAt: nowDateTime() });
+  persist(); closeModal(); renderApp(); toast("资质信息已保存");
+}
+function removeQualification(customerId, itemId) {
+  const customer = getCustomer(customerId); if (!customer) return;
+  customer.qualifications = customer.qualifications.filter(item => item.id !== itemId); persist(); renderApp(); toast("资质信息已删除");
 }
 
 function openPainForm(customerId) {
@@ -2063,7 +2176,7 @@ function showSimpleTextForm(type, customerId, title, label, placeholder) {
 }
 
 function submitPain(form) { const data=new FormData(form), customer=getCustomer(data.get("customerId")); if(!customer)return; customer.painPoints.push({v:String(data.get("value")||"").trim()}); persist(); closeModal(); renderApp(); toast("痛点已保存"); }
-function submitSolution(form) { const data=new FormData(form), customer=getCustomer(data.get("customerId")); if(!customer)return; customer.solution.push({product:String(data.get("product")||"").trim(),reason:String(data.get("reason")||"").trim()}); persist(); closeModal(); renderApp(); toast("方案已保存"); }
+function submitSolution(form) { const data=new FormData(form), customer=getCustomer(data.get("customerId")); if(!customer)return; customer.solution.push({product:String(data.get("product")||"").trim(),reason:String(data.get("reason")||"").trim(),inferred:true}); persist(); closeModal(); renderApp(); toast("方案已保存"); }
 
 function removePain(customerId, index) { const c=getCustomer(customerId); if(!c?.painPoints[index])return; c.painPoints.splice(index,1); persist(); renderApp(); }
 function removeContact(customerId, contactId) { const c=getCustomer(customerId); if(!c || !window.confirm("确认删除这个联系人？其下属将移到关系图顶层。"))return; c.orgChain = c.orgChain.filter(p=>p.id!==contactId); c.orgChain.forEach(p=>{if(p.pid===contactId)p.pid=null;}); persist(); renderApp(); toast("联系人已删除，下属已移到顶层"); }
@@ -2179,7 +2292,25 @@ function animateStagePenguin(customerId, fromStage, toStage) {
   penguin.addEventListener("transitionend", () => penguin.classList.remove("is-moving"), { once: true });
 }
 function updateCustomerGrade(customerId, grade) { const customer=getCustomer(customerId); if(!customer)return; customer.grade=grade; persist("客户优先级已更新"); renderApp(); }
-function updateIntelField(target) { const customer=getCustomer(target.dataset.customer); if(!customer)return; customer.fields[target.dataset.intelField] = {v:target.value.trim()}; persist(); toast("情报已保存"); }
+function updateIntelField(target) {
+  const customer = getCustomer(target.dataset.customer); if (!customer) return;
+  const key = target.dataset.intelField;
+  customer.fields[key] = { ...intelFieldRecord(customer, key), v: target.value.trim() };
+  persist(); toast("情报已保存");
+}
+function updateIntelMeta(target) {
+  const customer = getCustomer(target.dataset.customer); if (!customer) return;
+  const key = target.dataset.intelFieldKey;
+  const meta = target.dataset.intelMeta;
+  if (!key || !meta) return;
+  customer.fields[key] = { ...intelFieldRecord(customer, key), [meta]: target.value };
+  persist(); toast("情报核验信息已保存");
+}
+function updateAdmittanceField(target) {
+  const customer = getCustomer(target.dataset.customer); if (!customer) return;
+  customer.admittance = { ...customer.admittance, [target.dataset.admittanceField]: target.value.trim() };
+  persist(); renderApp(); toast("准入信息已保存");
+}
 
 // ---------- 全景报告 ----------
 const WORD_REPORT_STYLES = `
