@@ -210,7 +210,7 @@ test("desktop brand uses the selected option one logo while mobile keeps the app
   const mobileBrand = html.match(/<button class="mobile-brand"[\s\S]*?<\/button>/)?.[0] || "";
   const mascot = /<span class="qq-penguin qq-penguin--brand" data-penguin="stand" aria-hidden="true"><\/span>/;
 
-  assert.match(desktopBrand, /<img class="brand-logo" src="assets\/sales-buddy-logo-option-1\.png" alt="Sales Buddy" \/>/);
+  assert.match(desktopBrand, /<img[^>]*class="brand-logo"[^>]*src="assets\/sales-buddy-logo-option-1\.png"[^>]*alt="Sales Buddy"[^>]*\/>/);
   assert.match(mobileBrand, mascot);
   assert.equal((html.match(/data-penguin="stand"/g) || []).length, 1);
   assert.match(js, /const PENGUIN_POSES = \["stand", "wave", "scratch", "search", "success", "lost"\]/);
@@ -253,9 +253,9 @@ test("Sales Buddy brand and the single global manual entry stay consistent", () 
   const js = read("app.js");
   const auth = read("auth.js");
   assert.match(html, /<title>Sales Buddy · AI 客户推进工作台<\/title>/);
-  assert.match(html, /class="brand-logo" src="assets\/sales-buddy-logo-option-1\.png" alt="Sales Buddy"/);
+  assert.match(html, /class="brand-logo"[^>]*src="assets\/sales-buddy-logo-option-1\.png"[^>]*alt="Sales Buddy"/);
   assert.match(html, /class="mobile-brand"[\s\S]*?Sales Buddy/);
-  assert.equal((auth.match(/assets\/sales-buddy-logo-option-1\.png/g) || []).length, 2);
+  assert.equal((auth.match(/assets\/sales-buddy-logo-option-1\.png/g) || []).length, 4);
   assert.doesNotMatch(auth, /class="cb-login-title">Sales Buddy<\/div>/);
   assert.equal((html.match(/data-action="manual-entry"/g) || []).length, 1);
   assert.equal((js.match(/data-action="manual-entry"/g) || []).length, 0);
@@ -417,6 +417,23 @@ test("phase one closes the loop with a meeting-linked post-meeting confirmation"
   assert.match(js, /prep\.status = "completed"/);
   assert.match(js, /source: "meeting-review"/);
   assert.match(js, /weakDimensions/);
+});
+
+test("due diligence admission is a separate workspace and intelligence precedes progress", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  const detail = js.slice(js.indexOf("function renderCustomerDetail"), js.indexOf("function renderGuidedActions"));
+  const intelligence = js.slice(js.indexOf("function renderIntelligence"), js.indexOf("function evidenceOpenTarget"));
+  assert.ok(detail.indexOf('["admittance", "客户准入"]') < detail.indexOf('["intel", "情报与证据"]'));
+  assert.ok(detail.indexOf('["intel", "情报与证据"]') < detail.indexOf('["timeline", "推进记录"]'));
+  assert.match(js, /function renderAdmittanceWorkspace\(customer\)/);
+  assert.match(js, /if \(state\.customerTab === "admittance"\) return renderAdmittanceWorkspace\(customer\)/);
+  assert.doesNotMatch(intelligence, /renderAdmittance\(customer\)/);
+  assert.doesNotMatch(intelligence, /renderBidding\(customer\)|renderQualifications\(customer\)/);
+  assert.match(js, /admittance-fact-grid[\s\S]*renderBidding\(customer\)[\s\S]*renderQualifications\(customer\)/);
+  assert.match(css, /\.admittance-workspace\s*\{/);
+  assert.match(css, /\.admittance-fact-grid\s*\{[^}]*grid-template-columns:repeat\(2/);
+  assert.match(css, /\.intel-field \.modern-select select\s*\{[^}]*border-radius:9px[^}]*appearance:none/);
 });
 
 test("phase two groups global news and hiring into an editable external signal workspace", () => {
@@ -999,6 +1016,47 @@ test("report includes phase-two external signals, pain chain, and joint work pla
   for (const expected of ["外部市场与招聘信号", "海外产品完成新一轮融资", "海外社区运营", "机会痛苦链", "跨区访问不稳定", "联合工作计划", "三地延迟对比报告"]) {
     assert.match(html, new RegExp(expected));
   }
+});
+
+test("report shows due diligence facts, provenance, and inferred content separately", () => {
+  const html = ReportBuilder.build({
+    name: "准入科技",
+    fields: { industry: { v: "企业服务", source: "qcc", confidence: "high", verifiedAt: "2026-07-21" } },
+    admittance: { status: "reported", reportedBy: "李经理", channel: "ka", uin: "10001234", groupGid: "G-1", source: "panshi", confidence: "high", verifiedAt: "2026-07-21" },
+    bidding: [{ project: "企业云资源采购", purchaser: "准入科技", role: "总包", amount: "320 万元", date: "2026-07-20", signal: "明确采购云资源", sourceUrl: "https://example.com/bid" }],
+    qualifications: [{ name: "ICP 许可证", type: "ICP", authority: "通信管理局", validTo: "2027-07-20", sourceUrl: "https://example.com/license" }],
+    orgChain: [{ name: "王工", role: "运维负责人", phone: "13800000000", phoneType: "direct" }],
+    solution: [{ product: "迁移方案", reason: "降低成本", inferred: true }],
+    painChain: { pain: "成本偏高", solution: "迁移与弹性方案", inferred: true },
+  }, reportContext);
+
+  for (const expected of ["客户准入与存量", "已报备", "腾讯云 UIN", "近期招投标 / 中标", "企业云资源采购", "资质与许可", "ICP 许可证", "来源：企查查", "高置信", "直联号码", "销售假设与待确认问题（非事实）", "非已核实客户事实", "匹配方案：迁移方案：降低成本"]) {
+    assert.match(html, new RegExp(expected));
+  }
+});
+
+test("report keeps unverified admission data from becoming a collision conclusion", () => {
+  const html = ReportBuilder.build({
+    name: "待核客户",
+    admittance: { reportedBy: "历史联系人", channel: "ka", uin: "10009" },
+  }, reportContext);
+
+  const admittance = reportSection(html, "客户准入与存量");
+  assert.match(admittance, /待核/);
+  assert.match(admittance, /待核验，不构成准入结论/);
+  assert.doesNotMatch(admittance, /已报备|已有人跟|无主报备/);
+});
+
+test("report keeps confirmed facts outside the inferred section", () => {
+  const html = ReportBuilder.build({
+    name: "确认客户",
+    painChain: { pain: "客户确认的容量风险", inferred: false },
+    solution: [{ product: "已确认方案", reason: "客户确认采购范围", inferred: false }],
+  }, reportContext);
+
+  assert.match(reportSection(html, "机会痛苦链"), /客户确认的容量风险/);
+  assert.match(reportSection(html, "痛点、竞品与匹配方案"), /已确认方案/);
+  assert.doesNotMatch(reportSection(html, "销售假设与待确认问题（非事实）"), /客户确认的容量风险|已确认方案/);
 });
 
 test("report includes the confirmed negotiation brief without duplicating generated assets", () => {

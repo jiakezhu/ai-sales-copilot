@@ -32,8 +32,12 @@ test("中文 CSV 转为兼容现有 CRM 的完整客户结构", () => {
   assert.equal(customer.grade, "A");
   assert.equal(customer.fields.industry.v, "企业服务");
   assert.deepEqual(
-    { name: customer.orgChain[0].name, role: customer.orgChain[0].role, phone: customer.orgChain[0].phone, email: customer.orgChain[0].email },
-    { name: "张三", role: "CTO", phone: "13800000000", email: "zhang@example.com" },
+    { name: customer.orgChain[0].name, role: customer.orgChain[0].role, phone: customer.orgChain[0].phone, phoneType: customer.orgChain[0].phoneType, email: customer.orgChain[0].email },
+    { name: "张三", role: "CTO", phone: "13800000000", phoneType: "unverified", email: "zhang@example.com" },
+  );
+  assert.deepEqual(
+    { source: customer.fields.industry.source, confidence: customer.fields.industry.confidence, verifiedAt: customer.fields.industry.verifiedAt },
+    { source: "", confidence: "unverified", verifiedAt: "" },
   );
   assert.deepEqual(
     { content: customer.notes[0].content, next: customer.notes[0].next, nextDate: customer.notes[0].nextDate },
@@ -87,6 +91,7 @@ test("update 策略合并非空字段且保留既有客户身份和数据", () =
   assert.equal(customer.orgChain[0].role, "CTO");
   assert.equal(customer.orgChain[0].phone, "13900000000");
   assert.equal(customer.orgChain[0].email, "old@example.com");
+  assert.equal(customer.orgChain[0].phoneType, "unverified");
   assert.equal(customer.notes.length, 2);
   assert.equal(customer.assets.length, 1);
   assert.equal(customer.assets[0].id, "asset-1");

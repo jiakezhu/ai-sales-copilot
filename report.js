@@ -11,6 +11,10 @@
   ]);
   const ATTITUDE_LABELS = { positive: "积极", neutral: "观望", negative: "抵触" };
   const LEVEL_LABELS = { 1: "决策层", 2: "影响层", 3: "执行层" };
+  const SOURCE_LABELS = { customer: "客户自报", website: "官网", qcc: "企查查", tyc: "天眼查", web: "全网检索", panshi: "磐石" };
+  const CONFIDENCE_LABELS = { unverified: "待核", high: "高置信", medium: "中置信", low: "低置信" };
+  const CHANNEL_LABELS = { direct: "官网直客", longtail: "长尾", ka: "KA", region: "区域", partner: "渠道/合作伙伴" };
+  const PHONE_TYPE_LABELS = { direct: "直联号码", agent: "代记账/第三方", unverified: "待核验" };
 
   const escape = value => String(value == null ? "" : value).replace(/[&<>\"]/g, character => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
@@ -33,6 +37,16 @@
       if (candidate) return candidate;
     }
     return "";
+  }
+
+  function fieldWithProvenance(value, formatter) {
+    const fact = valueOf(value);
+    if (!fact) return "";
+    if (!value || typeof value !== "object") return fact;
+    const source = SOURCE_LABELS[clean(value.source)] || "来源待补充";
+    const confidence = CONFIDENCE_LABELS[clean(value.confidence)] || "待核";
+    const verifiedAt = format(value.verifiedAt, formatter);
+    return describeParts([fact, `来源：${source}`, confidence, verifiedAt ? `核验：${verifiedAt}` : ""]);
   }
 
   function resolveLabel(items, key) {
@@ -171,7 +185,7 @@
 
     const profileEntries = fieldDefs.map(definition => [
       valueOf(definition && (definition.label || definition.key)),
-      valueOf(fields[definition && definition.key]),
+      fieldWithProvenance(fields[definition && definition.key], context.formatShortDate),
     ]);
     const raidBasic = raid.basic && typeof raid.basic === "object" ? raid.basic : {};
     const raidDm = raid.dm && typeof raid.dm === "object" ? raid.dm : {};
@@ -194,6 +208,22 @@
       if (sceneValue) profileEntries.push([`业务场景 ${index + 1}`, sceneValue]);
     });
     const profile = fieldGrid(profileEntries);
+
+    const admittanceSource = source.admittance && typeof source.admittance === "object" ? source.admittance : {};
+    const hasAdmittance = ["status", "reportedBy", "channel", "uin", "groupGid", "source", "verifiedAt"].some(key => valueOf(admittanceSource[key]));
+    const admittanceVerified = Boolean(admittanceSource.verifiedAt) && ["clear", "reported", "followed"].includes(clean(admittanceSource.status));
+    const admittanceStatus = admittanceVerified ? ({ clear: "无主报备", reported: "已报备", followed: "已有人跟" })[clean(admittanceSource.status)] : "待核";
+    const admittance = hasAdmittance ? fieldGrid([
+      ["准入核验状态", admittanceStatus],
+      ["主商务 / 报备人", valueOf(admittanceSource.reportedBy)],
+      ["归属通路", CHANNEL_LABELS[clean(admittanceSource.channel)] || "待核"],
+      ["腾讯云 UIN", valueOf(admittanceSource.uin)],
+      ["集团 GID", valueOf(admittanceSource.groupGid)],
+      ["来源", SOURCE_LABELS[clean(admittanceSource.source)] || "来源待补充"],
+      ["置信度", CONFIDENCE_LABELS[clean(admittanceSource.confidence)] || "待核"],
+      ["核验日期", format(admittanceSource.verifiedAt, context.formatShortDate)],
+      ["核验说明", admittanceVerified ? "该状态已完成核验" : "待核验，不构成准入结论"],
+    ]) : "";
 
     const businessBrief = fieldGrid([
       ["核心产品或服务", valueOf(businessBriefSource.products)],
@@ -224,13 +254,37 @@
     });
     const externalSignals = list(externalSignalItems, "report-external-signals");
 
-    const painChain = fieldGrid([
+    const researchEvidence = item => describeParts([
+      SOURCE_LABELS[clean(item.source)] || "来源待补充",
+      CONFIDENCE_LABELS[clean(item.confidence)] || "待核",
+      item.verifiedAt ? `核验：${format(item.verifiedAt, context.formatShortDate)}` : "待核验",
+      valueOf(item.sourceUrl),
+    ]);
+    const recordStatus = item => item?.verifiedAt && clean(item.confidence) !== "unverified" ? "已核实事实" : "待核线索";
+    const biddingItems = uniqueRecords(array(source.bidding).filter(Boolean), item => keyOf([
+      valueOf(item.project), valueOf(item.purchaser), valueOf(item.role), valueOf(item.amount), item.date, valueOf(item.sourceUrl), valueOf(item.signal),
+    ])).map(item => describeParts([
+      `${recordStatus(item)}：${valueOf(item.project)}`, valueOf(item.purchaser) ? `采购方：${valueOf(item.purchaser)}` : "",
+      valueOf(item.role) ? `角色：${valueOf(item.role)}` : "", valueOf(item.amount) ? `金额：${valueOf(item.amount)}` : "",
+      format(item.date, context.formatShortDate), valueOf(item.signal), researchEvidence(item),
+    ]));
+    const bidding = list(biddingItems, "report-bidding-list");
+    const qualificationItems = uniqueRecords(array(source.qualifications).filter(Boolean), item => keyOf([
+      valueOf(item.name), valueOf(item.type), valueOf(item.authority), item.validTo, valueOf(item.sourceUrl),
+    ])).map(item => describeParts([
+      `${recordStatus(item)}：${valueOf(item.name)}`, valueOf(item.type), valueOf(item.authority), item.validTo ? `有效至 ${format(item.validTo, context.formatShortDate)}` : "", researchEvidence(item),
+    ]));
+    const qualifications = list(qualificationItems, "report-qualification-list");
+
+    const painChainFacts = fieldGrid([
       ["外部或经营信号", valueOf(painChainSource.signal)],
       ["业务痛点", valueOf(painChainSource.pain)],
       ["经营影响", valueOf(painChainSource.impact)],
       ["腾讯云切入点", valueOf(painChainSource.solution)],
       ["客户确认问题", valueOf(painChainSource.question)],
     ], "report-field-grid report-pain-chain");
+    const painChain = painChainFacts && painChainSource.inferred === true ? `<div class="report-inferred"><p>以下为销售假设与待确认问题，非已核实客户事实。</p>${painChainFacts}</div>` : "";
+    const confirmedPainChain = painChainFacts && painChainSource.inferred !== true ? painChainFacts : "";
 
     const jointPlanItems = uniqueRecords(array(source.jointWorkPlan).filter(Boolean), item => keyOf([
       item.id, valueOf(item.title), valueOf(item.deliverable), valueOf(item.ourOwner), valueOf(item.customerOwner), item.dueDate, item.status,
@@ -257,14 +311,17 @@
 
     const people = uniqueRecords(array(source.orgChain).filter(person => person && typeof person === "object"), person => keyOf([
       person.id, person.pid, valueOf(person.name), valueOf(person.role), person.level,
-      person.phone, person.wechat, person.email, valueOf(person.note),
+      person.phone, person.phoneType, person.wechat, person.email, valueOf(person.note),
     ]));
     const peopleById = new Map(people.map(person => [clean(person.id), person]).filter(([id]) => id));
     const orgItems = decisionChains(people);
     people.forEach(person => {
       const parentId = clean(person.pid);
       const parent = parentId ? peopleById.get(parentId) : null;
-      const contacts = [person.phone, person.wechat, person.email].map(clean).filter(Boolean).join(" · ");
+      const contacts = [
+        person.phone ? `${clean(person.phone)}（${PHONE_TYPE_LABELS[clean(person.phoneType)] || "待核验"}）` : "",
+        person.wechat, person.email,
+      ].map(clean).filter(Boolean).join(" · ");
       const detail = describeParts([
         valueOf(person.name), valueOf(person.role), LEVEL_LABELS[Number(person.level)] || "",
         parent ? `上级：${valueOf(parent.name) || valueOf(parent.role)}` : "", contacts, valueOf(person.note),
@@ -303,13 +360,17 @@
       valueOf(solution && (solution.product || solution.name || solution.title || solution)),
       valueOf(solution && (solution.reason || solution.description || solution.detail)),
     ]));
-    solutions.forEach(solution => {
-      const detail = describeParts([
-        valueOf(solution && (solution.product || solution.name || solution.title || solution)),
-        valueOf(solution && (solution.reason || solution.description || solution.detail)),
-      ], "：");
-      if (detail) marketItems.push(`匹配方案：${detail}`);
-    });
+    const inferredSolutionItems = solutions.filter(solution => solution?.inferred === true).map(solution => describeParts([
+      valueOf(solution && (solution.product || solution.name || solution.title || solution)),
+      valueOf(solution && (solution.reason || solution.description || solution.detail)),
+    ], "：")).filter(Boolean);
+    const confirmedSolutionItems = solutions.filter(solution => solution?.inferred !== true).map(solution => describeParts([
+      valueOf(solution && (solution.product || solution.name || solution.title || solution)),
+      valueOf(solution && (solution.reason || solution.description || solution.detail)),
+    ], "：")).filter(Boolean);
+    confirmedSolutionItems.forEach(item => marketItems.push(`匹配方案：${item}`));
+    const inferredSolutions = list(inferredSolutionItems.map(item => `匹配方案：${item}`), "report-inferred-solutions");
+    const inferredSales = [painChain, inferredSolutions ? `<div class="report-inferred"><p>以下匹配方案为销售推测，需以客户确认的真实需求为准。</p>${inferredSolutions}</div>` : ""].filter(Boolean).join("");
     const market = list(marketItems);
 
     const progressItems = uniqueRecords(notes.filter(note => note && typeof note === "object"), note => keyOf([
@@ -401,9 +462,13 @@
       + section("执行摘要", executive, "report-executive")
       + section("六维机会诊断", diagnosis)
       + section("客户基本信息与情报", profile)
+      + section("客户准入与存量", admittance)
       + section("产品与商业模式简报", businessBrief)
       + section("外部市场与招聘信号", externalSignals)
-      + section("机会痛苦链", painChain)
+      + section("近期招投标 / 中标", bidding)
+      + section("资质与许可", qualifications)
+      + section("机会痛苦链", confirmedPainChain)
+      + section("销售假设与待确认问题（非事实）", inferredSales)
       + section("组织与关键关系", organization)
       + section("痛点、竞品与匹配方案", market)
       + section("会前沟通准备", meetingPreps)
