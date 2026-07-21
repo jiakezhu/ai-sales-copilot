@@ -144,8 +144,8 @@ function persist(message) {
 }
 
 function initTheme() {
-  const saved = localStorage.getItem(THEME_KEY) || "light";
-  document.documentElement.dataset.theme = saved;
+  const saved = localStorage.getItem(THEME_KEY);
+  applyTheme(saved === "dark" ? "dark" : "light");
 }
 
 function bindAppEvents() {
@@ -2419,7 +2419,23 @@ function closeRowMenus(except, restoreFocus = false, root = document) {
     if (focusWasInside) menu.querySelector("summary")?.focus();
   });
 }
-function toggleTheme() { const next=document.documentElement.dataset.theme==="dark"?"light":"dark"; document.documentElement.dataset.theme=next; localStorage.setItem(THEME_KEY,next); }
+function applyTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+
+  $$("[data-theme-logo]").forEach(logo => {
+    const source = next === "dark" ? logo.dataset.darkSrc : logo.dataset.lightSrc;
+    if (source) logo.src = source;
+  });
+
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", next === "dark" ? "#101828" : "#f6f7fb");
+}
+
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(next);
+  localStorage.setItem(THEME_KEY, next);
+}
 function showModal(content) {
   const layer = $("#modalLayer");
   const panel = $("#modalPanel");
