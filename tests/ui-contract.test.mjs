@@ -1698,16 +1698,17 @@ test("account API, import module, and SheetJS load before the application runtim
   assert.match(html, /data-action="logout"/);
 });
 
-test("customer workspace exposes validated CSV and Excel batch import", () => {
+test("customer workspace exposes validated native JSON, CSV, and Excel batch import", () => {
   const js = read("app.js");
   assert.match(js, /data-action="import-customers"/);
-  assert.match(js, /accept="\.csv,\.tsv,\.xlsx,\.xls/);
+  assert.match(js, /accept="\.json,\.csv,\.tsv,\.xlsx,\.xls/);
+  assert.match(js, /CustomerImporter\.importJSON\(customerImportRows, customers/);
   assert.match(js, /CustomerImporter\.importRows\(customerImportRows, customers/);
+  assert.match(js, /crm-customer-list\.v1/);
   assert.match(js, /XLSX\.utils\.sheet_to_json/);
   assert.match(js, /下载 CSV 模板/);
   assert.match(js, /新增 \$\{result\.imported\}，更新 \$\{result\.updated\}/);
 });
-
 test("authentication coordinates API login while CRM sync remains user-scoped", () => {
   const auth = read("auth.js");
   const crm = read("crm.js");
@@ -1719,4 +1720,65 @@ test("authentication coordinates API login while CRM sync remains user-scoped", 
   assert.match(crm, /SalesAPI\.saveCustomers\(/);
   assert.match(app, /SalesAPI\.extractAI/);
   assert.match(app, /AI API 尚未配置，已使用本地规则整理/);
+});
+test("batch import preview exposes default-all customer selection controls", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /customerImportSelectedRows = new Set/);
+  assert.match(js, /data-import-customer-row/);
+  assert.match(js, /select-all-import-customers/);
+  assert.match(js, /clear-import-customers/);
+  assert.match(js, /options\.selectedRows = Array\.from\(selectedRows\)/);
+  assert.match(js, /已选择 \$\{selectedCount\} \/ \$\{items\.length\} 个客户/);
+  assert.match(css, /\.import-customer-list\s*\{[^}]*max-height:[^}]*overflow:auto/i);
+});
+
+test("customers can be deleted from list or detail after an explicit confirmation", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /data-action="delete-customer"/);
+  assert.match(js, /data-form="delete-customer"/);
+  assert.match(js, /function submitDeleteCustomer\(form\)/);
+  assert.match(js, /customers\.splice\(index, 1\)/);
+  assert.match(js, /submitDeleteCustomer[\s\S]*?persist\(\)/);
+  assert.match(js, /此操作无法撤销/);
+  assert.match(css, /\.danger-button\s*\{/);
+  assert.match(css, /\.delete-warning\s*\{/);
+});
+test("an open customer menu stacks above later customer row actions", () => {
+  const css = read("style.css");
+  assert.match(css, /\.customer-row:has\(\.row-more-actions\[open\]\)\s*\{[^}]*z-index:\s*40/i);
+  assert.match(css, /\.customer-row:has\(\.row-more-actions\[open\]\)>\.row-actions\s*\{[^}]*z-index:\s*41/i);
+});
+test("customer workspace supports filtered multi-selection and confirmed batch deletion", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /let selectedCustomerIds = new Set\(\)/);
+  assert.match(js, /id="customerSelectAll"[^>]*data-partial/);
+  assert.match(js, /data-customer-select="\$\{safe\(customer\.id\)\}"/);
+  const row = js.slice(js.indexOf("function renderCustomerRow"), js.indexOf("function openCustomer"));
+  assert.ok(row.indexOf("customer-select-cell") > row.indexOf("row-actions"), "absolute checkbox must not shift existing nth-child columns");
+  assert.match(js, /data-action="delete-selected-customers"/);
+  assert.match(js, /data-action="clear-customer-selection"/);
+  assert.match(js, /data-form="delete-selected-customers"/);
+  assert.match(js, /function openDeleteSelectedCustomers\(\)/);
+  assert.match(js, /function submitDeleteSelectedCustomers\(\)/);
+  assert.match(js, /customers = customers\.filter\(customer => !deletingIds\.has\(customer\.id\)\)/);
+  assert.match(js, /submitDeleteSelectedCustomers[\s\S]*?persist\(\)/);
+  assert.match(css, /\.customer-select-cell\s*\{[^}]*z-index:\s*3/i);
+  assert.match(css, /\.customer-row\.is-selected\s*\{/);
+  assert.match(css, /\.batch-delete-button\s*\{/);
+});
+test("customer checkboxes are hidden until multi-select mode is enabled", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /let customerMultiSelectEnabled = false/);
+  assert.match(js, /data-action="toggle-customer-multi-select"/);
+  assert.match(js, /customerMultiSelectEnabled = !customerMultiSelectEnabled/);
+  assert.match(js, /if \(!customerMultiSelectEnabled\) selectedCustomerIds = new Set\(\)/);
+  assert.match(js, /customerMultiSelectEnabled \? "关闭多选" : "开启多选"/);
+  assert.match(js, /customerMultiSelectEnabled \? `<label class="table-customer-heading"/);
+  assert.match(js, /customerMultiSelectEnabled \? `<label class="customer-select-cell"/);
+  assert.match(css, /\.customers-page\.multi-select-active \.customer-row \.identity-cell\s*\{[^}]*padding-left:\s*28px/i);
+  assert.match(css, /\.multi-select-toggle\s*\{/);
 });

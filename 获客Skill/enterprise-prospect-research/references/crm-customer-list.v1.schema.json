@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sales-buddy.local/schemas/crm-customer-list.v1.schema.json",
+  "title": "Sales Buddy CRM native customer import bundle",
+  "description": "WorkBuddy 直接生成、Sales Buddy CRM 可校验后原样导入的客户清单。业务字段已采用 CRM 原生结构；CRM 仅补齐本地 ID、时间、颜色和空容器。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "generated_at", "customers"],
+  "properties": {
+    "schema_version": { "const": "crm-customer-list.v1" },
+    "run_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "summary": { "$ref": "#/$defs/summary" },
+    "customers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/customer" }
+    }
+  },
+  "$defs": {
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "executive_summary", "data_quality", "customer_counts"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "executive_summary": { "type": "string", "maxLength": 4000 },
+        "data_quality": { "type": "string", "enum": ["high", "medium", "low"] },
+        "customer_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["S", "A", "B", "C", "manual_review"],
+          "properties": {
+            "S": { "type": "integer", "minimum": 0 },
+            "A": { "type": "integer", "minimum": 0 },
+            "B": { "type": "integer", "minimum": 0 },
+            "C": { "type": "integer", "minimum": 0 },
+            "manual_review": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "customer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "stage", "grade", "fields"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 200 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "createdAt": { "type": "string", "maxLength": 100 },
+        "logo": { "type": "string", "maxLength": 20 },
+        "color": { "type": "string", "maxLength": 50 },
+        "stage": { "type": "string", "enum": ["lead", "contact", "meeting", "proposal", "won", "lost"] },
+        "grade": { "type": "string", "enum": ["S", "A", "B", "C"] },
+        "fields": { "$ref": "#/$defs/fields" },
+        "orgChain": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/contact" } },
+        "marketNews": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/marketNews" } },
+        "hiringSignals": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/hiringSignal" } },
+        "bidding": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/bidding" } },
+        "qualifications": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/qualification" } },
+        "businessBrief": { "$ref": "#/$defs/businessBrief" },
+        "painChain": { "$ref": "#/$defs/painChain" },
+        "jointWorkPlan": { "type": "array", "maxItems": 0 },
+        "meetingPreps": { "type": "array", "maxItems": 0 },
+        "meetingReviews": { "type": "array", "maxItems": 0 },
+        "salesAssets": { "type": "array", "maxItems": 0 },
+        "painPoints": { "type": "array", "maxItems": 0 },
+        "solution": { "type": "array", "maxItems": 0 },
+        "notes": { "type": "array", "maxItems": 0 },
+        "assets": { "type": "array", "maxItems": 0 },
+        "stageHistory": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "industry": { "$ref": "#/$defs/intelField" },
+        "founded": { "$ref": "#/$defs/intelField" },
+        "staff": { "$ref": "#/$defs/intelField" },
+        "funding": { "$ref": "#/$defs/intelField" },
+        "website": { "$ref": "#/$defs/intelField" },
+        "product": { "$ref": "#/$defs/intelField" },
+        "dau": { "$ref": "#/$defs/intelField" },
+        "revenue": { "$ref": "#/$defs/intelField" },
+        "creditCode": { "$ref": "#/$defs/intelField" },
+        "legalPerson": { "$ref": "#/$defs/intelField" },
+        "regCapital": { "$ref": "#/$defs/intelField" },
+        "regAddress": { "$ref": "#/$defs/intelField" },
+        "businessModel": { "$ref": "#/$defs/intelField" },
+        "techStack": { "$ref": "#/$defs/intelField" },
+        "shareholders": { "$ref": "#/$defs/intelField" },
+        "parentSubs": { "$ref": "#/$defs/intelField" },
+        "supplyChain": { "$ref": "#/$defs/intelField" },
+        "recentNews": { "$ref": "#/$defs/intelField" },
+        "hiring": { "$ref": "#/$defs/intelField" },
+        "riskNote": { "$ref": "#/$defs/intelField" },
+        "triggerEvents": { "$ref": "#/$defs/intelField" },
+        "cloudStatus": { "$ref": "#/$defs/privateEmptyField" },
+        "billNote": { "$ref": "#/$defs/privateEmptyField" },
+        "relation": { "$ref": "#/$defs/privateEmptyField" }
+      }
+    },
+    "intelField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "source", "confidence", "verifiedAt"],
+      "properties": {
+        "v": { "type": "string", "maxLength": 4000 },
+        "source": { "type": "string", "enum": ["", "customer", "website", "qcc", "tyc", "qxb", "web", "panshi"] },
+        "confidence": { "type": "string", "enum": ["unverified", "high", "medium", "low"] },
+        "verifiedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" }
+      }
+    },
+    "privateEmptyField": {
+      "allOf": [
+        { "$ref": "#/$defs/intelField" },
+        { "properties": { "v": { "const": "" } } }
+      ]
+    },
+    "contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role", "level", "note"],
+      "properties": {
+        "id": { "type": "string", "maxLength": 200 },
+        "pid": { "type": ["string", "null"], "maxLength": 200 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "role": { "type": "string", "maxLength": 200 },
+        "level": { "type": "integer", "enum": [1, 2, 3] },
+        "phone": { "type": "string", "maxLength": 100 },
+        "phoneType": { "type": "string", "enum": ["", "unverified", "direct", "agent"] },
+        "wechat": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 320 },
+        "note": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "marketNews": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "sourceUrl", "signal", "impact"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "publishedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
+        "market": { "type": "string", "maxLength": 300 },
+        "sourceUrl": { "type": "string", "maxLength": 2000 },
+        "signal": { "type": "string", "minLength": 1, "maxLength": 3000 },
+        "impact": { "type": "string", "maxLength": 3000 },
+        "confirmedAt": { "type": "string", "maxLength": 100 }
+      }
+    },
+    "hiringSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "sourceUrl", "signal", "opportunity"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "role": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "location": { "type": "string", "maxLength": 300 },
+        "postedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
+        "sourceUrl": { "type": "string", "maxLength": 2000 },
+        "signal": { "type": "string", "minLength": 1, "maxLength": 3000 },
+        "opportunity": { "type": "string", "maxLength": 3000 },
+        "confirmedAt": { "type": "string", "maxLength": 100 }
+      }
+    },
+    "bidding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "project", "source", "sourceUrl", "confidence", "verifiedAt", "signal"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "project": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "purchaser": { "type": "string", "maxLength": 300 },
+        "role": { "type": "string", "maxLength": 100 },
+        "amount": { "type": "string", "maxLength": 200 },
+        "date": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
+        "source": { "type": "string", "enum": ["", "website", "qcc", "tyc", "qxb", "web", "panshi"] },
+        "sourceUrl": { "type": "string", "maxLength": 2000 },
+        "confidence": { "type": "string", "enum": ["unverified", "high", "medium", "low"] },
+        "verifiedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
+        "signal": { "type": "string", "maxLength": 3000 },
+        "capturedAt": { "type": "string", "maxLength": 100 }
+      }
+    },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "source", "sourceUrl", "confidence", "verifiedAt"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "type": { "type": "string", "maxLength": 200 },
+        "authority": { "type": "string", "maxLength": 300 },
+        "validTo": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
+        "source": { "type": "string", "enum": ["", "website", "qcc", "tyc", "qxb", "web", "panshi"] },
+        "sourceUrl": { "type": "string", "maxLength": 2000 },
+        "confidence": { "type": "string", "enum": ["unverified", "high", "medium", "low"] },
+        "verifiedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
+        "capturedAt": { "type": "string", "maxLength": 100 }
+      }
+    },
+    "businessBrief": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "products": { "type": "string", "maxLength": 4000 },
+        "revenueLogic": { "type": "string", "maxLength": 4000 },
+        "operatingStatus": { "type": "string", "maxLength": 4000 },
+        "competitors": { "type": "string", "maxLength": 4000 },
+        "painHypothesis": { "type": "string", "maxLength": 4000 },
+        "unknowns": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1000 } }
+      }
+    },
+    "painChain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "signal": { "type": "string", "maxLength": 4000 },
+        "pain": { "type": "string", "maxLength": 4000 },
+        "impact": { "type": "string", "maxLength": 4000 },
+        "solution": { "type": "string", "maxLength": 4000 },
+        "question": { "type": "string", "maxLength": 4000 },
+        "inferred": { "const": true },
+        "updatedAt": { "type": "string", "maxLength": 100 }
+      }
+    }
+  }
+}
