@@ -11,7 +11,7 @@
   ]);
   const ATTITUDE_LABELS = { positive: "积极", neutral: "观望", negative: "抵触" };
   const LEVEL_LABELS = { 1: "决策层", 2: "影响层", 3: "执行层" };
-  const SOURCE_LABELS = { customer: "客户自报", website: "官网", qcc: "企查查", tyc: "天眼查", web: "全网检索", panshi: "磐石" };
+  const SOURCE_LABELS = { customer: "客户自报", website: "官网", qcc: "企查查", tyc: "天眼查", qxb: "企信慧眼", web: "全网检索", panshi: "磐石" };
   const CONFIDENCE_LABELS = { unverified: "待核", high: "高置信", medium: "中置信", low: "低置信" };
   const CHANNEL_LABELS = { direct: "官网直客", longtail: "长尾", ka: "KA", region: "区域", partner: "渠道/合作伙伴" };
   const PHONE_TYPE_LABELS = { direct: "直联号码", agent: "代记账/第三方", unverified: "待核验" };

@@ -10,7 +10,11 @@ const DIALOG_FOCUSABLE = 'button:not([disabled]), input:not([disabled]):not([typ
 let customers = [];
 let reportCustomer = null;
 let customerImportRows = [];
+let customerImportFormat = "rows";
 let customerImportFileName = "";
+let customerImportSelectedRows = new Set();
+let selectedCustomerIds = new Set();
+let customerMultiSelectEnabled = false;
 let toastTimer = null;
 let assistantStateTimer = null;
 let currentAssistantState = "idle";
@@ -61,7 +65,7 @@ const SALES_ASSET_TYPES = [
 
 const INTEL_SOURCES = [
   ["", "来源待补充"], ["customer", "客户自报"], ["website", "官网"], ["qcc", "企查查"],
-  ["tyc", "天眼查"], ["web", "全网检索"], ["panshi", "磐石"],
+  ["tyc", "天眼查"], ["qxb", "企信慧眼"], ["web", "全网检索"], ["panshi", "磐石"],
 ];
 const INTEL_CONFIDENCES = [["unverified", "待核"], ["high", "高置信"], ["medium", "中置信"], ["low", "低置信"]];
 const ADMITTANCE_CHANNELS = [["", "待核"], ["direct", "官网直客"], ["longtail", "长尾"], ["ka", "KA"], ["region", "区域"], ["partner", "渠道/合作伙伴"]];
@@ -207,6 +211,16 @@ async function handleAction(event) {
   if (action === "new-customer") return openNewCustomer();
   if (action === "import-customers") return openCustomerImport();
   if (action === "download-import-template") return downloadCustomerImportTemplate();
+  if (action === "select-all-import-customers") return setCustomerImportSelection(true);
+  if (action === "clear-import-customers") return setCustomerImportSelection(false);
+  if (action === "delete-customer") return openDeleteCustomer(trigger.dataset.id || trigger.dataset.customer || state.customerId);
+  if (action === "delete-selected-customers") return openDeleteSelectedCustomers();
+  if (action === "clear-customer-selection") { selectedCustomerIds = new Set(); return renderApp(); }
+  if (action === "toggle-customer-multi-select") {
+    customerMultiSelectEnabled = !customerMultiSelectEnabled;
+    if (!customerMultiSelectEnabled) selectedCustomerIds = new Set();
+    return renderApp();
+  }
   if (action === "manual-entry") return openManualEntry(trigger.dataset.customer || state.customerId);
   if (action === "open-meeting-card") return openMeetingPrep(trigger.dataset.customer || state.customerId, trigger.dataset.prep || "");
   if (action === "open-guided-confirm") return openGuidedConfirmation(trigger.dataset.customer || state.customerId, trigger.dataset.guided);
@@ -275,6 +289,25 @@ async function handleChange(event) {
   const target = event.target;
   if (target.id === "customerImportFile") return previewCustomerImport(target.files?.[0]);
   if (target.id === "customerImportStrategy") return renderCustomerImportPreview(target.value);
+  if (target.matches("[data-import-customer-row]")) {
+    const row = Number(target.dataset.importCustomerRow);
+    if (target.checked) customerImportSelectedRows.add(row);
+    else customerImportSelectedRows.delete(row);
+    return renderCustomerImportPreview($("#customerImportStrategy")?.value || "skip");
+  }
+  if (target.matches("[data-customer-select]")) {
+    const customerId = String(target.dataset.customerSelect || "");
+    if (target.checked) selectedCustomerIds.add(customerId);
+    else selectedCustomerIds.delete(customerId);
+    return renderApp();
+  }
+  if (target.id === "customerSelectAll") {
+    getFilteredCustomers().forEach(customer => {
+      if (target.checked) selectedCustomerIds.add(customer.id);
+      else selectedCustomerIds.delete(customer.id);
+    });
+    return renderApp();
+  }
   if (target.id === "stageFilter") {
     state.stageFilter = target.value;
     return renderApp();
@@ -302,6 +335,8 @@ async function handleSubmit(event) {
   const type = event.target.dataset.form;
   if (type === "new-customer") return submitNewCustomer(event.target);
   if (type === "customer-import") return submitCustomerImport(event.target);
+  if (type === "delete-customer") return submitDeleteCustomer(event.target);
+  if (type === "delete-selected-customers") return submitDeleteSelectedCustomers();
   if (type === "manual-entry") return submitManualEntry(event.target);
   if (type === "meeting-prep") return submitMeetingPrep(event.target);
   if (type === "guided-confirm") return submitGuidedConfirmation(event.target);
@@ -339,6 +374,8 @@ function renderApp() {
   if (state.page === "analytics") root.innerHTML = renderAnalytics();
   if (state.aiDraft && state.page === "today") renderAIDraft();
   reconcileAssistantState();
+  const selectAllCustomers = $("#customerSelectAll");
+  if (selectAllCustomers) selectAllCustomers.indeterminate = selectAllCustomers.dataset.partial === "true";
   refreshIcons();
 }
 
@@ -440,23 +477,39 @@ function renderPulseItem(item, stale) {
   </button>`;
 }
 
-function renderCustomers() {
-  const filtered = customers.filter(customer => {
+function getFilteredCustomers() {
+  return customers.filter(customer => {
     const haystack = [customer.name, customer.fields.industry?.v, ...customer.orgChain.map(x => x.name)].join(" ").toLowerCase();
     return (!state.query || haystack.includes(state.query)) && (state.stageFilter === "all" || customer.stage === state.stageFilter);
   });
-  return `<div class="page customers-page">
+}
+
+function pruneCustomerSelection() {
+  const existingIds = new Set(customers.map(customer => customer.id));
+  selectedCustomerIds = new Set(Array.from(selectedCustomerIds).filter(id => existingIds.has(id)));
+}
+
+function renderCustomers() {
+  pruneCustomerSelection();
+  if (!customerMultiSelectEnabled && selectedCustomerIds.size) selectedCustomerIds = new Set();
+  const filtered = getFilteredCustomers();
+  const selectedCount = selectedCustomerIds.size;
+  const selectedVisibleCount = filtered.filter(customer => selectedCustomerIds.has(customer.id)).length;
+  const allVisibleSelected = filtered.length > 0 && selectedVisibleCount === filtered.length;
+  const partiallySelected = selectedVisibleCount > 0 && !allVisibleSelected;
+  return `<div class="page customers-page ${customerMultiSelectEnabled ? "multi-select-active" : ""}">
     <section class="page-heading">
-      <div><p class="eyebrow">ACCOUNT WORKSPACE</p><h1>客户</h1><p>围绕下一步行动管理客户，而不是维护静态名单。</p></div>
+      <div><p class="eyebrow">ACCOUNT WORKSPACE</p><div class="customer-title-row"><h1>客户</h1><button class="multi-select-toggle ${customerMultiSelectEnabled ? "is-active" : ""}" data-action="toggle-customer-multi-select" aria-pressed="${customerMultiSelectEnabled}">${icon(customerMultiSelectEnabled ? "x" : "list-checks")} ${customerMultiSelectEnabled ? "关闭多选" : "开启多选"}</button></div><p>围绕下一步行动管理客户，而不是维护静态名单。</p></div>
       <div class="page-heading-actions"><button class="secondary-button" data-action="import-customers">${icon("upload")} 批量导入</button><button class="primary-button" data-action="new-customer">${icon("plus")} 新建客户</button></div>
     </section>
     <section class="filter-bar">
-      <div class="filter-summary"><b>${filtered.length}</b> 个客户</div>
+      <div class="filter-summary"><b>${filtered.length}</b> 个客户${selectedCount ? ` · 已选 ${selectedCount}` : ""}</div>
       <div class="stage-filter-chips"><span>阶段</span><button class="${state.stageFilter === "all" ? "active" : ""}" data-action="filter-stage" data-value="all">全部</button>${CRM_STAGES.map(s => `<button class="${state.stageFilter === s.key ? "active" : ""}" data-action="filter-stage" data-value="${s.key}">${s.label}</button>`).join("")}</div>
       ${(state.query || state.stageFilter !== "all") ? `<button class="text-button" data-action="reset-filters">清除筛选</button>` : ""}
+      ${customerMultiSelectEnabled && selectedCount ? `<div class="customer-bulk-actions"><button class="text-button" data-action="clear-customer-selection">取消选择</button><button class="danger-button batch-delete-button" data-action="delete-selected-customers">${icon("trash-2")} 删除所选（${selectedCount}）</button></div>` : ""}
     </section>
     <section class="td-panel customer-worktable">
-      <div class="table-head"><span>客户</span><span>阶段</span><span>关键联系人</span><span>下一步</span><span>最近更新</span><span></span></div>
+      <div class="table-head">${customerMultiSelectEnabled ? `<label class="table-customer-heading"><input id="customerSelectAll" type="checkbox" data-partial="${partiallySelected}" ${allVisibleSelected ? "checked" : ""} ${filtered.length ? "" : "disabled"} aria-label="选择当前列表全部客户"/><span>客户</span></label>` : `<span>客户</span>`}<span>阶段</span><span>关键联系人</span><span>下一步</span><span>最近更新</span><span></span></div>
       <div class="table-body">${filtered.length ? filtered.map(renderCustomerRow).join("") : emptyState("没有匹配的客户", "换一个关键词或清除筛选。", "search")}</div>
     </section>
   </div>`;
@@ -465,16 +518,17 @@ function renderCustomers() {
 function renderCustomerRow(customer) {
   const next = getNextTask(customer);
   const keyContact = customer.orgChain.find(p => /CEO|CTO|总监|负责人|VP/.test(p.role || "")) || customer.orgChain[0];
-  return `<article class="customer-row">
+  const selected = selectedCustomerIds.has(customer.id);
+  return `<article class="customer-row ${selected ? "is-selected" : ""}">
     <button class="customer-cell identity-cell" data-action="open-customer" data-id="${customer.id}"><span><b>${safe(customer.name)}</b><small>${safe(customer.fields.industry?.v || "行业未填写")} · ${customer.grade} 级</small></span></button>
     <span data-label="阶段"><b class="stage-pill stage-${customer.stage}">${stageLabel(customer.stage)}</b></span>
     <span class="muted-cell" data-label="关键联系人">${keyContact ? `<b>${safe(keyContact.name)}</b><small>${safe(keyContact.role)}</small>` : "待补充"}</span>
     <span class="next-cell ${next?.overdue ? "danger-text" : ""}" data-label="下一步">${next ? `<b>${safe(next.text)}</b><small>${next.overdue ? "已逾期" : formatShortDate(next.date)}</small>` : "暂无待办"}</span>
     <span class="muted-cell" data-label="最近更新">${formatRelative(lastActivityDate(customer))}</span>
-    <span class="row-actions"><button class="report-mini" data-action="open-report" data-id="${customer.id}">${icon("file-text")} 生成报告</button><details class="row-more-actions"><summary data-action="toggle-row-menu" aria-label="更多客户操作">${icon("ellipsis")}</summary><button data-action="open-customer" data-id="${customer.id}">${icon("external-link")} 查看客户</button></details></span>
+    <span class="row-actions"><button class="report-mini" data-action="open-report" data-id="${customer.id}">${icon("file-text")} 生成报告</button><details class="row-more-actions"><summary data-action="toggle-row-menu" aria-label="更多客户操作">${icon("ellipsis")}</summary><div class="row-more-menu"><button data-action="open-customer" data-id="${customer.id}">${icon("external-link")} 查看客户</button><button class="danger-menu-item" data-action="delete-customer" data-id="${customer.id}">${icon("trash-2")} 删除客户</button></div></details></span>
+    ${customerMultiSelectEnabled ? `<label class="customer-select-cell"><input type="checkbox" data-customer-select="${safe(customer.id)}" ${selected ? "checked" : ""} aria-label="选择 ${safe(customer.name)}"/><span class="sr-only">选择 ${safe(customer.name)}</span></label>` : ""}
   </article>`;
 }
-
 function openCustomer(id) {
   state.page = "customers";
   state.customerId = id;
@@ -506,7 +560,7 @@ function renderCustomerDetail(customer) {
     <button class="back-link" data-action="back-customers">${icon("arrow-left")} 返回客户列表</button>
     <header class="customer-summary-header">
       <div class="customer-title-group"><div class="customer-title-copy"><div class="title-line"><h1>${safe(customer.name)}</h1><b class="grade-badge grade-${customer.grade}">${customer.grade}</b></div><p>${safe(customer.fields.industry?.v || "行业未填写")} · 最近更新 ${formatRelative(lastActivityDate(customer))}</p>${renderCustomerFacts(customer)}</div></div>
-      <div class="customer-hero-actions"><button class="report-button" data-action="open-report" data-id="${customer.id}"><span>${icon("file-text")}</span><b>生成全景报告</b><small>汇总全部客户信息</small></button></div>
+      <div class="customer-hero-actions"><button class="report-button" data-action="open-report" data-id="${customer.id}"><span>${icon("file-text")}</span><b>生成全景报告</b><small>汇总全部客户信息</small></button><button class="danger-button customer-delete-button" data-action="delete-customer" data-id="${customer.id}">${icon("trash-2")} 删除客户</button></div>
     </header>
     <section class="customer-control-bar">
       ${renderStageTrack(customer)}
@@ -1872,12 +1926,14 @@ function submitNewCustomer(form) {
 
 function openCustomerImport() {
   customerImportRows = [];
+  customerImportFormat = "rows";
   customerImportFileName = "";
+  customerImportSelectedRows = new Set();
   showModal(`<div class="modal-head"><div><p class="eyebrow">BATCH IMPORT</p><h2 id="modalTitle">批量导入客户</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
     <form class="modal-form" data-form="customer-import">
-      <div class="import-help"><b>支持 CSV、TSV、XLSX、XLS</b><br/>可识别客户名称、行业、阶段、等级、联系人、职位、电话、邮箱、下一步、提醒日期和备注。客户名称为必填项。</div>
+      <div class="import-help"><b>支持 CRM 原生 JSON、CSV、TSV、XLSX、XLS</b><br/>JSON 必须使用 crm-customer-list.v1；表格可识别客户名称、行业、阶段、等级、联系人、职位、电话、邮箱、下一步、提醒日期和备注。</div>
       <button type="button" class="secondary-button import-template-button" data-action="download-import-template">${icon("download")} 下载 CSV 模板</button>
-      <label class="file-field">${icon("upload")} 选择客户数据文件<input id="customerImportFile" type="file" name="file" accept=".csv,.tsv,.xlsx,.xls,text/csv,text/tab-separated-values" required /><small>Excel 默认读取第一个工作表，导入前会先展示校验结果。</small></label>
+      <label class="file-field">${icon("upload")} 选择客户数据文件<input id="customerImportFile" type="file" name="file" accept=".json,.csv,.tsv,.xlsx,.xls,application/json,text/csv,text/tab-separated-values" required /><small>JSON 和 Excel 导入前都会先展示校验结果。</small></label>
       <label>遇到同名客户<div class="modern-select"><select id="customerImportStrategy" name="strategy"><option value="skip">跳过，不覆盖现有数据</option><option value="update">更新现有客户的非空字段</option></select>${icon("chevron-down")}</div></label>
       <div id="customerImportPreview" class="import-preview" aria-live="polite"></div>
       <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button id="customerImportSubmit" class="primary-button" disabled>${icon("upload")} 确认导入</button></div>
@@ -1885,21 +1941,47 @@ function openCustomerImport() {
 }
 
 async function readCustomerImportFile(file) {
-  if (!file) return [];
+  if (!file) return { format: "rows", data: [] };
   const extension = String(file.name || "").split(".").pop().toLowerCase();
+  if (extension === "json") return { format: "json", data: await file.text() };
   if (["xlsx", "xls"].includes(extension)) {
     if (typeof XLSX === "undefined") throw new Error("Excel 解析组件加载失败，请改用 CSV 或刷新后重试");
     const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
     if (!firstSheet) throw new Error("Excel 文件中没有可读取的工作表");
-    return XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: "", raw: false });
+    return { format: "rows", data: XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: "", raw: false }) };
   }
-  return CustomerImporter.parseCSV(await file.text());
+  return { format: "rows", data: CustomerImporter.parseCSV(await file.text()) };
+}
+
+function hasCustomerImportPayload() {
+  return customerImportFormat === "json"
+    ? typeof customerImportRows === "string" && customerImportRows.trim() !== ""
+    : Array.isArray(customerImportRows) && customerImportRows.length > 0;
+}
+
+function runCustomerImport(strategy, selectedRows = customerImportSelectedRows) {
+  const options = { strategy, idFactory: () => uid() };
+  if (selectedRows) options.selectedRows = Array.from(selectedRows);
+  return customerImportFormat === "json"
+    ? CustomerImporter.importJSON(customerImportRows, customers, options)
+    : CustomerImporter.importRows(customerImportRows, customers, options);
+}
+
+function setCustomerImportSelection(selectAll) {
+  if (!hasCustomerImportPayload() || typeof CustomerImporter === "undefined") return;
+  if (selectAll) {
+    const allItems = runCustomerImport($("#customerImportStrategy")?.value || "skip", null).items || [];
+    customerImportSelectedRows = new Set(allItems.map(item => Number(item.row)));
+  } else customerImportSelectedRows = new Set();
+  renderCustomerImportPreview($("#customerImportStrategy")?.value || "skip");
 }
 
 async function previewCustomerImport(file) {
   customerImportRows = [];
+  customerImportFormat = "rows";
   customerImportFileName = file?.name || "";
+  customerImportSelectedRows = new Set();
   const preview = $("#customerImportPreview");
   const submit = $("#customerImportSubmit");
   if (submit) submit.disabled = true;
@@ -1907,8 +1989,13 @@ async function previewCustomerImport(file) {
   preview.innerHTML = `<span class="muted">正在解析 ${safe(customerImportFileName)}…</span>`;
   try {
     if (typeof CustomerImporter === "undefined") throw new Error("导入组件尚未加载完成，请稍后重试");
-    customerImportRows = await readCustomerImportFile(file);
-    renderCustomerImportPreview($("#customerImportStrategy")?.value || "skip");
+    const parsed = await readCustomerImportFile(file);
+    customerImportFormat = parsed.format;
+    customerImportRows = parsed.data;
+    const strategy = $("#customerImportStrategy")?.value || "skip";
+    const initial = runCustomerImport(strategy, null);
+    customerImportSelectedRows = new Set((initial.items || []).map(item => Number(item.row)));
+    renderCustomerImportPreview(strategy);
   } catch (error) {
     preview.innerHTML = `<ul class="import-errors"><li>${safe(error?.message || "文件解析失败")}</li></ul>`;
   }
@@ -1917,18 +2004,40 @@ async function previewCustomerImport(file) {
 function renderCustomerImportPreview(strategy = "skip") {
   const preview = $("#customerImportPreview");
   const submit = $("#customerImportSubmit");
-  if (!preview || !customerImportRows.length || typeof CustomerImporter === "undefined") return;
-  const result = CustomerImporter.importRows(customerImportRows, customers, { strategy, idFactory: () => uid() });
+  if (!preview || !hasCustomerImportPayload() || typeof CustomerImporter === "undefined") return;
+  const result = runCustomerImport(strategy);
+  const items = result.items || [];
+  const selectedCount = items.filter(item => customerImportSelectedRows.has(Number(item.row))).length;
   const valid = result.imported + result.updated + result.skipped;
-  preview.innerHTML = `<div class="import-preview-summary"><span>${safe(customerImportFileName || "待导入文件")}</span><span class="success">新增 ${result.imported}</span><span>更新 ${result.updated}</span><span>跳过 ${result.skipped}</span><span class="${result.errors.length ? "danger" : ""}">错误 ${result.errors.length}</span></div>${result.errors.length ? `<ul class="import-errors">${result.errors.slice(0, 20).map(item => `<li>第 ${safe(item.row)} 行：${safe(item.message)}</li>`).join("")}${result.errors.length > 20 ? `<li>另有 ${result.errors.length - 20} 条错误未展示</li>` : ""}</ul>` : ""}`;
-  if (submit) submit.disabled = valid === 0 || (result.imported + result.updated === 0 && strategy === "skip");
+  const actionLabels = { import: "新增", update: "更新", skip: "跳过", error: "错误" };
+  const customerItems = items.map(item => {
+    const selected = customerImportSelectedRows.has(Number(item.row));
+    const stage = CRM_STAGES.find(option => option.key === item.stage)?.label || item.stage || "阶段未填写";
+    const meta = [item.industry || "行业未填写", item.grade ? `${item.grade} 级` : "等级未填写", stage].map(safe).join(" · ");
+    const warning = item.errors?.length ? `<small class="import-customer-error">${safe(item.errors[0])}</small>` : "";
+    return `<label class="import-customer-item import-action-${safe(item.action)} ${selected ? "is-selected" : ""}">
+      <input type="checkbox" data-import-customer-row="${safe(item.row)}" aria-label="选择 ${safe(item.name)}" ${selected ? "checked" : ""}/>
+      <span class="import-customer-copy"><b>${safe(item.name)}</b><small>${meta}</small>${warning}</span>
+      <span class="import-customer-status">${safe(actionLabels[item.action] || item.action)}</span>
+    </label>`;
+  }).join("");
+  const errorItems = result.errors.slice(0, 20).map(item => `<li>${item.row ? `第 ${safe(item.row)} 条：` : ""}${safe(item.message)}</li>`).join("");
+  preview.innerHTML = `<div class="import-preview-summary"><span>${safe(customerImportFileName || "待导入文件")}</span><span class="success">新增 ${result.imported}</span><span>更新 ${result.updated}</span><span>跳过 ${result.skipped}</span><span class="${result.errors.length ? "danger" : ""}">错误 ${result.errors.length}</span></div>
+    ${items.length ? `<div class="import-selection-toolbar"><b>已选择 ${selectedCount} / ${items.length} 个客户</b><span><button type="button" data-action="select-all-import-customers">全选</button><button type="button" data-action="clear-import-customers">取消全选</button></span></div><div class="import-customer-list">${customerItems}</div>` : ""}
+    ${result.errors.length ? `<ul class="import-errors">${errorItems}${result.errors.length > 20 ? `<li>另有 ${result.errors.length - 20} 条错误未展示</li>` : ""}</ul>` : ""}`;
+  if (submit) {
+    submit.disabled = selectedCount === 0 || valid === 0 || (result.imported + result.updated === 0 && strategy === "skip");
+    submit.innerHTML = `${icon("upload")} 确认导入${selectedCount ? `（${selectedCount}）` : ""}`;
+  }
+  if (typeof lucide !== "undefined") lucide.createIcons();
 }
 
 function submitCustomerImport(form) {
-  if (!customerImportRows.length || typeof CustomerImporter === "undefined") return toast("请先选择并解析客户数据文件");
+  if (!hasCustomerImportPayload() || typeof CustomerImporter === "undefined") return toast("请先选择并解析客户数据文件");
   const strategy = String(new FormData(form).get("strategy") || "skip");
-  const result = CustomerImporter.importRows(customerImportRows, customers, { strategy, idFactory: () => uid() });
-  if (!result.imported && !result.updated) return toast(result.errors.length ? "没有可导入的有效客户，请修正文件后重试" : "没有新增或需要更新的客户");
+  const result = runCustomerImport(strategy);
+  if (!customerImportSelectedRows.size) return toast("请至少选择一位客户");
+  if (!result.imported && !result.updated) return toast(result.errors.length ? "没有可导入的有效客户，请调整选择或修正文件" : "没有新增或需要更新的客户");
   customers = result.customers.map(ensureCustomerShape);
   persist();
   closeModal();
@@ -1938,6 +2047,63 @@ function submitCustomerImport(form) {
   toast(`导入完成：新增 ${result.imported}，更新 ${result.updated}，跳过 ${result.skipped}，错误 ${result.errors.length}`);
 }
 
+function openDeleteSelectedCustomers() {
+  pruneCustomerSelection();
+  const selected = customers.filter(customer => selectedCustomerIds.has(customer.id));
+  if (!selected.length) return toast("请先选择要删除的客户");
+  const relatedCount = selected.reduce((total, customer) => total + ["orgChain", "notes", "assets", "marketNews", "hiringSignals", "bidding", "qualifications"].reduce((sum, key) => sum + (Array.isArray(customer[key]) ? customer[key].length : 0), 0), 0);
+  const names = selected.slice(0, 4).map(customer => safe(customer.name)).join("、");
+  const more = selected.length > 4 ? ` 等 ${selected.length} 家客户` : "";
+  showModal(`<div class="modal-head"><div><p class="eyebrow danger-text">BATCH DELETE</p><h2 id="modalTitle">批量删除客户</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
+    <form class="modal-form" data-form="delete-selected-customers">
+      <div class="delete-warning">${icon("triangle-alert")}<div><b>确定删除已选择的 ${selected.length} 家客户吗？</b><p>${names}${more}</p><p>这些客户及其联系人、跟进、情报等 ${relatedCount} 条关联记录会一并删除。此操作无法撤销。</p></div></div>
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="danger-button" type="submit">${icon("trash-2")} 确认删除 ${selected.length} 家客户</button></div>
+    </form>`);
+}
+
+function submitDeleteSelectedCustomers() {
+  pruneCustomerSelection();
+  const deletingIds = new Set(selectedCustomerIds);
+  const deleted = customers.filter(customer => deletingIds.has(customer.id));
+  if (!deleted.length) return toast("所选客户已不存在，无需重复删除");
+  customers = customers.filter(customer => !deletingIds.has(customer.id));
+  if (reportCustomer && deletingIds.has(reportCustomer.id)) reportCustomer = null;
+  selectedCustomerIds = new Set();
+  persist();
+  closeModal();
+  state.page = "customers";
+  state.customerId = null;
+  state.customerTab = "overview";
+  renderApp();
+  toast(`已删除 ${deleted.length} 家客户`);
+}
+function openDeleteCustomer(customerId) {
+  const customer = getCustomer(customerId);
+  if (!customer) return toast("未找到要删除的客户");
+  const relatedCount = ["orgChain", "notes", "assets", "marketNews", "hiringSignals", "bidding", "qualifications"].reduce((sum, key) => sum + (Array.isArray(customer[key]) ? customer[key].length : 0), 0);
+  showModal(`<div class="modal-head"><div><p class="eyebrow danger-text">DELETE CUSTOMER</p><h2 id="modalTitle">删除客户</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
+    <form class="modal-form" data-form="delete-customer">
+      <input type="hidden" name="customerId" value="${safe(customer.id)}" />
+      <div class="delete-warning">${icon("triangle-alert")}<div><b>确定删除“${safe(customer.name)}”吗？</b><p>该客户及其联系人、跟进、情报等 ${relatedCount} 条关联记录会一并删除。此操作无法撤销。</p></div></div>
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="danger-button" type="submit">${icon("trash-2")} 确认删除</button></div>
+    </form>`);
+}
+
+function submitDeleteCustomer(form) {
+  const customerId = String(new FormData(form).get("customerId") || "");
+  const index = customers.findIndex(customer => customer.id === customerId);
+  if (index < 0) return toast("客户已不存在，无需重复删除");
+  const [deleted] = customers.splice(index, 1);
+  selectedCustomerIds.delete(customerId);
+  if (reportCustomer?.id === customerId) reportCustomer = null;
+  persist();
+  closeModal();
+  state.page = "customers";
+  state.customerId = null;
+  state.customerTab = "overview";
+  renderApp();
+  toast(`已删除客户：${deleted.name}`);
+}
 function downloadCustomerImportTemplate() {
   if (typeof CustomerImporter === "undefined") return toast("导入组件尚未加载完成，请稍后重试");
   const blob = new Blob(["\uFEFF" + CustomerImporter.CSV_TEMPLATE], { type: "text/csv;charset=utf-8" });

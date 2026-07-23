@@ -1,0 +1,4 @@
+interface:
+  display_name: "企业潜客研究与 CRM 清单"
+  short_description: "通过多通道发现、交叉核验和评分生成 CRM 原生潜客清单"
+  default_prompt: "使用 $enterprise-prospect-research 为指定产品发现、核验并生成可导入 CRM 的潜客清单。"
