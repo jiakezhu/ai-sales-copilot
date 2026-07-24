@@ -32,8 +32,8 @@ test("中文 CSV 转为兼容现有 CRM 的完整客户结构", () => {
   assert.equal(customer.grade, "A");
   assert.equal(customer.fields.industry.v, "企业服务");
   assert.deepEqual(
-    { name: customer.orgChain[0].name, role: customer.orgChain[0].role, phone: customer.orgChain[0].phone, phoneType: customer.orgChain[0].phoneType, email: customer.orgChain[0].email },
-    { name: "张三", role: "CTO", phone: "13800000000", phoneType: "unverified", email: "zhang@example.com" },
+    { name: customer.orgChain[0].name, role: customer.orgChain[0].role, relationStatus: customer.orgChain[0].relationStatus, phone: customer.orgChain[0].phone, phoneType: customer.orgChain[0].phoneType, email: customer.orgChain[0].email },
+    { name: "张三", role: "CTO", relationStatus: "pending", phone: "13800000000", phoneType: "unverified", email: "zhang@example.com" },
   );
   assert.deepEqual(
     { source: customer.fields.industry.source, confidence: customer.fields.industry.confidence, verifiedAt: customer.fields.industry.verifiedAt },
@@ -148,7 +148,7 @@ test("CRM 原生 JSON 直接导入并保留公开情报结构", () => {
         industry: { v: "软件和信息技术服务业", source: "tyc", confidence: "high", verifiedAt: "2026-07-22" },
         website: { v: "https://example.com", source: "website", confidence: "high", verifiedAt: "2026-07-22" },
       },
-      orgChain: [{ id: "", name: " 李四 ", role: "CTO", level: 2, phone: " 13800000000 ", note: "公开资料" }],
+      orgChain: [{ id: "", name: " 李四 ", role: "CTO", level: 2, relationStatus: "identified", phone: " 13800000000 ", note: "公开资料" }],
       marketNews: [{ id: "ev-1", title: "发布新产品", publishedAt: "2026-07-01", sourceUrl: "https://example.com/news", signal: "近期扩张", impact: "核实数据库扩容窗口" }],
       hiringSignals: [], bidding: [], qualifications: [],
       businessBrief: { products: "企业软件", painHypothesis: "推测，未获客户确认：可能存在数据库弹性需求。", unknowns: ["现有云厂商未知"] },
@@ -167,6 +167,7 @@ test("CRM 原生 JSON 直接导入并保留公开情报结构", () => {
   assert.equal(customer.orgChain[0].id, "customer-1-contact-1");
   assert.equal(customer.orgChain[0].name, "李四");
   assert.equal(customer.orgChain[0].phone, "13800000000");
+  assert.equal(customer.orgChain[0].relationStatus, "identified");
   assert.equal(customer.businessBrief.unknowns[0], "现有云厂商未知");
   assert.equal(customer.painChain.inferred, true);
   assert.equal(customer.stageHistory[0].note, "批量导入");
@@ -190,7 +191,7 @@ test("CRM 原生 JSON 拒绝错误版本、畸形 JSON 和非法客户字段", (
     schema_version: "crm-customer-list.v1",
     run_id: "run-invalid",
     generated_at: "2026-07-22T16:12:33+08:00",
-    customers: [{ name: "", stage: "prospect", grade: "X", fields: {
+    customers: [{ name: "", stage: "prospect", grade: "X", orgChain: [{ name: "错误联系人", role: "经理", level: 2, relationStatus: "guessed", note: "公开资料" }], fields: {
       industry: "软件",
       website: { v: "https://example.com" },
     } }],
@@ -203,6 +204,7 @@ test("CRM 原生 JSON 拒绝错误版本、畸形 JSON 和非法客户字段", (
   assert.ok(invalid.errors.some(item => item.field === "fields.website.source"));
   assert.ok(invalid.errors.some(item => item.field === "fields.website.confidence"));
   assert.ok(invalid.errors.some(item => item.field === "fields.website.verifiedAt"));
+  assert.ok(invalid.errors.some(item => item.field === "orgChain.0.relationStatus"));
 });
 
 test("CRM 原生 JSON update 合并非空情报并保留既有私有字段", () => {
@@ -280,4 +282,60 @@ test("取消勾选的表格错误行不会阻塞其他客户导入", () => {
   assert.equal(result.items[1].stage, "meeting");
   assert.equal(result.items[1].grade, "A");
   assert.equal(result.customers[0].name, "有效客户");
+});
+test("CRM 可直接导入任意文件名来源的单客户深调包并保留完整快照", () => {
+  const source = readFileSync(new URL("../调研Skill/sample-output/company-deep-research.json", import.meta.url), "utf8");
+  const bundle = JSON.parse(source);
+  const result = CustomerImporter.importJSON(source, [], fixedOptions);
+
+  assert.equal(result.imported, 1);
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.customers[0].name, bundle.customers[0].name);
+  assert.equal(result.customers[0].deepResearch.research_id, "sample-20260723-001");
+  assert.equal(result.customers[0].deepResearch.evidence.length, 10);
+});
+
+test("同名 update 整体替换 deepResearch 快照而不拼接证据版本", () => {
+  const bundle = JSON.parse(readFileSync(new URL("../调研Skill/sample-output/company-deep-research.json", import.meta.url), "utf8"));
+  const first = CustomerImporter.importJSON(bundle, [], fixedOptions).customers[0];
+  bundle.customers[0].deepResearch.research_id = "sample-new-snapshot";
+  bundle.customers[0].deepResearch.evidence = bundle.customers[0].deepResearch.evidence.slice(0, 2);
+  const updated = CustomerImporter.importJSON(bundle, [first], { ...fixedOptions, strategy: "update" });
+
+  assert.equal(updated.updated, 1);
+  assert.equal(updated.customers[0].deepResearch.research_id, "sample-new-snapshot");
+  assert.equal(updated.customers[0].deepResearch.evidence.length, 2);
+});
+
+test("公开研究更新不得把已建联联系人降级", () => {
+  const existing = [{
+    id: "existing", name: "关系客户", stage: "contact", grade: "A", fields: {},
+    orgChain: [{ id: "person-1", pid: null, name: "李总", role: "负责人", level: 1, relationStatus: "connected", note: "线下已确认" }],
+  }];
+  const bundle = {
+    schema_version: "crm-customer-list.v1",
+    run_id: "run-relation-status",
+    generated_at: "2026-07-24T10:00:00+08:00",
+    customers: [{
+      name: "关系客户", stage: "lead", grade: "A", fields: {},
+      orgChain: [{ id: "public-person", pid: null, name: "李总", role: "董事长", level: 1, relationStatus: "identified", note: "公开任职资料" }],
+    }],
+  };
+  const result = CustomerImporter.importJSON(bundle, existing, { ...fixedOptions, strategy: "update" });
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.customers[0].orgChain[0].relationStatus, "connected");
+  assert.equal(result.customers[0].orgChain[0].role, "董事长");
+});
+test("CRM 保留获客评分元数据并拒绝非法评分", () => {
+  const source = readFileSync(new URL("../获客Skill/sample-output/crm-customer-list.v1.json", import.meta.url), "utf8");
+  const valid = CustomerImporter.importJSON(source, [], fixedOptions);
+  assert.equal(valid.errors.length, 0);
+  assert.equal(valid.customers[0].prospectResearch.score, 83);
+  assert.equal(valid.customers[0].prospectResearch.scoreDimensions.length, 5);
+
+  const broken = JSON.parse(source);
+  broken.customers[0].prospectResearch.score = 101;
+  const invalid = CustomerImporter.importJSON(broken, [], fixedOptions);
+  assert.equal(invalid.imported, 0);
+  assert.ok(invalid.errors.some(item => item.field === "prospectResearch.score"));
 });
