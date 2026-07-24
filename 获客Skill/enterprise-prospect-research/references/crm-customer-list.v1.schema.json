@@ -1,231 +1,2039 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://sales-buddy.local/schemas/crm-customer-list.v1.schema.json",
-  "title": "Sales Buddy CRM native customer import bundle",
-  "description": "WorkBuddy 直接生成、Sales Buddy CRM 可校验后原样导入的客户清单。业务字段已采用 CRM 原生结构；CRM 仅补齐本地 ID、时间、颜色和空容器。",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schema_version", "run_id", "generated_at", "customers"],
-  "properties": {
-    "schema_version": { "const": "crm-customer-list.v1" },
-    "run_id": { "type": "string", "minLength": 1, "maxLength": 200 },
-    "generated_at": { "type": "string", "format": "date-time" },
-    "summary": { "$ref": "#/$defs/summary" },
-    "customers": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 1000,
-      "items": { "$ref": "#/$defs/customer" }
-    }
-  },
-  "$defs": {
-    "summary": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["title", "executive_summary", "data_quality", "customer_counts"],
-      "properties": {
-        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
-        "executive_summary": { "type": "string", "maxLength": 4000 },
-        "data_quality": { "type": "string", "enum": ["high", "medium", "low"] },
-        "customer_counts": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["S", "A", "B", "C", "manual_review"],
-          "properties": {
-            "S": { "type": "integer", "minimum": 0 },
-            "A": { "type": "integer", "minimum": 0 },
-            "B": { "type": "integer", "minimum": 0 },
-            "C": { "type": "integer", "minimum": 0 },
-            "manual_review": { "type": "integer", "minimum": 0 }
-          }
-        }
-      }
-    },
-    "customer": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "stage", "grade", "fields"],
-      "properties": {
-        "id": { "type": "string", "maxLength": 200 },
-        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "createdAt": { "type": "string", "maxLength": 100 },
-        "logo": { "type": "string", "maxLength": 20 },
-        "color": { "type": "string", "maxLength": 50 },
-        "stage": { "type": "string", "enum": ["lead", "contact", "meeting", "proposal", "won", "lost"] },
-        "grade": { "type": "string", "enum": ["S", "A", "B", "C"] },
-        "fields": { "$ref": "#/$defs/fields" },
-        "orgChain": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/contact" } },
-        "marketNews": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/marketNews" } },
-        "hiringSignals": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/hiringSignal" } },
-        "bidding": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/bidding" } },
-        "qualifications": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/qualification" } },
-        "businessBrief": { "$ref": "#/$defs/businessBrief" },
-        "painChain": { "$ref": "#/$defs/painChain" },
-        "jointWorkPlan": { "type": "array", "maxItems": 0 },
-        "meetingPreps": { "type": "array", "maxItems": 0 },
-        "meetingReviews": { "type": "array", "maxItems": 0 },
-        "salesAssets": { "type": "array", "maxItems": 0 },
-        "painPoints": { "type": "array", "maxItems": 0 },
-        "solution": { "type": "array", "maxItems": 0 },
-        "notes": { "type": "array", "maxItems": 0 },
-        "assets": { "type": "array", "maxItems": 0 },
-        "stageHistory": { "type": "array", "maxItems": 0 }
-      }
-    },
-    "fields": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "industry": { "$ref": "#/$defs/intelField" },
-        "founded": { "$ref": "#/$defs/intelField" },
-        "staff": { "$ref": "#/$defs/intelField" },
-        "funding": { "$ref": "#/$defs/intelField" },
-        "website": { "$ref": "#/$defs/intelField" },
-        "product": { "$ref": "#/$defs/intelField" },
-        "dau": { "$ref": "#/$defs/intelField" },
-        "revenue": { "$ref": "#/$defs/intelField" },
-        "creditCode": { "$ref": "#/$defs/intelField" },
-        "legalPerson": { "$ref": "#/$defs/intelField" },
-        "regCapital": { "$ref": "#/$defs/intelField" },
-        "regAddress": { "$ref": "#/$defs/intelField" },
-        "businessModel": { "$ref": "#/$defs/intelField" },
-        "techStack": { "$ref": "#/$defs/intelField" },
-        "shareholders": { "$ref": "#/$defs/intelField" },
-        "parentSubs": { "$ref": "#/$defs/intelField" },
-        "supplyChain": { "$ref": "#/$defs/intelField" },
-        "recentNews": { "$ref": "#/$defs/intelField" },
-        "hiring": { "$ref": "#/$defs/intelField" },
-        "riskNote": { "$ref": "#/$defs/intelField" },
-        "triggerEvents": { "$ref": "#/$defs/intelField" },
-        "cloudStatus": { "$ref": "#/$defs/privateEmptyField" },
-        "billNote": { "$ref": "#/$defs/privateEmptyField" },
-        "relation": { "$ref": "#/$defs/privateEmptyField" }
-      }
-    },
-    "intelField": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["v", "source", "confidence", "verifiedAt"],
-      "properties": {
-        "v": { "type": "string", "maxLength": 4000 },
-        "source": { "type": "string", "enum": ["", "customer", "website", "qcc", "tyc", "qxb", "web", "panshi"] },
-        "confidence": { "type": "string", "enum": ["unverified", "high", "medium", "low"] },
-        "verifiedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" }
-      }
-    },
-    "privateEmptyField": {
-      "allOf": [
-        { "$ref": "#/$defs/intelField" },
-        { "properties": { "v": { "const": "" } } }
-      ]
-    },
-    "contact": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["name", "role", "level", "note"],
-      "properties": {
-        "id": { "type": "string", "maxLength": 200 },
-        "pid": { "type": ["string", "null"], "maxLength": 200 },
-        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "role": { "type": "string", "maxLength": 200 },
-        "level": { "type": "integer", "enum": [1, 2, 3] },
-        "phone": { "type": "string", "maxLength": 100 },
-        "phoneType": { "type": "string", "enum": ["", "unverified", "direct", "agent"] },
-        "wechat": { "type": "string", "maxLength": 100 },
-        "email": { "type": "string", "maxLength": 320 },
-        "note": { "type": "string", "maxLength": 2000 }
-      }
-    },
-    "marketNews": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "title", "sourceUrl", "signal", "impact"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "title": { "type": "string", "minLength": 1, "maxLength": 500 },
-        "publishedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
-        "market": { "type": "string", "maxLength": 300 },
-        "sourceUrl": { "type": "string", "maxLength": 2000 },
-        "signal": { "type": "string", "minLength": 1, "maxLength": 3000 },
-        "impact": { "type": "string", "maxLength": 3000 },
-        "confirmedAt": { "type": "string", "maxLength": 100 }
-      }
-    },
-    "hiringSignal": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "role", "sourceUrl", "signal", "opportunity"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "role": { "type": "string", "minLength": 1, "maxLength": 500 },
-        "location": { "type": "string", "maxLength": 300 },
-        "postedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
-        "sourceUrl": { "type": "string", "maxLength": 2000 },
-        "signal": { "type": "string", "minLength": 1, "maxLength": 3000 },
-        "opportunity": { "type": "string", "maxLength": 3000 },
-        "confirmedAt": { "type": "string", "maxLength": 100 }
-      }
-    },
-    "bidding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "project", "source", "sourceUrl", "confidence", "verifiedAt", "signal"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "project": { "type": "string", "minLength": 1, "maxLength": 500 },
-        "purchaser": { "type": "string", "maxLength": 300 },
-        "role": { "type": "string", "maxLength": 100 },
-        "amount": { "type": "string", "maxLength": 200 },
-        "date": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
-        "source": { "type": "string", "enum": ["", "website", "qcc", "tyc", "qxb", "web", "panshi"] },
-        "sourceUrl": { "type": "string", "maxLength": 2000 },
-        "confidence": { "type": "string", "enum": ["unverified", "high", "medium", "low"] },
-        "verifiedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
-        "signal": { "type": "string", "maxLength": 3000 },
-        "capturedAt": { "type": "string", "maxLength": 100 }
-      }
-    },
-    "qualification": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "name", "source", "sourceUrl", "confidence", "verifiedAt"],
-      "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
-        "name": { "type": "string", "minLength": 1, "maxLength": 500 },
-        "type": { "type": "string", "maxLength": 200 },
-        "authority": { "type": "string", "maxLength": 300 },
-        "validTo": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
-        "source": { "type": "string", "enum": ["", "website", "qcc", "tyc", "qxb", "web", "panshi"] },
-        "sourceUrl": { "type": "string", "maxLength": 2000 },
-        "confidence": { "type": "string", "enum": ["unverified", "high", "medium", "low"] },
-        "verifiedAt": { "type": "string", "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$" },
-        "capturedAt": { "type": "string", "maxLength": 100 }
-      }
-    },
-    "businessBrief": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "products": { "type": "string", "maxLength": 4000 },
-        "revenueLogic": { "type": "string", "maxLength": 4000 },
-        "operatingStatus": { "type": "string", "maxLength": 4000 },
-        "competitors": { "type": "string", "maxLength": 4000 },
-        "painHypothesis": { "type": "string", "maxLength": 4000 },
-        "unknowns": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 1000 } }
-      }
-    },
-    "painChain": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "signal": { "type": "string", "maxLength": 4000 },
-        "pain": { "type": "string", "maxLength": 4000 },
-        "impact": { "type": "string", "maxLength": 4000 },
-        "solution": { "type": "string", "maxLength": 4000 },
-        "question": { "type": "string", "maxLength": 4000 },
-        "inferred": { "const": true },
-        "updatedAt": { "type": "string", "maxLength": 100 }
-      }
-    }
-  }
+    "$schema":  "https://json-schema.org/draft/2020-12/schema",
+    "$id":  "https://sales-buddy.local/schemas/crm-customer-list.v1.schema.json",
+    "title":  "Sales Buddy CRM native customer import bundle",
+    "description":  "CRM 原生客户导入契约。JSON 文件名不限；文件内容由 schema_version 识别。普通获客与单客户深度调研共用 customers[]，深调快照存放于 customer.deepResearch。",
+    "type":  "object",
+    "additionalProperties":  false,
+    "required":  [
+                     "schema_version",
+                     "run_id",
+                     "generated_at",
+                     "customers"
+                 ],
+    "properties":  {
+                       "schema_version":  {
+                                              "const":  "crm-customer-list.v1"
+                                          },
+                       "run_id":  {
+                                      "type":  "string",
+                                      "minLength":  1,
+                                      "maxLength":  200
+                                  },
+                       "generated_at":  {
+                                            "type":  "string",
+                                            "format":  "date-time"
+                                        },
+                       "summary":  {
+                                       "$ref":  "#/$defs/summary"
+                                   },
+                       "customers":  {
+                                         "type":  "array",
+                                         "minItems":  1,
+                                         "maxItems":  1000,
+                                         "items":  {
+                                                       "$ref":  "#/$defs/customer"
+                                                   }
+                                     }
+                   },
+    "$defs":  {
+                  "summary":  {
+                                  "type":  "object",
+                                  "additionalProperties":  false,
+                                  "required":  [
+                                                   "title",
+                                                   "executive_summary",
+                                                   "data_quality",
+                                                   "customer_counts"
+                                               ],
+                                  "properties":  {
+                                                     "title":  {
+                                                                   "type":  "string",
+                                                                   "minLength":  1,
+                                                                   "maxLength":  300
+                                                               },
+                                                     "executive_summary":  {
+                                                                               "type":  "string",
+                                                                               "maxLength":  4000
+                                                                           },
+                                                     "data_quality":  {
+                                                                          "type":  "string",
+                                                                          "enum":  [
+                                                                                       "high",
+                                                                                       "medium",
+                                                                                       "low"
+                                                                                   ]
+                                                                      },
+                                                     "customer_counts":  {
+                                                                             "type":  "object",
+                                                                             "additionalProperties":  false,
+                                                                             "required":  [
+                                                                                              "S",
+                                                                                              "A",
+                                                                                              "B",
+                                                                                              "C",
+                                                                                              "manual_review"
+                                                                                          ],
+                                                                             "properties":  {
+                                                                                                "S":  {
+                                                                                                          "type":  "integer",
+                                                                                                          "minimum":  0
+                                                                                                      },
+                                                                                                "A":  {
+                                                                                                          "type":  "integer",
+                                                                                                          "minimum":  0
+                                                                                                      },
+                                                                                                "B":  {
+                                                                                                          "type":  "integer",
+                                                                                                          "minimum":  0
+                                                                                                      },
+                                                                                                "C":  {
+                                                                                                          "type":  "integer",
+                                                                                                          "minimum":  0
+                                                                                                      },
+                                                                                                "manual_review":  {
+                                                                                                                      "type":  "integer",
+                                                                                                                      "minimum":  0
+                                                                                                                  }
+                                                                                            }
+                                                                         }
+                                                 }
+                              },
+                  "customer":  {
+                                   "type":  "object",
+                                   "additionalProperties":  false,
+                                   "required":  [
+                                                    "name",
+                                                    "stage",
+                                                    "grade",
+                                                    "fields"
+                                                ],
+                                   "properties":  {
+                                                      "id":  {
+                                                                 "type":  "string",
+                                                                 "maxLength":  200
+                                                             },
+                                                      "name":  {
+                                                                   "type":  "string",
+                                                                   "minLength":  1,
+                                                                   "maxLength":  200
+                                                               },
+                                                      "createdAt":  {
+                                                                        "type":  "string",
+                                                                        "maxLength":  100
+                                                                    },
+                                                      "logo":  {
+                                                                   "type":  "string",
+                                                                   "maxLength":  20
+                                                               },
+                                                      "color":  {
+                                                                    "type":  "string",
+                                                                    "maxLength":  50
+                                                                },
+                                                      "stage":  {
+                                                                    "type":  "string",
+                                                                    "enum":  [
+                                                                                 "lead",
+                                                                                 "contact",
+                                                                                 "meeting",
+                                                                                 "proposal",
+                                                                                 "won",
+                                                                                 "lost"
+                                                                             ]
+                                                                },
+                                                      "grade":  {
+                                                                    "type":  "string",
+                                                                    "enum":  [
+                                                                                 "S",
+                                                                                 "A",
+                                                                                 "B",
+                                                                                 "C"
+                                                                             ]
+                                                                },
+                                                      "fields":  {
+                                                                     "$ref":  "#/$defs/fields"
+                                                                 },
+                                                      "orgChain":  {
+                                                                       "type":  "array",
+                                                                       "maxItems":  100,
+                                                                       "items":  {
+                                                                                     "$ref":  "#/$defs/contact"
+                                                                                 }
+                                                                   },
+                                                      "marketNews":  {
+                                                                         "type":  "array",
+                                                                         "maxItems":  200,
+                                                                         "items":  {
+                                                                                       "$ref":  "#/$defs/marketNews"
+                                                                                   }
+                                                                     },
+                                                      "hiringSignals":  {
+                                                                            "type":  "array",
+                                                                            "maxItems":  200,
+                                                                            "items":  {
+                                                                                          "$ref":  "#/$defs/hiringSignal"
+                                                                                      }
+                                                                        },
+                                                      "bidding":  {
+                                                                      "type":  "array",
+                                                                      "maxItems":  200,
+                                                                      "items":  {
+                                                                                    "$ref":  "#/$defs/bidding"
+                                                                                }
+                                                                  },
+                                                      "qualifications":  {
+                                                                             "type":  "array",
+                                                                             "maxItems":  200,
+                                                                             "items":  {
+                                                                                           "$ref":  "#/$defs/qualification"
+                                                                                       }
+                                                                         },
+                                                      "businessBrief":  {
+                                                                            "$ref":  "#/$defs/businessBrief"
+                                                                        },
+                                                      "painChain":  {
+                                                                        "$ref":  "#/$defs/painChain"
+                                                                    },
+                                                      "jointWorkPlan":  {
+                                                                            "type":  "array",
+                                                                            "maxItems":  0
+                                                                        },
+                                                      "meetingPreps":  {
+                                                                           "type":  "array",
+                                                                           "maxItems":  0
+                                                                       },
+                                                      "meetingReviews":  {
+                                                                             "type":  "array",
+                                                                             "maxItems":  0
+                                                                         },
+                                                      "salesAssets":  {
+                                                                          "type":  "array",
+                                                                          "maxItems":  0
+                                                                      },
+                                                      "painPoints":  {
+                                                                         "type":  "array",
+                                                                         "maxItems":  0
+                                                                     },
+                                                      "solution":  {
+                                                                       "type":  "array",
+                                                                       "maxItems":  0
+                                                                   },
+                                                      "notes":  {
+                                                                    "type":  "array",
+                                                                    "maxItems":  0
+                                                                },
+                                                      "assets":  {
+                                                                     "type":  "array",
+                                                                     "maxItems":  0
+                                                                 },
+                                                      "stageHistory":  {
+                                                                           "type":  "array",
+                                                                           "maxItems":  0
+                                                                       },
+                                                      "deepResearch":  {
+                                                                           "$ref":  "#/$defs/deepResearch"
+                                                                       },
+                                                      "prospectResearch":  {
+                                                                               "$ref":  "#/$defs/prospectResearch",
+                                                                               "description":  "获客研究的评分、发现通道和反向审查元数据；CRM 可保留，销售私有状态不得写入。"
+                                                                           }
+                                                  }
+                               },
+                  "fields":  {
+                                 "type":  "object",
+                                 "additionalProperties":  false,
+                                 "properties":  {
+                                                    "industry":  {
+                                                                     "$ref":  "#/$defs/intelField"
+                                                                 },
+                                                    "founded":  {
+                                                                    "$ref":  "#/$defs/intelField"
+                                                                },
+                                                    "staff":  {
+                                                                  "$ref":  "#/$defs/intelField"
+                                                              },
+                                                    "funding":  {
+                                                                    "$ref":  "#/$defs/intelField"
+                                                                },
+                                                    "website":  {
+                                                                    "$ref":  "#/$defs/intelField"
+                                                                },
+                                                    "product":  {
+                                                                    "$ref":  "#/$defs/intelField"
+                                                                },
+                                                    "dau":  {
+                                                                "$ref":  "#/$defs/intelField"
+                                                            },
+                                                    "revenue":  {
+                                                                    "$ref":  "#/$defs/intelField"
+                                                                },
+                                                    "creditCode":  {
+                                                                       "$ref":  "#/$defs/intelField"
+                                                                   },
+                                                    "legalPerson":  {
+                                                                        "$ref":  "#/$defs/intelField"
+                                                                    },
+                                                    "regCapital":  {
+                                                                       "$ref":  "#/$defs/intelField"
+                                                                   },
+                                                    "regAddress":  {
+                                                                       "$ref":  "#/$defs/intelField"
+                                                                   },
+                                                    "businessModel":  {
+                                                                          "$ref":  "#/$defs/intelField"
+                                                                      },
+                                                    "techStack":  {
+                                                                      "$ref":  "#/$defs/intelField"
+                                                                  },
+                                                    "shareholders":  {
+                                                                         "$ref":  "#/$defs/intelField"
+                                                                     },
+                                                    "parentSubs":  {
+                                                                       "$ref":  "#/$defs/intelField"
+                                                                   },
+                                                    "supplyChain":  {
+                                                                        "$ref":  "#/$defs/intelField"
+                                                                    },
+                                                    "recentNews":  {
+                                                                       "$ref":  "#/$defs/intelField"
+                                                                   },
+                                                    "hiring":  {
+                                                                   "$ref":  "#/$defs/intelField"
+                                                               },
+                                                    "riskNote":  {
+                                                                     "$ref":  "#/$defs/intelField"
+                                                                 },
+                                                    "triggerEvents":  {
+                                                                          "$ref":  "#/$defs/intelField"
+                                                                      },
+                                                    "cloudStatus":  {
+                                                                        "$ref":  "#/$defs/privateEmptyField"
+                                                                    },
+                                                    "billNote":  {
+                                                                     "$ref":  "#/$defs/privateEmptyField"
+                                                                 },
+                                                    "relation":  {
+                                                                     "$ref":  "#/$defs/privateEmptyField"
+                                                                 }
+                                                }
+                             },
+                  "intelField":  {
+                                     "type":  "object",
+                                     "additionalProperties":  false,
+                                     "required":  [
+                                                      "v",
+                                                      "source",
+                                                      "confidence",
+                                                      "verifiedAt"
+                                                  ],
+                                     "properties":  {
+                                                        "v":  {
+                                                                  "type":  "string",
+                                                                  "maxLength":  4000
+                                                              },
+                                                        "source":  {
+                                                                       "type":  "string",
+                                                                       "enum":  [
+                                                                                    "",
+                                                                                    "customer",
+                                                                                    "website",
+                                                                                    "qcc",
+                                                                                    "tyc",
+                                                                                    "qxb",
+                                                                                    "web",
+                                                                                    "panshi"
+                                                                                ]
+                                                                   },
+                                                        "confidence":  {
+                                                                           "type":  "string",
+                                                                           "enum":  [
+                                                                                        "unverified",
+                                                                                        "high",
+                                                                                        "medium",
+                                                                                        "low"
+                                                                                    ]
+                                                                       },
+                                                        "verifiedAt":  {
+                                                                           "type":  "string",
+                                                                           "pattern":  "^$|^\\d{4}-\\d{2}-\\d{2}$"
+                                                                       }
+                                                    }
+                                 },
+                  "privateEmptyField":  {
+                                            "allOf":  [
+                                                          {
+                                                              "$ref":  "#/$defs/intelField"
+                                                          },
+                                                          {
+                                                              "properties":  {
+                                                                                 "v":  {
+                                                                                           "const":  ""
+                                                                                       }
+                                                                             }
+                                                          }
+                                                      ]
+                                        },
+                  "contact":  {
+                                  "type":  "object",
+                                  "additionalProperties":  false,
+                                  "required":  [
+                                                   "name",
+                                                   "role",
+                                                   "level",
+                                                   "note"
+                                               ],
+                                  "properties":  {
+                                                     "id":  {
+                                                                "type":  "string",
+                                                                "maxLength":  200
+                                                            },
+                                                     "pid":  {
+                                                                 "type":  [
+                                                                              "string",
+                                                                              "null"
+                                                                          ],
+                                                                 "maxLength":  200
+                                                             },
+                                                     "name":  {
+                                                                  "type":  "string",
+                                                                  "minLength":  1,
+                                                                  "maxLength":  200
+                                                              },
+                                                     "role":  {
+                                                                  "type":  "string",
+                                                                  "maxLength":  200
+                                                              },
+                                                     "level":  {
+                                                                   "type":  "integer",
+                                                                   "enum":  [
+                                                                                1,
+                                                                                2,
+                                                                                3
+                                                                            ]
+                                                               },
+                                                     "phone":  {
+                                                                   "type":  "string",
+                                                                   "maxLength":  100
+                                                               },
+                                                     "phoneType":  {
+                                                                       "type":  "string",
+                                                                       "enum":  [
+                                                                                    "",
+                                                                                    "unverified",
+                                                                                    "direct",
+                                                                                    "agent"
+                                                                                ]
+                                                                   },
+                                                     "wechat":  {
+                                                                    "type":  "string",
+                                                                    "maxLength":  100
+                                                                },
+                                                     "email":  {
+                                                                   "type":  "string",
+                                                                   "maxLength":  320
+                                                               },
+                                                     "note":  {
+                                                                  "type":  "string",
+                                                                  "maxLength":  2000
+                                                              },
+                                                     "relationStatus":  {
+                                                                            "type":  "string",
+                                                                            "enum":  [
+                                                                                         "identified",
+                                                                                         "pending",
+                                                                                         "reached",
+                                                                                         "connected"
+                                                                                     ],
+                                                                            "default":  "pending",
+                                                                            "description":  "真实销售建联状态。公开研究发现的人物使用 identified；不得根据备注或公开联系方式推断 reached/connected。"
+                                                                        }
+                                                 }
+                              },
+                  "marketNews":  {
+                                     "type":  "object",
+                                     "additionalProperties":  false,
+                                     "required":  [
+                                                      "id",
+                                                      "title",
+                                                      "sourceUrl",
+                                                      "signal",
+                                                      "impact"
+                                                  ],
+                                     "properties":  {
+                                                        "id":  {
+                                                                   "type":  "string",
+                                                                   "minLength":  1,
+                                                                   "maxLength":  100
+                                                               },
+                                                        "title":  {
+                                                                      "type":  "string",
+                                                                      "minLength":  1,
+                                                                      "maxLength":  500
+                                                                  },
+                                                        "publishedAt":  {
+                                                                            "type":  "string",
+                                                                            "pattern":  "^$|^\\d{4}-\\d{2}-\\d{2}$"
+                                                                        },
+                                                        "market":  {
+                                                                       "type":  "string",
+                                                                       "maxLength":  300
+                                                                   },
+                                                        "sourceUrl":  {
+                                                                          "type":  "string",
+                                                                          "maxLength":  2000
+                                                                      },
+                                                        "signal":  {
+                                                                       "type":  "string",
+                                                                       "minLength":  1,
+                                                                       "maxLength":  3000
+                                                                   },
+                                                        "impact":  {
+                                                                       "type":  "string",
+                                                                       "maxLength":  3000
+                                                                   },
+                                                        "confirmedAt":  {
+                                                                            "type":  "string",
+                                                                            "maxLength":  100
+                                                                        }
+                                                    }
+                                 },
+                  "hiringSignal":  {
+                                       "type":  "object",
+                                       "additionalProperties":  false,
+                                       "required":  [
+                                                        "id",
+                                                        "role",
+                                                        "sourceUrl",
+                                                        "signal",
+                                                        "opportunity"
+                                                    ],
+                                       "properties":  {
+                                                          "id":  {
+                                                                     "type":  "string",
+                                                                     "minLength":  1,
+                                                                     "maxLength":  100
+                                                                 },
+                                                          "role":  {
+                                                                       "type":  "string",
+                                                                       "minLength":  1,
+                                                                       "maxLength":  500
+                                                                   },
+                                                          "location":  {
+                                                                           "type":  "string",
+                                                                           "maxLength":  300
+                                                                       },
+                                                          "postedAt":  {
+                                                                           "type":  "string",
+                                                                           "pattern":  "^$|^\\d{4}-\\d{2}-\\d{2}$"
+                                                                       },
+                                                          "sourceUrl":  {
+                                                                            "type":  "string",
+                                                                            "maxLength":  2000
+                                                                        },
+                                                          "signal":  {
+                                                                         "type":  "string",
+                                                                         "minLength":  1,
+                                                                         "maxLength":  3000
+                                                                     },
+                                                          "opportunity":  {
+                                                                              "type":  "string",
+                                                                              "maxLength":  3000
+                                                                          },
+                                                          "confirmedAt":  {
+                                                                              "type":  "string",
+                                                                              "maxLength":  100
+                                                                          }
+                                                      }
+                                   },
+                  "bidding":  {
+                                  "type":  "object",
+                                  "additionalProperties":  false,
+                                  "required":  [
+                                                   "id",
+                                                   "project",
+                                                   "source",
+                                                   "sourceUrl",
+                                                   "confidence",
+                                                   "verifiedAt",
+                                                   "signal"
+                                               ],
+                                  "properties":  {
+                                                     "id":  {
+                                                                "type":  "string",
+                                                                "minLength":  1,
+                                                                "maxLength":  100
+                                                            },
+                                                     "project":  {
+                                                                     "type":  "string",
+                                                                     "minLength":  1,
+                                                                     "maxLength":  500
+                                                                 },
+                                                     "purchaser":  {
+                                                                       "type":  "string",
+                                                                       "maxLength":  300
+                                                                   },
+                                                     "role":  {
+                                                                  "type":  "string",
+                                                                  "maxLength":  100
+                                                              },
+                                                     "amount":  {
+                                                                    "type":  "string",
+                                                                    "maxLength":  200
+                                                                },
+                                                     "date":  {
+                                                                  "type":  "string",
+                                                                  "pattern":  "^$|^\\d{4}-\\d{2}-\\d{2}$"
+                                                              },
+                                                     "source":  {
+                                                                    "type":  "string",
+                                                                    "enum":  [
+                                                                                 "",
+                                                                                 "website",
+                                                                                 "qcc",
+                                                                                 "tyc",
+                                                                                 "qxb",
+                                                                                 "web",
+                                                                                 "panshi"
+                                                                             ]
+                                                                },
+                                                     "sourceUrl":  {
+                                                                       "type":  "string",
+                                                                       "maxLength":  2000
+                                                                   },
+                                                     "confidence":  {
+                                                                        "type":  "string",
+                                                                        "enum":  [
+                                                                                     "unverified",
+                                                                                     "high",
+                                                                                     "medium",
+                                                                                     "low"
+                                                                                 ]
+                                                                    },
+                                                     "verifiedAt":  {
+                                                                        "type":  "string",
+                                                                        "pattern":  "^$|^\\d{4}-\\d{2}-\\d{2}$"
+                                                                    },
+                                                     "signal":  {
+                                                                    "type":  "string",
+                                                                    "maxLength":  3000
+                                                                },
+                                                     "capturedAt":  {
+                                                                        "type":  "string",
+                                                                        "maxLength":  100
+                                                                    }
+                                                 }
+                              },
+                  "qualification":  {
+                                        "type":  "object",
+                                        "additionalProperties":  false,
+                                        "required":  [
+                                                         "id",
+                                                         "name",
+                                                         "source",
+                                                         "sourceUrl",
+                                                         "confidence",
+                                                         "verifiedAt"
+                                                     ],
+                                        "properties":  {
+                                                           "id":  {
+                                                                      "type":  "string",
+                                                                      "minLength":  1,
+                                                                      "maxLength":  100
+                                                                  },
+                                                           "name":  {
+                                                                        "type":  "string",
+                                                                        "minLength":  1,
+                                                                        "maxLength":  500
+                                                                    },
+                                                           "type":  {
+                                                                        "type":  "string",
+                                                                        "maxLength":  200
+                                                                    },
+                                                           "authority":  {
+                                                                             "type":  "string",
+                                                                             "maxLength":  300
+                                                                         },
+                                                           "validTo":  {
+                                                                           "type":  "string",
+                                                                           "pattern":  "^$|^\\d{4}-\\d{2}-\\d{2}$"
+                                                                       },
+                                                           "source":  {
+                                                                          "type":  "string",
+                                                                          "enum":  [
+                                                                                       "",
+                                                                                       "website",
+                                                                                       "qcc",
+                                                                                       "tyc",
+                                                                                       "qxb",
+                                                                                       "web",
+                                                                                       "panshi"
+                                                                                   ]
+                                                                      },
+                                                           "sourceUrl":  {
+                                                                             "type":  "string",
+                                                                             "maxLength":  2000
+                                                                         },
+                                                           "confidence":  {
+                                                                              "type":  "string",
+                                                                              "enum":  [
+                                                                                           "unverified",
+                                                                                           "high",
+                                                                                           "medium",
+                                                                                           "low"
+                                                                                       ]
+                                                                          },
+                                                           "verifiedAt":  {
+                                                                              "type":  "string",
+                                                                              "pattern":  "^$|^\\d{4}-\\d{2}-\\d{2}$"
+                                                                          },
+                                                           "capturedAt":  {
+                                                                              "type":  "string",
+                                                                              "maxLength":  100
+                                                                          }
+                                                       }
+                                    },
+                  "businessBrief":  {
+                                        "type":  "object",
+                                        "additionalProperties":  false,
+                                        "properties":  {
+                                                           "products":  {
+                                                                            "type":  "string",
+                                                                            "maxLength":  4000
+                                                                        },
+                                                           "revenueLogic":  {
+                                                                                "type":  "string",
+                                                                                "maxLength":  4000
+                                                                            },
+                                                           "operatingStatus":  {
+                                                                                   "type":  "string",
+                                                                                   "maxLength":  4000
+                                                                               },
+                                                           "competitors":  {
+                                                                               "type":  "string",
+                                                                               "maxLength":  4000
+                                                                           },
+                                                           "painHypothesis":  {
+                                                                                  "type":  "string",
+                                                                                  "maxLength":  4000
+                                                                              },
+                                                           "unknowns":  {
+                                                                            "type":  "array",
+                                                                            "items":  {
+                                                                                          "type":  "string",
+                                                                                          "minLength":  1,
+                                                                                          "maxLength":  1000
+                                                                                      }
+                                                                        }
+                                                       }
+                                    },
+                  "painChain":  {
+                                    "type":  "object",
+                                    "additionalProperties":  false,
+                                    "properties":  {
+                                                       "signal":  {
+                                                                      "type":  "string",
+                                                                      "maxLength":  4000
+                                                                  },
+                                                       "pain":  {
+                                                                    "type":  "string",
+                                                                    "maxLength":  4000
+                                                                },
+                                                       "impact":  {
+                                                                      "type":  "string",
+                                                                      "maxLength":  4000
+                                                                  },
+                                                       "solution":  {
+                                                                        "type":  "string",
+                                                                        "maxLength":  4000
+                                                                    },
+                                                       "question":  {
+                                                                        "type":  "string",
+                                                                        "maxLength":  4000
+                                                                    },
+                                                       "inferred":  {
+                                                                        "const":  true
+                                                                    },
+                                                       "updatedAt":  {
+                                                                         "type":  "string",
+                                                                         "maxLength":  100
+                                                                     }
+                                                   }
+                                },
+                  "deep_idList":  {
+                                      "type":  "array",
+                                      "items":  {
+                                                    "type":  "string",
+                                                    "pattern":  "^E[0-9]{3,}$"
+                                                }
+                                  },
+                  "deep_claimIdList":  {
+                                           "type":  "array",
+                                           "items":  {
+                                                         "type":  "string",
+                                                         "pattern":  "^C[0-9]{3,}$"
+                                                     }
+                                       },
+                  "deep_subject":  {
+                                       "type":  "object",
+                                       "additionalProperties":  false,
+                                       "required":  [
+                                                        "query",
+                                                        "legal_name",
+                                                        "aliases",
+                                                        "credit_code",
+                                                        "registration_status",
+                                                        "website",
+                                                        "headquarters",
+                                                        "evidence_ids"
+                                                    ],
+                                       "properties":  {
+                                                          "query":  {
+                                                                        "type":  "string",
+                                                                        "minLength":  1
+                                                                    },
+                                                          "legal_name":  {
+                                                                             "type":  "string",
+                                                                             "minLength":  2
+                                                                         },
+                                                          "aliases":  {
+                                                                          "type":  "array",
+                                                                          "items":  {
+                                                                                        "type":  "string"
+                                                                                    }
+                                                                      },
+                                                          "credit_code":  {
+                                                                              "type":  "string"
+                                                                          },
+                                                          "registration_status":  {
+                                                                                      "type":  "string"
+                                                                                  },
+                                                          "website":  {
+                                                                          "type":  "string"
+                                                                      },
+                                                          "headquarters":  {
+                                                                               "type":  "string"
+                                                                           },
+                                                          "evidence_ids":  {
+                                                                               "$ref":  "#/$defs/deep_idList"
+                                                                           }
+                                                      }
+                                   },
+                  "deep_scope":  {
+                                     "type":  "object",
+                                     "additionalProperties":  false,
+                                     "required":  [
+                                                      "purpose",
+                                                      "language",
+                                                      "as_of",
+                                                      "windows",
+                                                      "legal_and_privacy_boundary"
+                                                  ],
+                                     "properties":  {
+                                                        "purpose":  {
+                                                                        "type":  "string"
+                                                                    },
+                                                        "language":  {
+                                                                         "type":  "string",
+                                                                         "enum":  [
+                                                                                      "zh-CN",
+                                                                                      "en"
+                                                                                  ]
+                                                                     },
+                                                        "as_of":  {
+                                                                      "type":  "string"
+                                                                  },
+                                                        "legal_and_privacy_boundary":  {
+                                                                                           "type":  "string"
+                                                                                       },
+                                                        "windows":  {
+                                                                        "type":  "object",
+                                                                        "additionalProperties":  false,
+                                                                        "required":  [
+                                                                                         "ownership_months",
+                                                                                         "hiring_months",
+                                                                                         "news_months",
+                                                                                         "sales_signal_days"
+                                                                                     ],
+                                                                        "properties":  {
+                                                                                           "ownership_months":  {
+                                                                                                                    "type":  "integer",
+                                                                                                                    "minimum":  1
+                                                                                                                },
+                                                                                           "hiring_months":  {
+                                                                                                                 "type":  "integer",
+                                                                                                                 "minimum":  1
+                                                                                                             },
+                                                                                           "news_months":  {
+                                                                                                               "type":  "integer",
+                                                                                                               "minimum":  1
+                                                                                                           },
+                                                                                           "sales_signal_days":  {
+                                                                                                                     "type":  "integer",
+                                                                                                                     "minimum":  1
+                                                                                                                 }
+                                                                                       }
+                                                                    }
+                                                    }
+                                 },
+                  "deep_coverage":  {
+                                        "type":  "object",
+                                        "additionalProperties":  false,
+                                        "required":  [
+                                                         "dimension",
+                                                         "status",
+                                                         "providers_attempted",
+                                                         "evidence_ids",
+                                                         "notes"
+                                                     ],
+                                        "properties":  {
+                                                           "dimension":  {
+                                                                             "type":  "string",
+                                                                             "enum":  [
+                                                                                          "identity",
+                                                                                          "ownership",
+                                                                                          "organization",
+                                                                                          "people",
+                                                                                          "business",
+                                                                                          "hiring",
+                                                                                          "news",
+                                                                                          "procurement",
+                                                                                          "ip",
+                                                                                          "risks",
+                                                                                          "sales"
+                                                                                      ]
+                                                                         },
+                                                           "status":  {
+                                                                          "type":  "string",
+                                                                          "enum":  [
+                                                                                       "verified",
+                                                                                       "partial",
+                                                                                       "not_found",
+                                                                                       "inaccessible",
+                                                                                       "not_applicable"
+                                                                                   ]
+                                                                      },
+                                                           "providers_attempted":  {
+                                                                                       "type":  "array",
+                                                                                       "minItems":  1,
+                                                                                       "items":  {
+                                                                                                     "type":  "string"
+                                                                                                 }
+                                                                                   },
+                                                           "evidence_ids":  {
+                                                                                "$ref":  "#/$defs/deep_idList"
+                                                                            },
+                                                           "notes":  {
+                                                                         "type":  "string"
+                                                                     }
+                                                       }
+                                    },
+                  "deep_executiveSummary":  {
+                                                "type":  "object",
+                                                "additionalProperties":  false,
+                                                "required":  [
+                                                                 "overview",
+                                                                 "key_claim_ids",
+                                                                 "watch_items",
+                                                                 "unknowns"
+                                                             ],
+                                                "properties":  {
+                                                                   "overview":  {
+                                                                                    "type":  "string"
+                                                                                },
+                                                                   "key_claim_ids":  {
+                                                                                         "$ref":  "#/$defs/deep_claimIdList"
+                                                                                     },
+                                                                   "watch_items":  {
+                                                                                       "type":  "array",
+                                                                                       "items":  {
+                                                                                                     "type":  "string"
+                                                                                                 }
+                                                                                   },
+                                                                   "unknowns":  {
+                                                                                    "type":  "array",
+                                                                                    "items":  {
+                                                                                                  "type":  "string"
+                                                                                              }
+                                                                                }
+                                                               }
+                                            },
+                  "deep_claim":  {
+                                     "type":  "object",
+                                     "additionalProperties":  false,
+                                     "required":  [
+                                                      "id",
+                                                      "category",
+                                                      "statement",
+                                                      "status",
+                                                      "confidence",
+                                                      "as_of",
+                                                      "evidence_ids",
+                                                      "counter_evidence_ids",
+                                                      "rationale"
+                                                  ],
+                                     "properties":  {
+                                                        "id":  {
+                                                                   "type":  "string",
+                                                                   "pattern":  "^C[0-9]{3,}$"
+                                                               },
+                                                        "category":  {
+                                                                         "type":  "string"
+                                                                     },
+                                                        "statement":  {
+                                                                          "type":  "string",
+                                                                          "minLength":  2
+                                                                      },
+                                                        "status":  {
+                                                                       "type":  "string",
+                                                                       "enum":  [
+                                                                                    "verified",
+                                                                                    "inferred",
+                                                                                    "conflicted",
+                                                                                    "unknown"
+                                                                                ]
+                                                                   },
+                                                        "confidence":  {
+                                                                           "type":  "string",
+                                                                           "enum":  [
+                                                                                        "high",
+                                                                                        "medium",
+                                                                                        "low",
+                                                                                        "unverified"
+                                                                                    ]
+                                                                       },
+                                                        "as_of":  {
+                                                                      "type":  "string"
+                                                                  },
+                                                        "evidence_ids":  {
+                                                                             "$ref":  "#/$defs/deep_idList"
+                                                                         },
+                                                        "counter_evidence_ids":  {
+                                                                                     "$ref":  "#/$defs/deep_idList"
+                                                                                 },
+                                                        "rationale":  {
+                                                                          "type":  "string"
+                                                                      }
+                                                    }
+                                 },
+                  "deep_entity":  {
+                                      "type":  "object",
+                                      "additionalProperties":  false,
+                                      "required":  [
+                                                       "id",
+                                                       "name",
+                                                       "type",
+                                                       "identifier",
+                                                       "evidence_ids"
+                                                   ],
+                                      "properties":  {
+                                                         "id":  {
+                                                                    "type":  "string"
+                                                                },
+                                                         "name":  {
+                                                                      "type":  "string"
+                                                                  },
+                                                         "type":  {
+                                                                      "type":  "string",
+                                                                      "enum":  [
+                                                                                   "company",
+                                                                                   "person",
+                                                                                   "government",
+                                                                                   "listed_company",
+                                                                                   "fund",
+                                                                                   "fund_manager",
+                                                                                   "other"
+                                                                               ]
+                                                                  },
+                                                         "identifier":  {
+                                                                            "type":  "string"
+                                                                        },
+                                                         "evidence_ids":  {
+                                                                              "$ref":  "#/$defs/deep_idList"
+                                                                          }
+                                                     }
+                                  },
+                  "deep_edge":  {
+                                    "type":  "object",
+                                    "additionalProperties":  false,
+                                    "required":  [
+                                                     "from",
+                                                     "to",
+                                                     "relationship",
+                                                     "percentage",
+                                                     "as_of",
+                                                     "evidence_ids"
+                                                 ],
+                                    "properties":  {
+                                                       "from":  {
+                                                                    "type":  "string"
+                                                                },
+                                                       "to":  {
+                                                                  "type":  "string"
+                                                              },
+                                                       "relationship":  {
+                                                                            "type":  "string"
+                                                                        },
+                                                       "percentage":  {
+                                                                          "type":  "number",
+                                                                          "minimum":  0,
+                                                                          "maximum":  100
+                                                                      },
+                                                       "as_of":  {
+                                                                     "type":  "string"
+                                                                 },
+                                                       "evidence_ids":  {
+                                                                            "$ref":  "#/$defs/deep_idList"
+                                                                        }
+                                                   }
+                                },
+                  "deep_ownership":  {
+                                         "type":  "object",
+                                         "additionalProperties":  false,
+                                         "required":  [
+                                                          "entities",
+                                                          "edges",
+                                                          "ultimate_controller_claim_id",
+                                                          "penetration_paths",
+                                                          "change_events"
+                                                      ],
+                                         "properties":  {
+                                                            "entities":  {
+                                                                             "type":  "array",
+                                                                             "items":  {
+                                                                                           "$ref":  "#/$defs/deep_entity"
+                                                                                       }
+                                                                         },
+                                                            "edges":  {
+                                                                          "type":  "array",
+                                                                          "items":  {
+                                                                                        "$ref":  "#/$defs/deep_edge"
+                                                                                    }
+                                                                      },
+                                                            "ultimate_controller_claim_id":  {
+                                                                                                 "type":  "string"
+                                                                                             },
+                                                            "penetration_paths":  {
+                                                                                      "type":  "array",
+                                                                                      "items":  {
+                                                                                                    "type":  "object",
+                                                                                                    "additionalProperties":  false,
+                                                                                                    "required":  [
+                                                                                                                     "nodes",
+                                                                                                                     "direct_percentages",
+                                                                                                                     "calculated_indirect_percentage",
+                                                                                                                     "terminal_type",
+                                                                                                                     "stop_reason",
+                                                                                                                     "evidence_ids"
+                                                                                                                 ],
+                                                                                                    "properties":  {
+                                                                                                                       "nodes":  {
+                                                                                                                                     "type":  "array",
+                                                                                                                                     "minItems":  2,
+                                                                                                                                     "items":  {
+                                                                                                                                                   "type":  "string"
+                                                                                                                                               }
+                                                                                                                                 },
+                                                                                                                       "direct_percentages":  {
+                                                                                                                                                  "type":  "array",
+                                                                                                                                                  "items":  {
+                                                                                                                                                                "type":  "number",
+                                                                                                                                                                "minimum":  0,
+                                                                                                                                                                "maximum":  100
+                                                                                                                                                            }
+                                                                                                                                              },
+                                                                                                                       "calculated_indirect_percentage":  {
+                                                                                                                                                              "type":  "number",
+                                                                                                                                                              "minimum":  0,
+                                                                                                                                                              "maximum":  100
+                                                                                                                                                          },
+                                                                                                                       "terminal_type":  {
+                                                                                                                                             "type":  "string"
+                                                                                                                                         },
+                                                                                                                       "stop_reason":  {
+                                                                                                                                           "type":  "string"
+                                                                                                                                       },
+                                                                                                                       "evidence_ids":  {
+                                                                                                                                            "$ref":  "#/$defs/deep_idList"
+                                                                                                                                        }
+                                                                                                                   }
+                                                                                                }
+                                                                                  },
+                                                            "change_events":  {
+                                                                                  "type":  "array",
+                                                                                  "items":  {
+                                                                                                "$ref":  "#/$defs/deep_event"
+                                                                                            }
+                                                                              }
+                                                        }
+                                     },
+                  "deep_organization":  {
+                                            "type":  "object",
+                                            "additionalProperties":  false,
+                                            "required":  [
+                                                             "entities",
+                                                             "edges",
+                                                             "boundary_note"
+                                                         ],
+                                            "properties":  {
+                                                               "entities":  {
+                                                                                "type":  "array",
+                                                                                "items":  {
+                                                                                              "$ref":  "#/$defs/deep_entity"
+                                                                                          }
+                                                                            },
+                                                               "edges":  {
+                                                                             "type":  "array",
+                                                                             "items":  {
+                                                                                           "$ref":  "#/$defs/deep_edge"
+                                                                                       }
+                                                                         },
+                                                               "boundary_note":  {
+                                                                                     "type":  "string"
+                                                                                 }
+                                                           }
+                                        },
+                  "deep_people":  {
+                                      "type":  "object",
+                                      "additionalProperties":  false,
+                                      "required":  [
+                                                       "persons",
+                                                       "relationships",
+                                                       "privacy_note"
+                                                   ],
+                                      "properties":  {
+                                                         "persons":  {
+                                                                         "type":  "array",
+                                                                         "items":  {
+                                                                                       "type":  "object",
+                                                                                       "additionalProperties":  false,
+                                                                                       "required":  [
+                                                                                                        "id",
+                                                                                                        "name",
+                                                                                                        "public_roles",
+                                                                                                        "evidence_ids"
+                                                                                                    ],
+                                                                                       "properties":  {
+                                                                                                          "id":  {
+                                                                                                                     "type":  "string"
+                                                                                                                 },
+                                                                                                          "name":  {
+                                                                                                                       "type":  "string"
+                                                                                                                   },
+                                                                                                          "public_roles":  {
+                                                                                                                               "type":  "array",
+                                                                                                                               "items":  {
+                                                                                                                                             "type":  "string"
+                                                                                                                                         }
+                                                                                                                           },
+                                                                                                          "evidence_ids":  {
+                                                                                                                               "$ref":  "#/$defs/deep_idList"
+                                                                                                                           }
+                                                                                                      }
+                                                                                   }
+                                                                     },
+                                                         "relationships":  {
+                                                                               "type":  "array",
+                                                                               "items":  {
+                                                                                             "type":  "object",
+                                                                                             "additionalProperties":  false,
+                                                                                             "required":  [
+                                                                                                              "person_id",
+                                                                                                              "entity_id",
+                                                                                                              "relationship",
+                                                                                                              "period",
+                                                                                                              "evidence_ids"
+                                                                                                          ],
+                                                                                             "properties":  {
+                                                                                                                "person_id":  {
+                                                                                                                                  "type":  "string"
+                                                                                                                              },
+                                                                                                                "entity_id":  {
+                                                                                                                                  "type":  "string"
+                                                                                                                              },
+                                                                                                                "relationship":  {
+                                                                                                                                     "type":  "string",
+                                                                                                                                     "enum":  [
+                                                                                                                                                  "legal_representative",
+                                                                                                                                                  "executive",
+                                                                                                                                                  "director",
+                                                                                                                                                  "supervisor",
+                                                                                                                                                  "shareholder",
+                                                                                                                                                  "historical_role",
+                                                                                                                                                  "co_investment",
+                                                                                                                                                  "public_business_relation"
+                                                                                                                                              ]
+                                                                                                                                 },
+                                                                                                                "period":  {
+                                                                                                                               "type":  "string"
+                                                                                                                           },
+                                                                                                                "evidence_ids":  {
+                                                                                                                                     "$ref":  "#/$defs/deep_idList"
+                                                                                                                                 }
+                                                                                                            }
+                                                                                         }
+                                                                           },
+                                                         "privacy_note":  {
+                                                                              "type":  "string"
+                                                                          }
+                                                     }
+                                  },
+                  "deep_fact":  {
+                                    "type":  "object",
+                                    "additionalProperties":  false,
+                                    "required":  [
+                                                     "label",
+                                                     "value",
+                                                     "as_of",
+                                                     "evidence_ids"
+                                                 ],
+                                    "properties":  {
+                                                       "label":  {
+                                                                     "type":  "string"
+                                                                 },
+                                                       "value":  {
+                                                                     "type":  "string"
+                                                                 },
+                                                       "as_of":  {
+                                                                     "type":  "string"
+                                                                 },
+                                                       "evidence_ids":  {
+                                                                            "$ref":  "#/$defs/deep_idList"
+                                                                        }
+                                                   }
+                                },
+                  "deep_business":  {
+                                        "type":  "object",
+                                        "additionalProperties":  false,
+                                        "required":  [
+                                                         "facts",
+                                                         "products",
+                                                         "technologies",
+                                                         "customers_channels",
+                                                         "partners",
+                                                         "competitors",
+                                                         "supply_chain"
+                                                     ],
+                                        "properties":  {
+                                                           "facts":  {
+                                                                         "type":  "array",
+                                                                         "items":  {
+                                                                                       "$ref":  "#/$defs/deep_fact"
+                                                                                   }
+                                                                     },
+                                                           "products":  {
+                                                                            "type":  "array",
+                                                                            "items":  {
+                                                                                          "$ref":  "#/$defs/deep_fact"
+                                                                                      }
+                                                                        },
+                                                           "technologies":  {
+                                                                                "type":  "array",
+                                                                                "items":  {
+                                                                                              "$ref":  "#/$defs/deep_fact"
+                                                                                          }
+                                                                            },
+                                                           "customers_channels":  {
+                                                                                      "type":  "array",
+                                                                                      "items":  {
+                                                                                                    "$ref":  "#/$defs/deep_fact"
+                                                                                                }
+                                                                                  },
+                                                           "partners":  {
+                                                                            "type":  "array",
+                                                                            "items":  {
+                                                                                          "$ref":  "#/$defs/deep_fact"
+                                                                                      }
+                                                                        },
+                                                           "competitors":  {
+                                                                               "type":  "array",
+                                                                               "items":  {
+                                                                                             "$ref":  "#/$defs/deep_fact"
+                                                                                         }
+                                                                           },
+                                                           "supply_chain":  {
+                                                                                "type":  "array",
+                                                                                "items":  {
+                                                                                              "$ref":  "#/$defs/deep_fact"
+                                                                                          }
+                                                                            }
+                                                       }
+                                    },
+                  "deep_hiring":  {
+                                      "type":  "object",
+                                      "additionalProperties":  false,
+                                      "required":  [
+                                                       "summary",
+                                                       "postings",
+                                                       "trend_claim_ids"
+                                                   ],
+                                      "properties":  {
+                                                         "summary":  {
+                                                                         "type":  "string"
+                                                                     },
+                                                         "trend_claim_ids":  {
+                                                                                 "$ref":  "#/$defs/deep_claimIdList"
+                                                                             },
+                                                         "postings":  {
+                                                                          "type":  "array",
+                                                                          "items":  {
+                                                                                        "type":  "object",
+                                                                                        "additionalProperties":  false,
+                                                                                        "required":  [
+                                                                                                         "title",
+                                                                                                         "location",
+                                                                                                         "function",
+                                                                                                         "technologies",
+                                                                                                         "published_at",
+                                                                                                         "status",
+                                                                                                         "evidence_ids"
+                                                                                                     ],
+                                                                                        "properties":  {
+                                                                                                           "title":  {
+                                                                                                                         "type":  "string"
+                                                                                                                     },
+                                                                                                           "location":  {
+                                                                                                                            "type":  "string"
+                                                                                                                        },
+                                                                                                           "function":  {
+                                                                                                                            "type":  "string"
+                                                                                                                        },
+                                                                                                           "technologies":  {
+                                                                                                                                "type":  "array",
+                                                                                                                                "items":  {
+                                                                                                                                              "type":  "string"
+                                                                                                                                          }
+                                                                                                                            },
+                                                                                                           "published_at":  {
+                                                                                                                                "type":  "string"
+                                                                                                                            },
+                                                                                                           "status":  {
+                                                                                                                          "type":  "string"
+                                                                                                                      },
+                                                                                                           "evidence_ids":  {
+                                                                                                                                "$ref":  "#/$defs/deep_idList"
+                                                                                                                            }
+                                                                                                       }
+                                                                                    }
+                                                                      }
+                                                     }
+                                  },
+                  "deep_event":  {
+                                     "type":  "object",
+                                     "additionalProperties":  false,
+                                     "required":  [
+                                                      "date",
+                                                      "category",
+                                                      "title",
+                                                      "description",
+                                                      "significance",
+                                                      "evidence_ids"
+                                                  ],
+                                     "properties":  {
+                                                        "date":  {
+                                                                     "type":  "string"
+                                                                 },
+                                                        "category":  {
+                                                                         "type":  "string"
+                                                                     },
+                                                        "title":  {
+                                                                      "type":  "string"
+                                                                  },
+                                                        "description":  {
+                                                                            "type":  "string"
+                                                                        },
+                                                        "significance":  {
+                                                                             "type":  "string",
+                                                                             "enum":  [
+                                                                                          "high",
+                                                                                          "medium",
+                                                                                          "low"
+                                                                                      ]
+                                                                         },
+                                                        "evidence_ids":  {
+                                                                             "$ref":  "#/$defs/deep_idList"
+                                                                         }
+                                                    }
+                                 },
+                  "deep_procurement":  {
+                                           "type":  "object",
+                                           "additionalProperties":  false,
+                                           "required":  [
+                                                            "date",
+                                                            "role",
+                                                            "counterparty",
+                                                            "project",
+                                                            "amount",
+                                                            "status",
+                                                            "evidence_ids"
+                                                        ],
+                                           "properties":  {
+                                                              "date":  {
+                                                                           "type":  "string"
+                                                                       },
+                                                              "role":  {
+                                                                           "type":  "string",
+                                                                           "enum":  [
+                                                                                        "buyer",
+                                                                                        "supplier",
+                                                                                        "candidate",
+                                                                                        "other"
+                                                                                    ]
+                                                                       },
+                                                              "counterparty":  {
+                                                                                   "type":  "string"
+                                                                               },
+                                                              "project":  {
+                                                                              "type":  "string"
+                                                                          },
+                                                              "amount":  {
+                                                                             "type":  "string"
+                                                                         },
+                                                              "status":  {
+                                                                             "type":  "string"
+                                                                         },
+                                                              "evidence_ids":  {
+                                                                                   "$ref":  "#/$defs/deep_idList"
+                                                                               }
+                                                          }
+                                       },
+                  "deep_ip":  {
+                                  "type":  "object",
+                                  "additionalProperties":  false,
+                                  "required":  [
+                                                   "type",
+                                                   "name",
+                                                   "identifier",
+                                                   "status",
+                                                   "date",
+                                                   "evidence_ids"
+                                               ],
+                                  "properties":  {
+                                                     "type":  {
+                                                                  "type":  "string",
+                                                                  "enum":  [
+                                                                               "patent",
+                                                                               "software_copyright",
+                                                                               "trademark",
+                                                                               "qualification",
+                                                                               "other"
+                                                                           ]
+                                                              },
+                                                     "name":  {
+                                                                  "type":  "string"
+                                                              },
+                                                     "identifier":  {
+                                                                        "type":  "string"
+                                                                    },
+                                                     "status":  {
+                                                                    "type":  "string"
+                                                                },
+                                                     "date":  {
+                                                                  "type":  "string"
+                                                              },
+                                                     "evidence_ids":  {
+                                                                          "$ref":  "#/$defs/deep_idList"
+                                                                      }
+                                                 }
+                              },
+                  "deep_risk":  {
+                                    "type":  "object",
+                                    "additionalProperties":  false,
+                                    "required":  [
+                                                     "category",
+                                                     "title",
+                                                     "status",
+                                                     "severity",
+                                                     "date",
+                                                     "description",
+                                                     "evidence_ids"
+                                                 ],
+                                    "properties":  {
+                                                       "category":  {
+                                                                        "type":  "string"
+                                                                    },
+                                                       "title":  {
+                                                                     "type":  "string"
+                                                                 },
+                                                       "status":  {
+                                                                      "type":  "string"
+                                                                  },
+                                                       "severity":  {
+                                                                        "type":  "string",
+                                                                        "enum":  [
+                                                                                     "high",
+                                                                                     "medium",
+                                                                                     "low",
+                                                                                     "unknown"
+                                                                                 ]
+                                                                    },
+                                                       "date":  {
+                                                                    "type":  "string"
+                                                                },
+                                                       "description":  {
+                                                                           "type":  "string"
+                                                                       },
+                                                       "evidence_ids":  {
+                                                                            "$ref":  "#/$defs/deep_idList"
+                                                                        }
+                                                   }
+                                },
+                  "deep_sales":  {
+                                     "type":  "object",
+                                     "additionalProperties":  false,
+                                     "required":  [
+                                                      "hypotheses",
+                                                      "unknowns",
+                                                      "discovery_questions"
+                                                  ],
+                                     "properties":  {
+                                                        "hypotheses":  {
+                                                                           "type":  "array",
+                                                                           "items":  {
+                                                                                         "type":  "object",
+                                                                                         "additionalProperties":  false,
+                                                                                         "required":  [
+                                                                                                          "title",
+                                                                                                          "hypothesis",
+                                                                                                          "supporting_claim_ids",
+                                                                                                          "counter_signals",
+                                                                                                          "unknowns",
+                                                                                                          "confidence",
+                                                                                                          "evidence_ids"
+                                                                                                      ],
+                                                                                         "properties":  {
+                                                                                                            "title":  {
+                                                                                                                          "type":  "string"
+                                                                                                                      },
+                                                                                                            "hypothesis":  {
+                                                                                                                               "type":  "string"
+                                                                                                                           },
+                                                                                                            "supporting_claim_ids":  {
+                                                                                                                                         "$ref":  "#/$defs/deep_claimIdList"
+                                                                                                                                     },
+                                                                                                            "counter_signals":  {
+                                                                                                                                    "type":  "array",
+                                                                                                                                    "items":  {
+                                                                                                                                                  "type":  "string"
+                                                                                                                                              }
+                                                                                                                                },
+                                                                                                            "unknowns":  {
+                                                                                                                             "type":  "array",
+                                                                                                                             "items":  {
+                                                                                                                                           "type":  "string"
+                                                                                                                                       }
+                                                                                                                         },
+                                                                                                            "confidence":  {
+                                                                                                                               "type":  "string",
+                                                                                                                               "enum":  [
+                                                                                                                                            "medium",
+                                                                                                                                            "low",
+                                                                                                                                            "unverified"
+                                                                                                                                        ]
+                                                                                                                           },
+                                                                                                            "evidence_ids":  {
+                                                                                                                                 "$ref":  "#/$defs/deep_idList"
+                                                                                                                             }
+                                                                                                        }
+                                                                                     }
+                                                                       },
+                                                        "unknowns":  {
+                                                                         "type":  "array",
+                                                                         "items":  {
+                                                                                       "type":  "string"
+                                                                                   }
+                                                                     },
+                                                        "discovery_questions":  {
+                                                                                    "type":  "array",
+                                                                                    "items":  {
+                                                                                                  "type":  "string"
+                                                                                              }
+                                                                                }
+                                                    }
+                                 },
+                  "deep_evidence":  {
+                                        "type":  "object",
+                                        "additionalProperties":  false,
+                                        "required":  [
+                                                         "id",
+                                                         "provider",
+                                                         "source_type",
+                                                         "title",
+                                                         "url",
+                                                         "locator",
+                                                         "tool_name",
+                                                         "query",
+                                                         "record_id",
+                                                         "published_at",
+                                                         "accessed_at",
+                                                         "subject_legal_name",
+                                                         "excerpt",
+                                                         "authority",
+                                                         "directness"
+                                                     ],
+                                        "properties":  {
+                                                           "id":  {
+                                                                      "type":  "string",
+                                                                      "pattern":  "^E[0-9]{3,}$"
+                                                                  },
+                                                           "provider":  {
+                                                                            "type":  "string",
+                                                                            "enum":  [
+                                                                                         "qxb",
+                                                                                         "tyc",
+                                                                                         "qcc",
+                                                                                         "website",
+                                                                                         "regulator",
+                                                                                         "court",
+                                                                                         "government",
+                                                                                         "exchange",
+                                                                                         "media",
+                                                                                         "recruitment",
+                                                                                         "bidding",
+                                                                                         "other"
+                                                                                     ]
+                                                                        },
+                                                           "source_type":  {
+                                                                               "type":  "string"
+                                                                           },
+                                                           "title":  {
+                                                                         "type":  "string"
+                                                                     },
+                                                           "url":  {
+                                                                       "type":  "string"
+                                                                   },
+                                                           "locator":  {
+                                                                           "type":  "string",
+                                                                           "minLength":  1
+                                                                       },
+                                                           "tool_name":  {
+                                                                             "type":  "string"
+                                                                         },
+                                                           "query":  {
+                                                                         "type":  "string"
+                                                                     },
+                                                           "record_id":  {
+                                                                             "type":  "string"
+                                                                         },
+                                                           "published_at":  {
+                                                                                "type":  "string"
+                                                                            },
+                                                           "accessed_at":  {
+                                                                               "type":  "string",
+                                                                               "format":  "date-time"
+                                                                           },
+                                                           "subject_legal_name":  {
+                                                                                      "type":  "string"
+                                                                                  },
+                                                           "excerpt":  {
+                                                                           "type":  "string",
+                                                                           "maxLength":  500
+                                                                       },
+                                                           "authority":  {
+                                                                             "type":  "string",
+                                                                             "enum":  [
+                                                                                          "high",
+                                                                                          "medium",
+                                                                                          "low"
+                                                                                      ]
+                                                                         },
+                                                           "directness":  {
+                                                                              "type":  "string",
+                                                                              "enum":  [
+                                                                                           "primary",
+                                                                                           "secondary",
+                                                                                           "aggregated"
+                                                                                       ]
+                                                                          }
+                                                       }
+                                    },
+                  "deep_conflict":  {
+                                        "type":  "object",
+                                        "additionalProperties":  false,
+                                        "required":  [
+                                                         "topic",
+                                                         "positions",
+                                                         "impact",
+                                                         "resolution_status"
+                                                     ],
+                                        "properties":  {
+                                                           "topic":  {
+                                                                         "type":  "string"
+                                                                     },
+                                                           "positions":  {
+                                                                             "type":  "array",
+                                                                             "minItems":  2,
+                                                                             "items":  {
+                                                                                           "type":  "object",
+                                                                                           "additionalProperties":  false,
+                                                                                           "required":  [
+                                                                                                            "statement",
+                                                                                                            "evidence_ids"
+                                                                                                        ],
+                                                                                           "properties":  {
+                                                                                                              "statement":  {
+                                                                                                                                "type":  "string"
+                                                                                                                            },
+                                                                                                              "evidence_ids":  {
+                                                                                                                                   "$ref":  "#/$defs/deep_idList"
+                                                                                                                               }
+                                                                                                          }
+                                                                                       }
+                                                                         },
+                                                           "impact":  {
+                                                                          "type":  "string"
+                                                                      },
+                                                           "resolution_status":  {
+                                                                                     "type":  "string",
+                                                                                     "enum":  [
+                                                                                                  "resolved",
+                                                                                                  "unresolved",
+                                                                                                  "partially_resolved"
+                                                                                              ]
+                                                                                 }
+                                                       }
+                                    },
+                  "deep_blindSpot":  {
+                                         "type":  "object",
+                                         "additionalProperties":  false,
+                                         "required":  [
+                                                          "dimension",
+                                                          "reason",
+                                                          "impact",
+                                                          "next_step"
+                                                      ],
+                                         "properties":  {
+                                                            "dimension":  {
+                                                                              "type":  "string"
+                                                                          },
+                                                            "reason":  {
+                                                                           "type":  "string"
+                                                                       },
+                                                            "impact":  {
+                                                                           "type":  "string"
+                                                                       },
+                                                            "next_step":  {
+                                                                              "type":  "string"
+                                                                          }
+                                                        }
+                                     },
+                  "deepResearch":  {
+                                       "type":  "object",
+                                       "additionalProperties":  false,
+                                       "required":  [
+                                                        "schema_version",
+                                                        "research_id",
+                                                        "generated_at",
+                                                        "subject",
+                                                        "scope",
+                                                        "source_coverage",
+                                                        "executive_summary",
+                                                        "claims",
+                                                        "ownership",
+                                                        "organization",
+                                                        "people",
+                                                        "business",
+                                                        "hiring",
+                                                        "events",
+                                                        "procurement",
+                                                        "intellectual_property",
+                                                        "risks",
+                                                        "sales_implications",
+                                                        "evidence",
+                                                        "conflicts",
+                                                        "blind_spots"
+                                                    ],
+                                       "properties":  {
+                                                          "schema_version":  {
+                                                                                 "const":  "company-deep-research.v1"
+                                                                             },
+                                                          "research_id":  {
+                                                                              "type":  "string",
+                                                                              "minLength":  8
+                                                                          },
+                                                          "generated_at":  {
+                                                                               "type":  "string",
+                                                                               "format":  "date-time"
+                                                                           },
+                                                          "subject":  {
+                                                                          "$ref":  "#/$defs/deep_subject"
+                                                                      },
+                                                          "scope":  {
+                                                                        "$ref":  "#/$defs/deep_scope"
+                                                                    },
+                                                          "source_coverage":  {
+                                                                                  "type":  "array",
+                                                                                  "minItems":  11,
+                                                                                  "items":  {
+                                                                                                "$ref":  "#/$defs/deep_coverage"
+                                                                                            }
+                                                                              },
+                                                          "executive_summary":  {
+                                                                                    "$ref":  "#/$defs/deep_executiveSummary"
+                                                                                },
+                                                          "claims":  {
+                                                                         "type":  "array",
+                                                                         "items":  {
+                                                                                       "$ref":  "#/$defs/deep_claim"
+                                                                                   }
+                                                                     },
+                                                          "ownership":  {
+                                                                            "$ref":  "#/$defs/deep_ownership"
+                                                                        },
+                                                          "organization":  {
+                                                                               "$ref":  "#/$defs/deep_organization"
+                                                                           },
+                                                          "people":  {
+                                                                         "$ref":  "#/$defs/deep_people"
+                                                                     },
+                                                          "business":  {
+                                                                           "$ref":  "#/$defs/deep_business"
+                                                                       },
+                                                          "hiring":  {
+                                                                         "$ref":  "#/$defs/deep_hiring"
+                                                                     },
+                                                          "events":  {
+                                                                         "type":  "array",
+                                                                         "items":  {
+                                                                                       "$ref":  "#/$defs/deep_event"
+                                                                                   }
+                                                                     },
+                                                          "procurement":  {
+                                                                              "type":  "array",
+                                                                              "items":  {
+                                                                                            "$ref":  "#/$defs/deep_procurement"
+                                                                                        }
+                                                                          },
+                                                          "intellectual_property":  {
+                                                                                        "type":  "array",
+                                                                                        "items":  {
+                                                                                                      "$ref":  "#/$defs/deep_ip"
+                                                                                                  }
+                                                                                    },
+                                                          "risks":  {
+                                                                        "type":  "array",
+                                                                        "items":  {
+                                                                                      "$ref":  "#/$defs/deep_risk"
+                                                                                  }
+                                                                    },
+                                                          "sales_implications":  {
+                                                                                     "$ref":  "#/$defs/deep_sales"
+                                                                                 },
+                                                          "evidence":  {
+                                                                           "type":  "array",
+                                                                           "minItems":  2,
+                                                                           "items":  {
+                                                                                         "$ref":  "#/$defs/deep_evidence"
+                                                                                     }
+                                                                       },
+                                                          "conflicts":  {
+                                                                            "type":  "array",
+                                                                            "items":  {
+                                                                                          "$ref":  "#/$defs/deep_conflict"
+                                                                                      }
+                                                                        },
+                                                          "blind_spots":  {
+                                                                              "type":  "array",
+                                                                              "items":  {
+                                                                                            "$ref":  "#/$defs/deep_blindSpot"
+                                                                                        }
+                                                                          }
+                                                      }
+                                   },
+                  "prospectScoreDimension":  {
+                                                 "type":  "object",
+                                                 "additionalProperties":  false,
+                                                 "required":  [
+                                                                  "key",
+                                                                  "label",
+                                                                  "score",
+                                                                  "maxScore",
+                                                                  "rationale"
+                                                              ],
+                                                 "properties":  {
+                                                                    "key":  {
+                                                                                "type":  "string",
+                                                                                "minLength":  1,
+                                                                                "maxLength":  100
+                                                                            },
+                                                                    "label":  {
+                                                                                  "type":  "string",
+                                                                                  "minLength":  1,
+                                                                                  "maxLength":  200
+                                                                              },
+                                                                    "score":  {
+                                                                                  "type":  "integer",
+                                                                                  "minimum":  0,
+                                                                                  "maximum":  100
+                                                                              },
+                                                                    "maxScore":  {
+                                                                                     "type":  "integer",
+                                                                                     "minimum":  1,
+                                                                                     "maximum":  100
+                                                                                 },
+                                                                    "rationale":  {
+                                                                                      "type":  "string",
+                                                                                      "minLength":  1,
+                                                                                      "maxLength":  2000
+                                                                                  }
+                                                                }
+                                             },
+                  "prospectResearch":  {
+                                           "type":  "object",
+                                           "additionalProperties":  false,
+                                           "required":  [
+                                                            "score",
+                                                            "scoreDimensions",
+                                                            "discoveryChannels",
+                                                            "selectionRationale",
+                                                            "reverseReview",
+                                                            "evidenceIds"
+                                                        ],
+                                           "properties":  {
+                                                              "score":  {
+                                                                            "type":  "integer",
+                                                                            "minimum":  0,
+                                                                            "maximum":  100
+                                                                        },
+                                                              "scoreDimensions":  {
+                                                                                      "type":  "array",
+                                                                                      "minItems":  5,
+                                                                                      "maxItems":  5,
+                                                                                      "items":  {
+                                                                                                    "$ref":  "#/$defs/prospectScoreDimension"
+                                                                                                }
+                                                                                  },
+                                                              "discoveryChannels":  {
+                                                                                        "type":  "array",
+                                                                                        "minItems":  1,
+                                                                                        "maxItems":  10,
+                                                                                        "uniqueItems":  true,
+                                                                                        "items":  {
+                                                                                                      "type":  "string",
+                                                                                                      "minLength":  1,
+                                                                                                      "maxLength":  200
+                                                                                                  }
+                                                                                    },
+                                                              "selectionRationale":  {
+                                                                                         "type":  "string",
+                                                                                         "minLength":  1,
+                                                                                         "maxLength":  4000
+                                                                                     },
+                                                              "reverseReview":  {
+                                                                                    "type":  "string",
+                                                                                    "minLength":  1,
+                                                                                    "maxLength":  4000
+                                                                                },
+                                                              "evidenceIds":  {
+                                                                                  "type":  "array",
+                                                                                  "maxItems":  200,
+                                                                                  "uniqueItems":  true,
+                                                                                  "items":  {
+                                                                                                "type":  "string",
+                                                                                                "minLength":  1,
+                                                                                                "maxLength":  200
+                                                                                            }
+                                                                              }
+                                                          }
+                                       }
+              }
 }

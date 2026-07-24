@@ -1705,6 +1705,7 @@ test("customer workspace exposes validated native JSON, CSV, and Excel batch imp
   assert.match(js, /CustomerImporter\.importJSON\(customerImportRows, customers/);
   assert.match(js, /CustomerImporter\.importRows\(customerImportRows, customers/);
   assert.match(js, /crm-customer-list\.v1/);
+  assert.match(js, /JSON 文件名不限/);
   assert.match(js, /XLSX\.utils\.sheet_to_json/);
   assert.match(js, /下载 CSV 模板/);
   assert.match(js, /新增 \$\{result\.imported\}，更新 \$\{result\.updated\}/);
@@ -1731,6 +1732,30 @@ test("batch import preview exposes default-all customer selection controls", () 
   assert.match(js, /options\.selectedRows = Array\.from\(selectedRows\)/);
   assert.match(js, /已选择 \$\{selectedCount\} \/ \$\{items\.length\} 个客户/);
   assert.match(css, /\.import-customer-list\s*\{[^}]*max-height:[^}]*overflow:auto/i);
+});
+
+test("batch import offers one accessible click and drag file surface", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /data-customer-import-dropzone/);
+  assert.match(js, /tabindex="-1"/);
+  assert.match(js, /aria-live="polite"/);
+  assert.match(js, /aria-busy/);
+  assert.match(js, /拖拽文件到此处/);
+  assert.match(js, /receiveCustomerImportFiles\(target\.files\)/);
+  assert.match(js, /receiveCustomerImportFiles\(event\.dataTransfer\?\.files\)/);
+  assert.match(js, /CUSTOMER_IMPORT_EXTENSIONS/);
+  assert.match(js, /一次只能导入一个文件/);
+  assert.match(js, /文件内容为空/);
+  assert.match(js, /customerImportDragDepth/);
+  assert.match(js, /event\.dataTransfer\.dropEffect = "copy"/);
+  assert.match(js, /setCustomerImportDropState\("success", file\)/);
+  assert.match(js, /resetCustomerImportDragState\(\);[\s\S]*restoreDialogFocus/);
+  assert.match(css, /\.customer-import-file-input\s*\{[^}]*position:absolute/i);
+  assert.match(css, /\.customer-import-dropzone\.is-dragging\s*\{/);
+  assert.match(css, /@keyframes importFileSpin/);
+  assert.match(css, /\.customer-import-dropzone:focus-visible\s*\{/);
+  assert.match(css, /@media \(max-width:680px\)[\s\S]*?\.customer-import-dropzone/);
 });
 
 test("customers can be deleted from list or detail after an explicit confirmation", () => {
@@ -1781,4 +1806,12 @@ test("customer checkboxes are hidden until multi-select mode is enabled", () => 
   assert.match(js, /customerMultiSelectEnabled \? `<label class="customer-select-cell"/);
   assert.match(css, /\.customers-page\.multi-select-active \.customer-row \.identity-cell\s*\{[^}]*padding-left:\s*28px/i);
   assert.match(css, /\.multi-select-toggle\s*\{/);
+});
+
+test("关键关系使用独立建联状态而不是根据备注推断", () => {
+  const js = read("app.js");
+  assert.match(js, /const RELATION_STATUSES =/);
+  assert.match(js, /relationStatusMeta\(person\.relationStatus\)/);
+  assert.doesNotMatch(js, /person\.note\s*\?\s*"已建联"/);
+  assert.match(js, /name="relationStatus"/);
 });
