@@ -6,7 +6,7 @@ import { validateSchema } from "./schema-validator.mjs";
 
 const file = process.argv[2];
 if (!file) {
-  console.error("用法: node validate-crm-json.mjs <crm-customer-list.v1.json>");
+  console.error("用法: node validate-crm-json.mjs <任意文件名.json>");
   process.exit(2);
 }
 
@@ -31,6 +31,7 @@ if (Array.isArray(bundle?.customers)) {
     if (customer?.stage !== "lead") errors.push(`$.customers[${index}].stage: 获客 Skill 输出必须固定为 lead`);
     if (!Object.prototype.hasOwnProperty.call(counts, customer?.grade)) errors.push(`$.customers[${index}].grade: 获客 Skill 只允许 A/B/C`);
     else counts[customer.grade] += 1;
+    if (!customer?.prospectResearch || typeof customer.prospectResearch !== "object") errors.push(`$.customers[${index}].prospectResearch: 获客 Skill 必须提供评分与反向审查元数据`);
   });
   if (bundle.summary?.customer_counts) {
     ["A", "B", "C"].forEach(grade => {
