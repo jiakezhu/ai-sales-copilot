@@ -13,6 +13,7 @@ let customerImportRows = [];
 let customerImportFormat = "rows";
 let customerImportFileName = "";
 let customerImportSelectedRows = new Set();
+let customerImportDragDepth = 0;
 let selectedCustomerIds = new Set();
 let customerMultiSelectEnabled = false;
 let toastTimer = null;
@@ -68,9 +69,11 @@ const INTEL_SOURCES = [
   ["tyc", "天眼查"], ["qxb", "企信慧眼"], ["web", "全网检索"], ["panshi", "磐石"],
 ];
 const INTEL_CONFIDENCES = [["unverified", "待核"], ["high", "高置信"], ["medium", "中置信"], ["low", "低置信"]];
+const CUSTOMER_IMPORT_EXTENSIONS = new Set(["json", "csv", "tsv", "xlsx", "xls"]);
 const ADMITTANCE_CHANNELS = [["", "待核"], ["direct", "官网直客"], ["longtail", "长尾"], ["ka", "KA"], ["region", "区域"], ["partner", "渠道/合作伙伴"]];
 const ADMITTANCE_STATUSES = [["unverified", "待核"], ["clear", "无主报备"], ["reported", "已报备"], ["followed", "已有人跟"]];
 const PHONE_TYPES = [["unverified", "待核验"], ["direct", "直联号码"], ["agent", "代记账/第三方"]];
+const RELATION_STATUSES = [["identified", "信息已识别"], ["pending", "待建联"], ["reached", "已触达"], ["connected", "已建联"]];
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -124,7 +127,10 @@ function ensureCustomerShape(customer) {
   customer.notes ||= [];
   customer.assets ||= [];
   customer.orgChain ||= [];
-  customer.orgChain.forEach(person => { if (person.phone && !person.phoneType) person.phoneType = "unverified"; });
+  customer.orgChain.forEach(person => {
+    if (person.phone && !person.phoneType) person.phoneType = "unverified";
+    if (!RELATION_STATUSES.some(([status]) => status === person.relationStatus)) person.relationStatus = "pending";
+  });
   customer.painPoints ||= [];
   customer.solution ||= [];
   customer.solution = customer.solution.map(item => item && typeof item === "object" ? { ...item } : item);
@@ -137,6 +143,7 @@ function ensureCustomerShape(customer) {
   customer.meetingReviews ||= [];
   customer.opportunityDiagnosis ||= {};
   customer.businessBrief ||= {};
+  if (customer.deepResearch !== undefined && (!customer.deepResearch || typeof customer.deepResearch !== "object" || Array.isArray(customer.deepResearch))) customer.deepResearch = null;
   if (!Array.isArray(customer.marketNews)) customer.marketNews = seedCopy("marketNews");
   if (!Array.isArray(customer.hiringSignals)) customer.hiringSignals = seedCopy("hiringSignals");
   if (!customer.painChain || typeof customer.painChain !== "object") customer.painChain = seedCopy("painChain");
@@ -175,6 +182,10 @@ function bindAppEvents() {
   document.addEventListener("click", handleAction);
   document.addEventListener("change", handleChange);
   document.addEventListener("submit", handleSubmit);
+  document.addEventListener("dragenter", handleCustomerImportDragEnter);
+  document.addEventListener("dragover", handleCustomerImportDragOver);
+  document.addEventListener("dragleave", handleCustomerImportDragLeave);
+  document.addEventListener("drop", handleCustomerImportDrop);
 
   $("#globalSearch").addEventListener("input", event => {
     state.query = event.target.value.trim().toLowerCase();
@@ -186,6 +197,12 @@ function bindAppEvents() {
   });
 
   document.addEventListener("keydown", event => {
+    const importDropzone = event.target.closest?.("[data-customer-import-dropzone]");
+    if (importDropzone && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      $("#customerImportFile")?.click();
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
       $("#globalSearch").focus();
@@ -287,7 +304,7 @@ async function handleAction(event) {
 
 async function handleChange(event) {
   const target = event.target;
-  if (target.id === "customerImportFile") return previewCustomerImport(target.files?.[0]);
+  if (target.id === "customerImportFile") return receiveCustomerImportFiles(target.files);
   if (target.id === "customerImportStrategy") return renderCustomerImportPreview(target.value);
   if (target.matches("[data-import-customer-row]")) {
     const row = Number(target.dataset.importCustomerRow);
@@ -676,7 +693,7 @@ function submitGuidedConfirmation(form) {
     if (!name) return toast("请填写最终决策人");
     const decisionMaker = customer.orgChain.find(person => Number(person.level) === 1);
     if (decisionMaker) Object.assign(decisionMaker, { name, role });
-    else customer.orgChain.push({ id: uid("p"), pid: "", level: 1, name, role, note: "" });
+    else customer.orgChain.push({ id: uid("p"), pid: "", level: 1, name, role, relationStatus: "pending", note: "" });
   }
   customer.guidedConfirmations[key] = { note, confirmedAt: nowDateTime() };
   customer.guidedActions[key] = { status: "resolved", updatedAt: nowDateTime() };
@@ -1226,7 +1243,8 @@ function removeSalesAsset(customerId, assetId) {
 }
 
 function renderCompactContact(person) {
-  return `<article class="compact-contact"><span class="person-avatar">${safe(person.name?.[0] || "人")}</span><div><b>${safe(person.name)}</b><small>${safe(person.role || "职位未填写")}</small></div><span class="relation-state">${person.note ? "已建联" : "待确认"}</span></article>`;
+  const relation = relationStatusMeta(person.relationStatus);
+  return `<article class="compact-contact"><span class="person-avatar">${safe(person.name?.[0] || "人")}</span><div><b>${safe(person.name)}</b><small>${safe(person.role || "职位未填写")}</small></div><span class="relation-state relation-state--${safe(relation.key)}">${safe(relation.label)}</span></article>`;
 }
 
 function renderMiniTimeline(note) {
@@ -1261,11 +1279,16 @@ function phoneTypeMeta(type) {
   return { key, label };
 }
 
+function relationStatusMeta(status) {
+  const [key, label] = RELATION_STATUSES.find(([option]) => option === status) || RELATION_STATUSES[1];
+  return { key, label };
+}
+
 function renderRelations(customer) {
   const roots = customer.orgChain.filter(person => !person.pid || !customer.orgChain.some(p => p.id === person.pid));
   return `<section class="panel relations-panel">
     <div class="section-heading"><div><p class="eyebrow">STAKEHOLDER MAP</p><h2>关键关系与决策链</h2></div><button class="primary-button" data-action="add-contact" data-customer="${customer.id}">${icon("user-plus")} 添加联系人</button></div>
-    <div class="relation-legend"><span><i class="positive"></i>已建联</span><span><i class="neutral"></i>信息不足</span><p>展示汇报关系、影响力和真实接触状态。</p></div>
+    <div class="relation-legend">${RELATION_STATUSES.map(([key, label]) => `<span><i class="${safe(key)}"></i>${safe(label)}</span>`).join("")}<p>公开身份不等于已建联，状态以真实销售接触为准。</p></div>
     <div class="org-map">${roots.length ? roots.map(root => renderOrgBranch(customer, root, new Set())).join("") : emptyState("还没有关系图", "从决策人或当前对接人开始添加。")}</div>
   </section>`;
 }
@@ -1274,9 +1297,10 @@ function renderOrgBranch(customer, person, visited) {
   if (visited.has(person.id)) return "";
   const nextVisited = new Set(visited); nextVisited.add(person.id);
   const children = customer.orgChain.filter(p => p.pid === person.id);
-  const built = Boolean(person.phone || person.wechat || person.email || person.note);
+  const relation = relationStatusMeta(person.relationStatus);
+  const built = relation.key === "connected";
   const phoneType = phoneTypeMeta(person.phoneType);
-  return `<div class="org-branch"><article class="person-card ${built ? "connected" : ""}"><div class="person-main"><span class="person-avatar large">${safe(person.name?.[0] || "人")}</span><div><b>${safe(person.name)}</b><small>${safe(person.role || "职位未填写")}</small></div><span class="influence-pill">${person.level === 1 ? "决策" : person.level === 2 ? "影响" : "执行"}</span></div><div class="person-contact">${person.phone ? `<span>${icon("phone")} ${safe(person.phone)} <i class="phone-status phone-status--${safe(phoneType.key)}">${safe(phoneType.label)}</i></span>` : ""}${person.wechat ? `<span>${icon("message-circle")} ${safe(person.wechat)}</span>` : ""}${person.email ? `<span>${icon("mail")} ${safe(person.email)}</span>` : ""}</div><p>${safe(person.note || "尚未补充关系备注")}</p><div class="person-actions"><button data-action="edit-contact" data-customer="${customer.id}" data-contact="${person.id}">${icon("pencil")} 编辑</button><button data-action="remove-contact" data-customer="${customer.id}" data-contact="${person.id}">${icon("trash-2")} 删除</button></div></article>${children.length ? `<div class="org-children">${children.map(child => renderOrgBranch(customer, child, nextVisited)).join("")}</div>` : ""}</div>`;
+  return `<div class="org-branch"><article class="person-card ${built ? "connected" : ""}"><div class="person-main"><span class="person-avatar large">${safe(person.name?.[0] || "人")}</span><div><b>${safe(person.name)}</b><small>${safe(person.role || "职位未填写")}</small></div><span class="relation-state relation-state--${safe(relation.key)}">${safe(relation.label)}</span><span class="influence-pill">${person.level === 1 ? "决策" : person.level === 2 ? "影响" : "执行"}</span></div><div class="person-contact">${person.phone ? `<span>${icon("phone")} ${safe(person.phone)} <i class="phone-status phone-status--${safe(phoneType.key)}">${safe(phoneType.label)}</i></span>` : ""}${person.wechat ? `<span>${icon("message-circle")} ${safe(person.wechat)}</span>` : ""}${person.email ? `<span>${icon("mail")} ${safe(person.email)}</span>` : ""}</div><p>${safe(person.note || "尚未补充关系备注")}</p><div class="person-actions"><button data-action="edit-contact" data-customer="${customer.id}" data-contact="${person.id}">${icon("pencil")} 编辑</button><button data-action="remove-contact" data-customer="${customer.id}" data-contact="${person.id}">${icon("trash-2")} 删除</button></div></article>${children.length ? `<div class="org-children">${children.map(child => renderOrgBranch(customer, child, nextVisited)).join("")}</div>` : ""}</div>`;
 }
 
 function intelSourceLabel(source) { return (INTEL_SOURCES.find(([key]) => key === source) || INTEL_SOURCES[0])[1]; }
@@ -1929,15 +1953,147 @@ function openCustomerImport() {
   customerImportFormat = "rows";
   customerImportFileName = "";
   customerImportSelectedRows = new Set();
+  customerImportDragDepth = 0;
   showModal(`<div class="modal-head"><div><p class="eyebrow">BATCH IMPORT</p><h2 id="modalTitle">批量导入客户</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
-    <form class="modal-form" data-form="customer-import">
-      <div class="import-help"><b>支持 CRM 原生 JSON、CSV、TSV、XLSX、XLS</b><br/>JSON 必须使用 crm-customer-list.v1；表格可识别客户名称、行业、阶段、等级、联系人、职位、电话、邮箱、下一步、提醒日期和备注。</div>
-      <button type="button" class="secondary-button import-template-button" data-action="download-import-template">${icon("download")} 下载 CSV 模板</button>
-      <label class="file-field">${icon("upload")} 选择客户数据文件<input id="customerImportFile" type="file" name="file" accept=".json,.csv,.tsv,.xlsx,.xls,application/json,text/csv,text/tab-separated-values" required /><small>JSON 和 Excel 导入前都会先展示校验结果。</small></label>
+    <form class="modal-form customer-import-form" data-form="customer-import">
+      <div class="import-help"><b>支持 CRM 原生 JSON 和常用表格格式</b><span>JSON 文件名不限，内容版本使用 crm-customer-list.v1；表格可识别客户名称、行业、阶段、等级、联系人和跟进信息。</span></div>
+      <div class="import-support-row"><span>JSON · CSV · TSV · XLSX · XLS</span><button type="button" class="secondary-button import-template-button" data-action="download-import-template">${icon("download")} 下载 CSV 模板</button></div>
+      <label id="customerImportDropzone" class="customer-import-dropzone" data-customer-import-dropzone data-state="idle" role="button" tabindex="0" aria-describedby="customerImportDropHint customerImportDropError">
+        <input id="customerImportFile" class="customer-import-file-input" type="file" name="file" tabindex="-1" accept=".json,.csv,.tsv,.xlsx,.xls,application/json,text/csv,text/tab-separated-values" />
+        <span id="customerImportDropIcon" class="customer-import-drop-icon">${icon("cloud-upload")}</span>
+        <span class="customer-import-drop-copy" aria-live="polite"><b id="customerImportDropTitle">拖拽文件到此处</b><span id="customerImportDropSubtitle">或点击选择客户数据文件</span><small id="customerImportDropHint">导入前会先展示校验结果，确认后才写入 CRM。</small></span>
+        <span id="customerImportDropAction" class="customer-import-drop-action">选择文件</span>
+      </label>
+      <div id="customerImportDropError" class="customer-import-drop-error" role="alert" hidden></div>
       <label>遇到同名客户<div class="modern-select"><select id="customerImportStrategy" name="strategy"><option value="skip">跳过，不覆盖现有数据</option><option value="update">更新现有客户的非空字段</option></select>${icon("chevron-down")}</div></label>
       <div id="customerImportPreview" class="import-preview" aria-live="polite"></div>
       <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button id="customerImportSubmit" class="primary-button" disabled>${icon("upload")} 确认导入</button></div>
     </form>`);
+}
+
+function customerImportIsOpen() {
+  return !!document.querySelector('[data-form="customer-import"]') && !$("#modalLayer")?.classList.contains("hidden");
+}
+
+function customerImportHasFiles(event) {
+  return Array.from(event.dataTransfer?.types || []).includes("Files");
+}
+
+function resetCustomerImportDragState() {
+  customerImportDragDepth = 0;
+  $("#customerImportDropzone")?.classList.remove("is-dragging");
+}
+
+function handleCustomerImportDragEnter(event) {
+  if (!customerImportIsOpen() || !customerImportHasFiles(event)) return;
+  event.preventDefault();
+  const dropzone = event.target.closest?.("[data-customer-import-dropzone]");
+  if (!dropzone) return;
+  customerImportDragDepth += 1;
+  dropzone.classList.add("is-dragging");
+}
+
+function handleCustomerImportDragOver(event) {
+  if (!customerImportIsOpen() || !customerImportHasFiles(event)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  event.target.closest?.("[data-customer-import-dropzone]")?.classList.add("is-dragging");
+}
+
+function handleCustomerImportDragLeave(event) {
+  if (!customerImportIsOpen()) return;
+  const dropzone = event.target.closest?.("[data-customer-import-dropzone]");
+  if (!dropzone) return;
+  customerImportDragDepth = Math.max(0, customerImportDragDepth - 1);
+  if (!customerImportDragDepth) dropzone.classList.remove("is-dragging");
+}
+
+function handleCustomerImportDrop(event) {
+  if (!customerImportIsOpen() || !customerImportHasFiles(event)) return;
+  event.preventDefault();
+  const dropzone = event.target.closest?.("[data-customer-import-dropzone]");
+  resetCustomerImportDragState();
+  if (!dropzone) return;
+  receiveCustomerImportFiles(event.dataTransfer?.files);
+}
+
+function customerImportFileExtension(file) {
+  return String(file?.name || "").split(".").pop().toLowerCase();
+}
+
+function formatCustomerImportFileSize(bytes) {
+  const size = Number(bytes || 0);
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.max(0.1, size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function setCustomerImportDropError(message = "") {
+  const dropzone = $("#customerImportDropzone");
+  const error = $("#customerImportDropError");
+  if (!dropzone || !error) return;
+  dropzone.classList.toggle("has-error", !!message);
+  dropzone.setAttribute("aria-invalid", String(!!message));
+  error.hidden = !message;
+  error.innerHTML = message ? `${icon("circle-alert")}<span>${safe(message)}</span>` : "";
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
+function setCustomerImportDropState(state, file) {
+  const dropzone = $("#customerImportDropzone");
+  if (!dropzone) return;
+  const title = $("#customerImportDropTitle");
+  const subtitle = $("#customerImportDropSubtitle");
+  const hint = $("#customerImportDropHint");
+  const action = $("#customerImportDropAction");
+  const iconSlot = $("#customerImportDropIcon");
+  dropzone.dataset.state = state;
+  dropzone.setAttribute("aria-busy", String(state === "parsing"));
+  dropzone.classList.toggle("is-parsing", state === "parsing");
+  dropzone.classList.toggle("has-file", state === "success");
+  if (state === "parsing") {
+    iconSlot.innerHTML = icon("loader-circle");
+    title.textContent = `正在解析 ${file.name}`;
+    subtitle.textContent = `${customerImportFileExtension(file).toUpperCase()} · ${formatCustomerImportFileSize(file.size)}`;
+    hint.textContent = "正在读取并校验客户数据，请稍候。";
+    action.textContent = "解析中";
+  } else if (state === "success") {
+    iconSlot.innerHTML = icon("file-check-2");
+    title.textContent = file.name;
+    subtitle.textContent = `${customerImportFileExtension(file).toUpperCase()} · ${formatCustomerImportFileSize(file.size)} · 解析完成`;
+    hint.textContent = "可在下方核对并勾选要导入的客户。";
+    action.textContent = "重新选择";
+  } else {
+    iconSlot.innerHTML = icon("cloud-upload");
+    title.textContent = "拖拽文件到此处";
+    subtitle.textContent = "或点击选择客户数据文件";
+    hint.textContent = "文件名不限；导入前会先校验内容，确认后才写入 CRM。";
+    action.textContent = "选择文件";
+  }
+  if (typeof lucide !== "undefined") lucide.createIcons();
+}
+
+async function receiveCustomerImportFiles(fileList) {
+  const files = Array.from(fileList || []);
+  const input = $("#customerImportFile");
+  if (input) input.value = "";
+  if (files.length !== 1) {
+    setCustomerImportDropError(files.length ? "一次只能导入一个文件，请重新选择。" : "没有检测到可导入的文件。");
+    return;
+  }
+  const file = files[0];
+  const extension = customerImportFileExtension(file);
+  if (!CUSTOMER_IMPORT_EXTENSIONS.has(extension)) {
+    setCustomerImportDropError(`不支持 .${extension || "未知"} 文件，请使用 JSON、CSV、TSV、XLSX 或 XLS。`);
+    return;
+  }
+  if (!file.size) {
+    setCustomerImportDropError("文件内容为空，请选择包含客户数据的文件。");
+    return;
+  }
+  setCustomerImportDropError("");
+  setCustomerImportDropState("parsing", file);
+  await previewCustomerImport(file);
 }
 
 async function readCustomerImportFile(file) {
@@ -1996,8 +2152,16 @@ async function previewCustomerImport(file) {
     const initial = runCustomerImport(strategy, null);
     customerImportSelectedRows = new Set((initial.items || []).map(item => Number(item.row)));
     renderCustomerImportPreview(strategy);
+    const accepted = Number(initial.imported || 0) + Number(initial.updated || 0) + Number(initial.skipped || 0);
+    if (!accepted && initial.errors?.length) {
+      setCustomerImportDropState("idle");
+      setCustomerImportDropError(initial.errors[0].message || "文件校验失败");
+    } else setCustomerImportDropState("success", file);
   } catch (error) {
-    preview.innerHTML = `<ul class="import-errors"><li>${safe(error?.message || "文件解析失败")}</li></ul>`;
+    const message = error?.message || "文件解析失败";
+    preview.innerHTML = `<ul class="import-errors"><li>${safe(message)}</li></ul>`;
+    setCustomerImportDropState("idle");
+    setCustomerImportDropError(message);
   }
 }
 
@@ -2288,13 +2452,13 @@ function openContactForm(customerId, contactId = "") {
   if (!customer) return;
   const person = customer.orgChain.find(item => item.id === contactId);
   const value = input => safe(input || "");
-  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">${person ? "编辑关键联系人" : "添加关键联系人"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><input type="hidden" name="contactId" value="${value(contactId)}" /><div class="form-row"><label>姓名<input name="name" required value="${value(person?.name)}" /></label><label>职位<input name="role" value="${value(person?.role)}" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options">${[[1,"crown","决策层"],[2,"users","影响层"],[3,"wrench","执行层"]].map(([level,iconName,label]) => `<label><input type="radio" name="level" value="${level}" ${(person?.level || 2) === level ? "checked" : ""}/><span>${icon(iconName)}</span><b>${label}</b></label>`).join("")}</div></fieldset><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.filter(p => p.id !== contactId).map(p => `<option value="${p.id}" ${person?.pid === p.id ? "selected" : ""}>${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><div class="form-row"><label>电话<input name="phone" value="${value(person?.phone)}" /></label><label>电话核验状态<div class="modern-select"><select name="phoneType">${selectOptions(PHONE_TYPES, person?.phoneType || "unverified")}</select>${icon("chevron-down")}</div></label></div><div class="form-row"><label>微信<input name="wechat" value="${value(person?.wechat)}" /></label><label>邮箱<input name="email" type="email" value="${value(person?.email)}" /></label></div><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点、建联情况">${value(person?.note)}</textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon(person ? "check" : "user-plus")} ${person ? "保存修改" : "保存联系人"}</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">${person ? "编辑关键联系人" : "添加关键联系人"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><input type="hidden" name="contactId" value="${value(contactId)}" /><div class="form-row"><label>姓名<input name="name" required value="${value(person?.name)}" /></label><label>职位<input name="role" value="${value(person?.role)}" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options">${[[1,"crown","决策层"],[2,"users","影响层"],[3,"wrench","执行层"]].map(([level,iconName,label]) => `<label><input type="radio" name="level" value="${level}" ${(person?.level || 2) === level ? "checked" : ""}/><span>${icon(iconName)}</span><b>${label}</b></label>`).join("")}</div></fieldset><div class="form-row"><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.filter(p => p.id !== contactId).map(p => `<option value="${p.id}" ${person?.pid === p.id ? "selected" : ""}>${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><label>建联状态<div class="modern-select"><select name="relationStatus">${selectOptions(RELATION_STATUSES, person?.relationStatus || "pending")}</select>${icon("chevron-down")}</div></label></div><div class="form-row"><label>电话<input name="phone" value="${value(person?.phone)}" /></label><label>电话核验状态<div class="modern-select"><select name="phoneType">${selectOptions(PHONE_TYPES, person?.phoneType || "unverified")}</select>${icon("chevron-down")}</div></label></div><div class="form-row"><label>微信<input name="wechat" value="${value(person?.wechat)}" /></label><label>邮箱<input name="email" type="email" value="${value(person?.email)}" /></label></div><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点或公开证据；建联状态请使用上方选项">${value(person?.note)}</textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon(person ? "check" : "user-plus")} ${person ? "保存修改" : "保存联系人"}</button></div></form>`);
 }
 
 function submitContact(form) {
   const data = new FormData(form); const customer = getCustomer(data.get("customerId")); if (!customer) return;
   const contactId = String(data.get("contactId") || "");
-  upsertContact(customer, { id: contactId || uid("o"), pid: data.get("pid") || null, name: String(data.get("name") || "").trim(), role: String(data.get("role") || "").trim(), level: Number(data.get("level") || 2), phone: String(data.get("phone") || "").trim(), phoneType: String(data.get("phoneType") || "unverified"), wechat: String(data.get("wechat") || "").trim(), email: String(data.get("email") || "").trim(), note: String(data.get("note") || "").trim(), photo: customer.orgChain.find(p => p.id === contactId)?.photo || "" });
+  upsertContact(customer, { id: contactId || uid("o"), pid: data.get("pid") || null, name: String(data.get("name") || "").trim(), role: String(data.get("role") || "").trim(), level: Number(data.get("level") || 2), relationStatus: String(data.get("relationStatus") || "pending"), phone: String(data.get("phone") || "").trim(), phoneType: String(data.get("phoneType") || "unverified"), wechat: String(data.get("wechat") || "").trim(), email: String(data.get("email") || "").trim(), note: String(data.get("note") || "").trim(), photo: customer.orgChain.find(p => p.id === contactId)?.photo || "" });
   persist(); closeModal(); renderApp(); toast(contactId ? "联系人已更新" : "联系人已加入关系图");
 }
 
@@ -2750,6 +2914,7 @@ function closeModal() {
   layer.classList.add("hidden");
   layer.setAttribute("aria-hidden", "true");
   document.body.classList.remove("modal-open");
+  resetCustomerImportDragState();
   restoreDialogFocus(modalReturnFocus);
   modalReturnFocus = null;
 }

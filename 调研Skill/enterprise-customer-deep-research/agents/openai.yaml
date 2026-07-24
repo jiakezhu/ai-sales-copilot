@@ -1,0 +1,4 @@
+interface:
+  display_name: "企业客户深度调研"
+  short_description: "用强制脚手架调研企业并输出通过门禁的 CRM 三件套"
+  default_prompt: "使用 $enterprise-customer-deep-research 深度调研指定企业，并生成可直接导入 CRM 的 JSON、Markdown 和精美 HTML。"

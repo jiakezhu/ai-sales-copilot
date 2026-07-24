@@ -2,7 +2,7 @@
 
 ## 顶层
 
-输出文件名 `crm-customer-list.v1.json`：
+JSON 文件名不限；推荐默认名为 `crm-customer-list.v1.json`。格式由内部 `schema_version` 判断：
 
 ```json
 {
@@ -22,12 +22,12 @@
 - `stage`：固定 `lead`。
 - `grade`：A/B/C。
 - `fields`：CRM 当前情报字段，只写公开事实。
-- `orgChain`：公开联系人；姓名、角色、层级和备注必填，无可靠信息时为空。
+- `orgChain`：公开联系人；姓名、角色、层级和备注必填，无可靠信息时为空。公开研究识别的人物必须写 `relationStatus: "identified"`；`pending`、`reached`、`connected` 只能由 CRM 用户按真实销售进展维护，Skill 不得推断。
 - `marketNews`：产品、融资、扩张和其他非招聘事件。
 - `hiringSignals`：公开招聘事件。
 - `bidding`、`qualifications`：公开招采和资质。
 - `businessBrief`：业务事实、明确标注的需求推测和未知项。
-- `painChain`：公开信号到首轮确认问题；存在内容时必须 `inferred: true`。
+- `painChain`：公开信号到首轮确认问题；存在内容时必须 `inferred: true`。`prospectResearch`：总分、五维评分、发现通道、入选理由、反向审查和结构化证据 ID；维度得分合计等于总分、满分合计等于 100。
 
 ## 情报字段
 
@@ -66,3 +66,13 @@
 以下数组必须为空：`notes`、`painPoints`、`solution`、`assets`、`stageHistory`、`jointWorkPlan`、`meetingPreps`、`meetingReviews`、`salesAssets`。
 
 `fields.cloudStatus`、`fields.billNote`、`fields.relation` 的 `v` 必须为空。不得把公开推测写成销售已确认信息，也不得把评分解释写成成交概率。
+
+## 三件套报告
+
+同一 JSON 是唯一事实源。依次生成：
+
+- 任意文件名的 CRM JSON；
+- `lead-list.md`：管理摘要、优先级总览、逐客评分、公开事实、信号、假设、反向审查、未知项和证据索引；
+- `lead-list.html`：独立单文件、内嵌 CSS、无外部脚本/字体依赖，支持响应式浏览和打印。
+
+Markdown 和 HTML 必须由 `render-prospect-report.mjs` 自动生成，并嵌入源 JSON SHA-256；不得独立手写。交付前运行 `verify-deliverables.mjs` 核对客户名称、证据 ID、运行 ID、哈希、响应式和打印样式。

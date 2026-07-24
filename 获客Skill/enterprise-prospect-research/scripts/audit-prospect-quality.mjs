@@ -6,7 +6,7 @@ import { validateSchema } from "./schema-validator.mjs";
 
 const file = process.argv[2];
 if (!file) {
-  console.error("用法: node audit-prospect-quality.mjs <crm-customer-list.v1.json>");
+  console.error("用法: node audit-prospect-quality.mjs <任意文件名.json>");
   process.exit(2);
 }
 
@@ -73,6 +73,17 @@ bundle.customers.forEach((customer, index) => {
 
   const evidence = evidenceOf(customer).filter(item => clean(item.sourceUrl));
   const uniqueEvidence = new Map(evidence.map(item => [clean(item.sourceUrl) || clean(item.id), item]));
+  const research = customer.prospectResearch;
+  if (!research || typeof research !== "object") addError(`${where}.prospectResearch`, "缺少评分与反向审查元数据");
+  else {
+    const dimensions = Array.isArray(research.scoreDimensions) ? research.scoreDimensions : [];
+    const scoreTotal = dimensions.reduce((sum, item) => sum + Number(item.score || 0), 0);
+    const maxTotal = dimensions.reduce((sum, item) => sum + Number(item.maxScore || 0), 0);
+    if (scoreTotal !== research.score) addError(`${where}.prospectResearch.score`, `总分 ${research.score} 与维度合计 ${scoreTotal} 不一致`);
+    if (maxTotal !== 100) addError(`${where}.prospectResearch.scoreDimensions`, `维度满分合计必须为 100，当前为 ${maxTotal}`);
+    const knownIds = new Set(evidenceOf(customer).map(item => clean(item.id)).filter(Boolean));
+    (research.evidenceIds || []).forEach(id => { if (!knownIds.has(clean(id))) addError(`${where}.prospectResearch.evidenceIds`, `引用了不存在的结构化证据 ${id}`); });
+  }
   const dated = [...uniqueEvidence.values()].map(item => ({ ...item, age: ageDays(item.date) }));
   const recent90 = dated.filter(item => item.age !== null && item.age >= 0 && item.age <= 90);
   const recent180 = dated.filter(item => item.age !== null && item.age >= 0 && item.age <= 180);

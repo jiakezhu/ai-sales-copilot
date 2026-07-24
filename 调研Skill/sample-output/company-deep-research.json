@@ -1,0 +1,1121 @@
+{
+    "schema_version":  "crm-customer-list.v1",
+    "run_id":  "sample-20260723-001",
+    "generated_at":  "2026-07-23T18:00:00+08:00",
+    "summary":  {
+                    "title":  "示例云智科技有限公司（虚构样例） 深度调研",
+                    "executive_summary":  "这是用于验证 Skill 的虚构企业样例。样例展示主体锁定、两层股权穿透、公开人员关系、招聘和事件信号如何被组织为可审计的客户研究报告。",
+                    "data_quality":  "medium",
+                    "customer_counts":  {
+                                            "S":  0,
+                                            "A":  0,
+                                            "B":  1,
+                                            "C":  0,
+                                            "manual_review":  1
+                                        }
+                },
+    "customers":  [
+                      {
+                          "name":  "示例云智科技有限公司（虚构样例）",
+                          "stage":  "lead",
+                          "grade":  "B",
+                          "fields":  {
+                                         "website":  {
+                                                         "v":  "https://example.com",
+                                                         "source":  "website",
+                                                         "confidence":  "high",
+                                                         "verifiedAt":  "2026-07-23"
+                                                     },
+                                         "creditCode":  {
+                                                            "v":  "000000000000000000",
+                                                            "source":  "qxb",
+                                                            "confidence":  "high",
+                                                            "verifiedAt":  "2026-07-23"
+                                                        },
+                                         "regAddress":  {
+                                                            "v":  "广东省深圳市（虚构样例）",
+                                                            "source":  "qxb",
+                                                            "confidence":  "high",
+                                                            "verifiedAt":  "2026-07-23"
+                                                        },
+                                         "product":  {
+                                                         "v":  "面向制造企业的数据集成与治理平台（虚构）",
+                                                         "source":  "website",
+                                                         "confidence":  "medium",
+                                                         "verifiedAt":  "2026-07-23"
+                                                     },
+                                         "businessModel":  {
+                                                               "v":  "企业云数据平台软件与实施服务（虚构）",
+                                                               "source":  "website",
+                                                               "confidence":  "medium",
+                                                               "verifiedAt":  "2026-07-23"
+                                                           },
+                                         "techStack":  {
+                                                           "v":  "Kubernetes、数据湖、零信任（来自虚构官网和招聘页）",
+                                                           "source":  "web",
+                                                           "confidence":  "medium",
+                                                           "verifiedAt":  "2026-07-23"
+                                                       },
+                                         "shareholders":  {
+                                                              "v":  "示例控股有限公司持股 80%，李明通过示例控股间接控制（均为虚构样例）",
+                                                              "source":  "qxb",
+                                                              "confidence":  "high",
+                                                              "verifiedAt":  "2026-07-23"
+                                                          },
+                                         "parentSubs":  {
+                                                            "v":  "母公司示例控股有限公司；直接子公司示例云智华南技术有限公司（均为虚构样例）",
+                                                            "source":  "qxb",
+                                                            "confidence":  "medium",
+                                                            "verifiedAt":  "2026-07-23"
+                                                        },
+                                         "supplyChain":  {
+                                                             "v":  "云基础设施与服务器生态；具体采购商未公开",
+                                                             "source":  "website",
+                                                             "confidence":  "low",
+                                                             "verifiedAt":  "2026-07-23"
+                                                         },
+                                         "recentNews":  {
+                                                            "v":  "2026-04 发布云智数据平台 3.0；2026-05 中标数据治理项目（虚构样例）",
+                                                            "source":  "web",
+                                                            "confidence":  "medium",
+                                                            "verifiedAt":  "2026-07-23"
+                                                        },
+                                         "hiring":  {
+                                                        "v":  "近 12 个月样例中确认一条数据平台架构师岗位，技术词集中于 Kubernetes、数据湖和零信任；样本不足以判断总招聘趋势。",
+                                                        "source":  "web",
+                                                        "confidence":  "medium",
+                                                        "verifiedAt":  "2026-07-23"
+                                                    },
+                                         "riskNote":  {
+                                                          "v":  "样例记录用于展示风险不应被删除，而应注明状态和闭环证据。",
+                                                          "source":  "web",
+                                                          "confidence":  "high",
+                                                          "verifiedAt":  "2026-07-23"
+                                                      },
+                                         "triggerEvents":  {
+                                                               "v":  "产品发布、中标和架构岗位招聘在近 180 天同向出现（推测，虚构样例）",
+                                                               "source":  "web",
+                                                               "confidence":  "medium",
+                                                               "verifiedAt":  "2026-07-23"
+                                                           },
+                                         "cloudStatus":  {
+                                                             "v":  "",
+                                                             "source":  "",
+                                                             "confidence":  "unverified",
+                                                             "verifiedAt":  ""
+                                                         },
+                                         "billNote":  {
+                                                          "v":  "",
+                                                          "source":  "",
+                                                          "confidence":  "unverified",
+                                                          "verifiedAt":  ""
+                                                      },
+                                         "relation":  {
+                                                          "v":  "",
+                                                          "source":  "",
+                                                          "confidence":  "unverified",
+                                                          "verifiedAt":  ""
+                                                      }
+                                     },
+                          "orgChain":  [
+                                           {
+                                               "id":  "P001",
+                                               "pid":  null,
+                                               "name":  "李明（虚构人物）",
+                                               "role":  "实际控制人、董事长",
+                                               "level":  1,
+                                               "phone":  "",
+                                               "phoneType":  "unverified",
+                                               "wechat":  "",
+                                               "email":  "",
+                                               "note":  "公开职业关系；证据 E001、E002",
+                                               "relationStatus":  "identified"
+                                           },
+                                           {
+                                               "id":  "P002",
+                                               "pid":  "P001",
+                                               "name":  "王珊（虚构人物）",
+                                               "role":  "法定代表人、总经理",
+                                               "level":  1,
+                                               "phone":  "",
+                                               "phoneType":  "unverified",
+                                               "wechat":  "",
+                                               "email":  "",
+                                               "note":  "公开职业关系；证据 E001、E002",
+                                               "relationStatus":  "identified"
+                                           }
+                                       ],
+                          "marketNews":  [
+                                             {
+                                                 "id":  "news-E005",
+                                                 "title":  "发布云智数据平台 3.0（虚构）",
+                                                 "publishedAt":  "2026-04-12",
+                                                 "market":  "中国",
+                                                 "sourceUrl":  "https://example.com/news/platform-3",
+                                                 "signal":  "新增多云数据编排和零信任访问控制。",
+                                                 "impact":  "可能对应产品与交付能力扩张，需进一步确认。",
+                                                 "confirmedAt":  "2026-07-23"
+                                             }
+                                         ],
+                          "hiringSignals":  [
+                                                {
+                                                    "id":  "hiring-E004",
+                                                    "role":  "数据平台架构师（虚构）",
+                                                    "location":  "深圳",
+                                                    "postedAt":  "2026-06-15",
+                                                    "sourceUrl":  "https://example.com/jobs/architect",
+                                                    "signal":  "岗位涉及 Kubernetes、数据湖和零信任。",
+                                                    "opportunity":  "可能在补强数据平台和云安全交付能力，需访谈验证。",
+                                                    "confirmedAt":  "2026-07-23"
+                                                }
+                                            ],
+                          "bidding":  [
+                                          {
+                                              "id":  "bid-E007",
+                                              "project":  "数据治理平台建设项目（虚构）",
+                                              "purchaser":  "示例制造集团（虚构）",
+                                              "role":  "供应商",
+                                              "amount":  "人民币 860 万元（虚构）",
+                                              "date":  "2026-05-20",
+                                              "source":  "web",
+                                              "sourceUrl":  "https://example.com/bidding/award-001",
+                                              "confidence":  "high",
+                                              "verifiedAt":  "2026-07-23",
+                                              "signal":  "以供应商身份中标数据治理项目。",
+                                              "capturedAt":  "2026-07-23"
+                                          }
+                                      ],
+                          "qualifications":  [
+                                                 {
+                                                     "id":  "ip-E008",
+                                                     "name":  "云智数据治理平台软件 V3.0（虚构）",
+                                                     "type":  "软件著作权",
+                                                     "authority":  "示例登记机构",
+                                                     "validTo":  "",
+                                                     "source":  "web",
+                                                     "sourceUrl":  "https://example.com/ip/sample-sr-001",
+                                                     "confidence":  "high",
+                                                     "verifiedAt":  "2026-07-23",
+                                                     "capturedAt":  "2026-07-23"
+                                                 }
+                                             ],
+                          "businessBrief":  {
+                                                "products":  "面向制造企业的数据集成与治理平台（虚构）",
+                                                "revenueLogic":  "企业云数据平台软件与实施服务（虚构）",
+                                                "operatingStatus":  "近期存在产品发布、中标和招聘信号；客户规模与续费率未披露。",
+                                                "competitors":  "未获得可靠公开竞品信息。",
+                                                "painHypothesis":  "多项目交付治理可能是扩张期需要确认的问题，属于推测。",
+                                                "unknowns":  [
+                                                                 "真实客户数量和续费率",
+                                                                 "境外关联实体",
+                                                                 "内部交付瓶颈"
+                                                             ]
+                                            },
+                          "painChain":  {
+                                            "signal":  "产品发布、中标和架构岗位招聘在近 180 天同向出现。",
+                                            "pain":  "可能存在跨项目交付一致性与治理压力，尚待客户确认。",
+                                            "impact":  "若扩张速度高于交付能力建设，可能影响项目质量和客户运营。",
+                                            "solution":  "先确认研发与交付组织分工，再判断是否需要相应解决方案。",
+                                            "question":  "近期增长是否带来了跨项目交付一致性问题？",
+                                            "inferred":  true,
+                                            "updatedAt":  "2026-07-23"
+                                        },
+                          "jointWorkPlan":  [
+
+                                            ],
+                          "meetingPreps":  [
+
+                                           ],
+                          "meetingReviews":  [
+
+                                             ],
+                          "salesAssets":  [
+
+                                          ],
+                          "painPoints":  [
+
+                                         ],
+                          "solution":  [
+
+                                       ],
+                          "notes":  [
+
+                                    ],
+                          "assets":  [
+
+                                     ],
+                          "stageHistory":  [
+
+                                           ],
+                          "deepResearch":  {
+                                               "schema_version":  "company-deep-research.v1",
+                                               "research_id":  "sample-20260723-001",
+                                               "generated_at":  "2026-07-23T18:00:00+08:00",
+                                               "subject":  {
+                                                               "query":  "示例云智科技",
+                                                               "legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                               "aliases":  [
+                                                                               "示例云智"
+                                                                           ],
+                                                               "credit_code":  "000000000000000000",
+                                                               "registration_status":  "存续（虚构样例）",
+                                                               "website":  "https://example.com",
+                                                               "headquarters":  "广东省深圳市（虚构样例）",
+                                                               "evidence_ids":  [
+                                                                                    "E001",
+                                                                                    "E002"
+                                                                                ]
+                                                           },
+                                               "scope":  {
+                                                             "purpose":  "验证单企业深度调研 Skill 的三文件交付链路；所有企业与事件均为虚构",
+                                                             "language":  "zh-CN",
+                                                             "as_of":  "2026-07-23",
+                                                             "windows":  {
+                                                                             "ownership_months":  24,
+                                                                             "hiring_months":  12,
+                                                                             "news_months":  24,
+                                                                             "sales_signal_days":  180
+                                                                         },
+                                                             "legal_and_privacy_boundary":  "仅使用虚构的公开职业信息，不含私人联系方式、亲属关系或其他非公开个人信息。"
+                                                         },
+                                               "source_coverage":  [
+                                                                       {
+                                                                           "dimension":  "identity",
+                                                                           "status":  "verified",
+                                                                           "providers_attempted":  [
+                                                                                                       "qxb",
+                                                                                                       "qcc"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E001",
+                                                                                                "E002"
+                                                                                            ],
+                                                                           "notes":  "两个独立企业信息库样例记录一致。"
+                                                                       },
+                                                                       {
+                                                                           "dimension":  "ownership",
+                                                                           "status":  "verified",
+                                                                           "providers_attempted":  [
+                                                                                                       "qxb",
+                                                                                                       "qcc"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E001",
+                                                                                                "E002"
+                                                                                            ],
+                                                                           "notes":  "完成两层穿透至自然人终点。"
+                                                                       },
+                                                                       {
+                                                                           "dimension":  "organization",
+                                                                           "status":  "partial",
+                                                                           "providers_attempted":  [
+                                                                                                       "qxb",
+                                                                                                       "website"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E001",
+                                                                                                "E003"
+                                                                                            ],
+                                                                           "notes":  "识别一家公司样例子公司，未覆盖境外实体。"
+                                                                       },
+                                                                       {
+                                                                           "dimension":  "people",
+                                                                           "status":  "verified",
+                                                                           "providers_attempted":  [
+                                                                                                       "qxb",
+                                                                                                       "qcc"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E001",
+                                                                                                "E002"
+                                                                                            ],
+                                                                           "notes":  "仅记录公开任职关系。"
+                                                                       },
+                                                                       {
+                                                                           "dimension":  "business",
+                                                                           "status":  "partial",
+                                                                           "providers_attempted":  [
+                                                                                                       "website",
+                                                                                                       "media"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E003",
+                                                                                                "E005"
+                                                                                            ],
+                                                                           "notes":  "官网产品信息可确认，客户规模未披露。"
+                                                                       },
+                                                                       {
+                                                                           "dimension":  "hiring",
+                                                                           "status":  "verified",
+                                                                           "providers_attempted":  [
+                                                                                                       "recruitment"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E004"
+                                                                                            ],
+                                                                           "notes":  "获得一条用于测试的招聘记录。"
+                                                                       },
+                                                                       {
+                                                                           "dimension":  "news",
+                                                                           "status":  "verified",
+                                                                           "providers_attempted":  [
+                                                                                                       "website",
+                                                                                                       "media"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E005",
+                                                                                                "E006"
+                                                                                            ],
+                                                                           "notes":  "合并同一产品发布事件。"
+                                                                       },
+                                                                       {
+                                                                           "dimension":  "procurement",
+                                                                           "status":  "partial",
+                                                                           "providers_attempted":  [
+                                                                                                       "bidding"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E007"
+                                                                                            ],
+                                                                           "notes":  "获得一条中标样例。"
+                                                                       },
+                                                                       {
+                                                                           "dimension":  "ip",
+                                                                           "status":  "partial",
+                                                                           "providers_attempted":  [
+                                                                                                       "government"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E008"
+                                                                                            ],
+                                                                           "notes":  "仅核验一项软件著作权样例。"
+                                                                       },
+                                                                       {
+                                                                           "dimension":  "risks",
+                                                                           "status":  "partial",
+                                                                           "providers_attempted":  [
+                                                                                                       "qxb",
+                                                                                                       "qcc",
+                                                                                                       "government"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E001",
+                                                                                                "E002",
+                                                                                                "E009"
+                                                                                            ],
+                                                                           "notes":  "发现一项已整改的行政提示样例。"
+                                                                       },
+                                                                       {
+                                                                           "dimension":  "sales",
+                                                                           "status":  "partial",
+                                                                           "providers_attempted":  [
+                                                                                                       "website",
+                                                                                                       "recruitment",
+                                                                                                       "media"
+                                                                                                   ],
+                                                                           "evidence_ids":  [
+                                                                                                "E003",
+                                                                                                "E004",
+                                                                                                "E005"
+                                                                                            ],
+                                                                           "notes":  "只能形成待验证假设，不能确认预算或采购计划。"
+                                                                       }
+                                                                   ],
+                                               "executive_summary":  {
+                                                                         "overview":  "这是用于验证 Skill 的虚构企业样例。样例展示主体锁定、两层股权穿透、公开人员关系、招聘和事件信号如何被组织为可审计的客户研究报告。",
+                                                                         "key_claim_ids":  [
+                                                                                               "C001",
+                                                                                               "C002",
+                                                                                               "C003",
+                                                                                               "C004"
+                                                                                           ],
+                                                                         "watch_items":  [
+                                                                                             "研发招聘集中于数据平台与安全方向",
+                                                                                             "近期产品发布和中标事件可能意味着交付能力扩张"
+                                                                                         ],
+                                                                         "unknowns":  [
+                                                                                          "真实客户数量和续费率未披露",
+                                                                                          "境外关联实体未覆盖",
+                                                                                          "任何预算或采购计划均未确认"
+                                                                                      ]
+                                                                     },
+                                               "claims":  [
+                                                              {
+                                                                  "id":  "C001",
+                                                                  "category":  "identity",
+                                                                  "statement":  "研究对象已锁定为唯一法定主体（虚构样例）。",
+                                                                  "status":  "verified",
+                                                                  "confidence":  "high",
+                                                                  "as_of":  "2026-07-23",
+                                                                  "evidence_ids":  [
+                                                                                       "E001",
+                                                                                       "E002"
+                                                                                   ],
+                                                                  "counter_evidence_ids":  [
+
+                                                                                           ],
+                                                                  "rationale":  "两个独立企业信息库样例在名称、信用代码和状态上相符。"
+                                                              },
+                                                              {
+                                                                  "id":  "C002",
+                                                                  "category":  "ownership",
+                                                                  "statement":  "样例自然人李明通过示例控股间接控制研究主体 80% 股权。",
+                                                                  "status":  "verified",
+                                                                  "confidence":  "high",
+                                                                  "as_of":  "2026-07-23",
+                                                                  "evidence_ids":  [
+                                                                                       "E001",
+                                                                                       "E002"
+                                                                                   ],
+                                                                  "counter_evidence_ids":  [
+
+                                                                                           ],
+                                                                  "rationale":  "完整两层持股链为 100% × 80%。"
+                                                              },
+                                                              {
+                                                                  "id":  "C003",
+                                                                  "category":  "hiring",
+                                                                  "statement":  "样例招聘信号显示企业正在补强数据平台和云安全交付能力。",
+                                                                  "status":  "inferred",
+                                                                  "confidence":  "medium",
+                                                                  "as_of":  "2026-07-23",
+                                                                  "evidence_ids":  [
+                                                                                       "E004"
+                                                                                   ],
+                                                                  "counter_evidence_ids":  [
+
+                                                                                           ],
+                                                                  "rationale":  "职位技术词包含 Kubernetes、数据平台和零信任；单条招聘不能证明组织级战略。"
+                                                              },
+                                                              {
+                                                                  "id":  "C004",
+                                                                  "category":  "growth_signal",
+                                                                  "statement":  "产品发布、中标与招聘在近 180 天同向出现，可能对应业务扩张窗口。",
+                                                                  "status":  "inferred",
+                                                                  "confidence":  "medium",
+                                                                  "as_of":  "2026-07-23",
+                                                                  "evidence_ids":  [
+                                                                                       "E004",
+                                                                                       "E005",
+                                                                                       "E007"
+                                                                                   ],
+                                                                  "counter_evidence_ids":  [
+                                                                                               "E009"
+                                                                                           ],
+                                                                  "rationale":  "多类公开信号相互增强，但行政整改提示可能拖慢部分交付。"
+                                                              },
+                                                              {
+                                                                  "id":  "C005",
+                                                                  "category":  "risk",
+                                                                  "statement":  "一项行政提示已完成整改，未发现其仍处于开放状态的样例证据。",
+                                                                  "status":  "verified",
+                                                                  "confidence":  "high",
+                                                                  "as_of":  "2026-07-23",
+                                                                  "evidence_ids":  [
+                                                                                       "E009",
+                                                                                       "E010"
+                                                                                   ],
+                                                                  "counter_evidence_ids":  [
+
+                                                                                           ],
+                                                                  "rationale":  "政府整改记录和企业公告样例相互印证。"
+                                                              },
+                                                              {
+                                                                  "id":  "C006",
+                                                                  "category":  "commercial",
+                                                                  "statement":  "公开资料不足以确认采购预算、采购日期或现用供应商。",
+                                                                  "status":  "unknown",
+                                                                  "confidence":  "unverified",
+                                                                  "as_of":  "2026-07-23",
+                                                                  "evidence_ids":  [
+
+                                                                                   ],
+                                                                  "counter_evidence_ids":  [
+
+                                                                                           ],
+                                                                  "rationale":  "这些属于非公开商业信息，需要在授权沟通中确认。"
+                                                              }
+                                                          ],
+                                               "ownership":  {
+                                                                 "entities":  [
+                                                                                  {
+                                                                                      "id":  "ENT001",
+                                                                                      "name":  "示例云智科技有限公司（虚构样例）",
+                                                                                      "type":  "company",
+                                                                                      "identifier":  "000000000000000000",
+                                                                                      "evidence_ids":  [
+                                                                                                           "E001",
+                                                                                                           "E002"
+                                                                                                       ]
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "ENT002",
+                                                                                      "name":  "示例控股有限公司（虚构样例）",
+                                                                                      "type":  "company",
+                                                                                      "identifier":  "SAMPLE-HOLDING",
+                                                                                      "evidence_ids":  [
+                                                                                                           "E001",
+                                                                                                           "E002"
+                                                                                                       ]
+                                                                                  },
+                                                                                  {
+                                                                                      "id":  "P001",
+                                                                                      "name":  "李明（虚构人物）",
+                                                                                      "type":  "person",
+                                                                                      "identifier":  "",
+                                                                                      "evidence_ids":  [
+                                                                                                           "E001",
+                                                                                                           "E002"
+                                                                                                       ]
+                                                                                  }
+                                                                              ],
+                                                                 "edges":  [
+                                                                               {
+                                                                                   "from":  "ENT002",
+                                                                                   "to":  "ENT001",
+                                                                                   "relationship":  "shareholder",
+                                                                                   "percentage":  80,
+                                                                                   "as_of":  "2026-07-23",
+                                                                                   "evidence_ids":  [
+                                                                                                        "E001",
+                                                                                                        "E002"
+                                                                                                    ]
+                                                                               },
+                                                                               {
+                                                                                   "from":  "P001",
+                                                                                   "to":  "ENT002",
+                                                                                   "relationship":  "shareholder",
+                                                                                   "percentage":  100,
+                                                                                   "as_of":  "2026-07-23",
+                                                                                   "evidence_ids":  [
+                                                                                                        "E001",
+                                                                                                        "E002"
+                                                                                                    ]
+                                                                               }
+                                                                           ],
+                                                                 "ultimate_controller_claim_id":  "C002",
+                                                                 "penetration_paths":  [
+                                                                                           {
+                                                                                               "nodes":  [
+                                                                                                             "ENT001",
+                                                                                                             "ENT002",
+                                                                                                             "P001"
+                                                                                                         ],
+                                                                                               "direct_percentages":  [
+                                                                                                                          80,
+                                                                                                                          100
+                                                                                                                      ],
+                                                                                               "calculated_indirect_percentage":  80,
+                                                                                               "terminal_type":  "person",
+                                                                                               "stop_reason":  "",
+                                                                                               "evidence_ids":  [
+                                                                                                                    "E001",
+                                                                                                                    "E002"
+                                                                                                                ]
+                                                                                           }
+                                                                                       ],
+                                                                 "change_events":  [
+                                                                                       {
+                                                                                           "date":  "2025-11-18",
+                                                                                           "category":  "ownership_change",
+                                                                                           "title":  "示例控股持股比例变更",
+                                                                                           "description":  "持股比例由 70% 增至 80%（虚构事件）。",
+                                                                                           "significance":  "medium",
+                                                                                           "evidence_ids":  [
+                                                                                                                "E001"
+                                                                                                            ]
+                                                                                       }
+                                                                                   ]
+                                                             },
+                                               "organization":  {
+                                                                    "entities":  [
+                                                                                     {
+                                                                                         "id":  "ENT003",
+                                                                                         "name":  "示例云智华南技术有限公司（虚构样例）",
+                                                                                         "type":  "company",
+                                                                                         "identifier":  "SAMPLE-SUB",
+                                                                                         "evidence_ids":  [
+                                                                                                              "E001",
+                                                                                                              "E003"
+                                                                                                          ]
+                                                                                     }
+                                                                                 ],
+                                                                    "edges":  [
+                                                                                  {
+                                                                                      "from":  "ENT001",
+                                                                                      "to":  "ENT003",
+                                                                                      "relationship":  "subsidiary",
+                                                                                      "percentage":  60,
+                                                                                      "as_of":  "2026-07-23",
+                                                                                      "evidence_ids":  [
+                                                                                                           "E001",
+                                                                                                           "E003"
+                                                                                                       ]
+                                                                                  }
+                                                                              ],
+                                                                    "boundary_note":  "已识别境内直接子公司一户；本样例未模拟境外实体和全部少数股权投资。"
+                                                                },
+                                               "people":  {
+                                                              "persons":  [
+                                                                              {
+                                                                                  "id":  "P001",
+                                                                                  "name":  "李明（虚构人物）",
+                                                                                  "public_roles":  [
+                                                                                                       "实际控制人",
+                                                                                                       "董事长"
+                                                                                                   ],
+                                                                                  "evidence_ids":  [
+                                                                                                       "E001",
+                                                                                                       "E002"
+                                                                                                   ]
+                                                                              },
+                                                                              {
+                                                                                  "id":  "P002",
+                                                                                  "name":  "王珊（虚构人物）",
+                                                                                  "public_roles":  [
+                                                                                                       "法定代表人",
+                                                                                                       "总经理"
+                                                                                                   ],
+                                                                                  "evidence_ids":  [
+                                                                                                       "E001",
+                                                                                                       "E002"
+                                                                                                   ]
+                                                                              }
+                                                                          ],
+                                                              "relationships":  [
+                                                                                    {
+                                                                                        "person_id":  "P001",
+                                                                                        "entity_id":  "ENT001",
+                                                                                        "relationship":  "director",
+                                                                                        "period":  "2024-01 至今",
+                                                                                        "evidence_ids":  [
+                                                                                                             "E001",
+                                                                                                             "E002"
+                                                                                                         ]
+                                                                                    },
+                                                                                    {
+                                                                                        "person_id":  "P002",
+                                                                                        "entity_id":  "ENT001",
+                                                                                        "relationship":  "legal_representative",
+                                                                                        "period":  "2025-03 至今",
+                                                                                        "evidence_ids":  [
+                                                                                                             "E001",
+                                                                                                             "E002"
+                                                                                                         ]
+                                                                                    }
+                                                                                ],
+                                                              "privacy_note":  "仅展示虚构的公开职业任职关系，不推断亲属、私人联系或未公开联系方式。"
+                                                          },
+                                               "business":  {
+                                                                "facts":  [
+                                                                              {
+                                                                                  "label":  "业务模式",
+                                                                                  "value":  "企业云数据平台软件与实施服务（虚构）",
+                                                                                  "as_of":  "2026-07-23",
+                                                                                  "evidence_ids":  [
+                                                                                                       "E003"
+                                                                                                   ]
+                                                                              }
+                                                                          ],
+                                                                "products":  [
+                                                                                 {
+                                                                                     "label":  "云智数据平台 3.0",
+                                                                                     "value":  "面向制造企业的数据集成与治理平台（虚构）",
+                                                                                     "as_of":  "2026-04-12",
+                                                                                     "evidence_ids":  [
+                                                                                                          "E005"
+                                                                                                      ]
+                                                                                 }
+                                                                             ],
+                                                                "technologies":  [
+                                                                                     {
+                                                                                         "label":  "公开技术线索",
+                                                                                         "value":  "Kubernetes、数据湖、零信任（来自虚构官网和招聘页）",
+                                                                                         "as_of":  "2026-07-23",
+                                                                                         "evidence_ids":  [
+                                                                                                              "E003",
+                                                                                                              "E004"
+                                                                                                          ]
+                                                                                     }
+                                                                                 ],
+                                                                "customers_channels":  [
+                                                                                           {
+                                                                                               "label":  "目标行业",
+                                                                                               "value":  "制造与连锁零售；客户数量未披露",
+                                                                                               "as_of":  "2026-07-23",
+                                                                                               "evidence_ids":  [
+                                                                                                                    "E003"
+                                                                                                                ]
+                                                                                           }
+                                                                                       ],
+                                                                "partners":  [
+                                                                                 {
+                                                                                     "label":  "生态合作",
+                                                                                     "value":  "与示例云厂商开展兼容适配（虚构）",
+                                                                                     "as_of":  "2026-04-12",
+                                                                                     "evidence_ids":  [
+                                                                                                          "E005"
+                                                                                                      ]
+                                                                                 }
+                                                                             ],
+                                                                "competitors":  [
+
+                                                                                ],
+                                                                "supply_chain":  [
+                                                                                     {
+                                                                                         "label":  "上游依赖",
+                                                                                         "value":  "云基础设施与服务器生态；具体采购商未公开",
+                                                                                         "as_of":  "2026-07-23",
+                                                                                         "evidence_ids":  [
+                                                                                                              "E003"
+                                                                                                          ]
+                                                                                     }
+                                                                                 ]
+                                                            },
+                                               "hiring":  {
+                                                              "summary":  "近 12 个月样例中确认一条数据平台架构师岗位，技术词集中于 Kubernetes、数据湖和零信任；样本不足以判断总招聘趋势。",
+                                                              "postings":  [
+                                                                               {
+                                                                                   "title":  "数据平台架构师（虚构）",
+                                                                                   "location":  "深圳",
+                                                                                   "function":  "研发/交付",
+                                                                                   "technologies":  [
+                                                                                                        "Kubernetes",
+                                                                                                        "数据湖",
+                                                                                                        "零信任"
+                                                                                                    ],
+                                                                                   "published_at":  "2026-06-15",
+                                                                                   "status":  "招聘中（样例）",
+                                                                                   "evidence_ids":  [
+                                                                                                        "E004"
+                                                                                                    ]
+                                                                               }
+                                                                           ],
+                                                              "trend_claim_ids":  [
+                                                                                      "C003"
+                                                                                  ]
+                                                          },
+                                               "events":  [
+                                                              {
+                                                                  "date":  "2026-05-20",
+                                                                  "category":  "bidding",
+                                                                  "title":  "中标制造数据治理项目（虚构）",
+                                                                  "description":  "以供应商身份中标一项数据治理项目。",
+                                                                  "significance":  "high",
+                                                                  "evidence_ids":  [
+                                                                                       "E007"
+                                                                                   ]
+                                                              },
+                                                              {
+                                                                  "date":  "2026-04-12",
+                                                                  "category":  "product",
+                                                                  "title":  "发布云智数据平台 3.0（虚构）",
+                                                                  "description":  "新增多云数据编排和零信任访问控制。",
+                                                                  "significance":  "high",
+                                                                  "evidence_ids":  [
+                                                                                       "E005",
+                                                                                       "E006"
+                                                                                   ]
+                                                              },
+                                                              {
+                                                                  "date":  "2026-02-10",
+                                                                  "category":  "compliance",
+                                                                  "title":  "完成行政提示整改（虚构）",
+                                                                  "description":  "公开整改记录显示事项已闭环。",
+                                                                  "significance":  "medium",
+                                                                  "evidence_ids":  [
+                                                                                       "E009",
+                                                                                       "E010"
+                                                                                   ]
+                                                              }
+                                                          ],
+                                               "procurement":  [
+                                                                   {
+                                                                       "date":  "2026-05-20",
+                                                                       "role":  "supplier",
+                                                                       "counterparty":  "示例制造集团（虚构）",
+                                                                       "project":  "数据治理平台建设项目（虚构）",
+                                                                       "amount":  "人民币 860 万元（虚构）",
+                                                                       "status":  "已中标（样例）",
+                                                                       "evidence_ids":  [
+                                                                                            "E007"
+                                                                                        ]
+                                                                   }
+                                                               ],
+                                               "intellectual_property":  [
+                                                                             {
+                                                                                 "type":  "software_copyright",
+                                                                                 "name":  "云智数据治理平台软件 V3.0（虚构）",
+                                                                                 "identifier":  "SAMPLE-SR-2026-001",
+                                                                                 "status":  "登记（样例）",
+                                                                                 "date":  "2026-03-08",
+                                                                                 "evidence_ids":  [
+                                                                                                      "E008"
+                                                                                                  ]
+                                                                             }
+                                                                         ],
+                                               "risks":  [
+                                                             {
+                                                                 "category":  "administrative",
+                                                                 "title":  "行政提示整改事项（虚构）",
+                                                                 "status":  "已整改",
+                                                                 "severity":  "low",
+                                                                 "date":  "2026-02-10",
+                                                                 "description":  "样例记录用于展示风险不应被删除，而应注明状态和闭环证据。",
+                                                                 "evidence_ids":  [
+                                                                                      "E009",
+                                                                                      "E010"
+                                                                                  ]
+                                                             }
+                                                         ],
+                                               "sales_implications":  {
+                                                                          "hypotheses":  [
+                                                                                             {
+                                                                                                 "title":  "扩张期交付与治理能力假设",
+                                                                                                 "hypothesis":  "若产品发布、中标和架构岗位确属同一扩张计划，企业可能需要加强多项目交付治理与客户运营能力；需通过访谈验证。",
+                                                                                                 "supporting_claim_ids":  [
+                                                                                                                              "C003",
+                                                                                                                              "C004"
+                                                                                                                          ],
+                                                                                                 "counter_signals":  [
+                                                                                                                         "公开招聘样本只有一条",
+                                                                                                                         "行政整改事项可能占用管理资源"
+                                                                                                                     ],
+                                                                                                 "unknowns":  [
+                                                                                                                  "内部交付瓶颈",
+                                                                                                                  "现有系统与供应商",
+                                                                                                                  "预算和决策流程"
+                                                                                                              ],
+                                                                                                 "confidence":  "medium",
+                                                                                                 "evidence_ids":  [
+                                                                                                                      "E004",
+                                                                                                                      "E005",
+                                                                                                                      "E007",
+                                                                                                                      "E009"
+                                                                                                                  ]
+                                                                                             }
+                                                                                         ],
+                                                                          "unknowns":  [
+                                                                                           "预算",
+                                                                                           "采购时间",
+                                                                                           "决策链",
+                                                                                           "现用供应商",
+                                                                                           "项目优先级"
+                                                                                       ],
+                                                                          "discovery_questions":  [
+                                                                                                      "近期产品和中标增长是否带来了跨项目交付一致性问题？",
+                                                                                                      "数据平台与安全岗位主要服务产品研发还是客户交付？",
+                                                                                                      "下一阶段最希望改善的是销售、交付还是客户续费环节？"
+                                                                                                  ]
+                                                                      },
+                                               "evidence":  [
+                                                                {
+                                                                    "id":  "E001",
+                                                                    "provider":  "qxb",
+                                                                    "source_type":  "enterprise_database_mock",
+                                                                    "title":  "企信慧眼企业档案与股权链（虚构测试记录）",
+                                                                    "url":  "",
+                                                                    "locator":  "qxb_op_enterprise_resolve + mock ownership record SAMPLE-QXB-001",
+                                                                    "tool_name":  "qxb_op_enterprise_resolve / qxb_op_api_call",
+                                                                    "query":  "示例云智科技有限公司",
+                                                                    "record_id":  "SAMPLE-QXB-001",
+                                                                    "published_at":  "2026-07-23",
+                                                                    "accessed_at":  "2026-07-23T17:00:00+08:00",
+                                                                    "subject_legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                                    "excerpt":  "虚构测试记录：名称、信用代码、股东和公开任职。",
+                                                                    "authority":  "medium",
+                                                                    "directness":  "aggregated"
+                                                                },
+                                                                {
+                                                                    "id":  "E002",
+                                                                    "provider":  "qcc",
+                                                                    "source_type":  "enterprise_database_mock",
+                                                                    "title":  "企查查企业核验记录（虚构测试记录）",
+                                                                    "url":  "",
+                                                                    "locator":  "verify_company_accuracy mock record SAMPLE-QCC-002",
+                                                                    "tool_name":  "verify_company_accuracy",
+                                                                    "query":  "名称 + 信用代码",
+                                                                    "record_id":  "SAMPLE-QCC-002",
+                                                                    "published_at":  "2026-07-23",
+                                                                    "accessed_at":  "2026-07-23T17:02:00+08:00",
+                                                                    "subject_legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                                    "excerpt":  "虚构测试记录：主体信息和股权结构与 E001 一致。",
+                                                                    "authority":  "medium",
+                                                                    "directness":  "aggregated"
+                                                                },
+                                                                {
+                                                                    "id":  "E003",
+                                                                    "provider":  "website",
+                                                                    "source_type":  "company_website_mock",
+                                                                    "title":  "示例云智官网业务介绍（虚构）",
+                                                                    "url":  "https://example.com/company",
+                                                                    "locator":  "官网 /company 页面",
+                                                                    "tool_name":  "browser",
+                                                                    "query":  "业务 产品 技术",
+                                                                    "record_id":  "",
+                                                                    "published_at":  "2026-07-01",
+                                                                    "accessed_at":  "2026-07-23T17:05:00+08:00",
+                                                                    "subject_legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                                    "excerpt":  "提供企业云数据平台软件与实施服务。",
+                                                                    "authority":  "medium",
+                                                                    "directness":  "primary"
+                                                                },
+                                                                {
+                                                                    "id":  "E004",
+                                                                    "provider":  "recruitment",
+                                                                    "source_type":  "job_posting_mock",
+                                                                    "title":  "数据平台架构师招聘页（虚构）",
+                                                                    "url":  "https://example.com/jobs/architect",
+                                                                    "locator":  "招聘页岗位 ID SAMPLE-JOB-001",
+                                                                    "tool_name":  "browser",
+                                                                    "query":  "示例云智 招聘",
+                                                                    "record_id":  "SAMPLE-JOB-001",
+                                                                    "published_at":  "2026-06-15",
+                                                                    "accessed_at":  "2026-07-23T17:08:00+08:00",
+                                                                    "subject_legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                                    "excerpt":  "岗位要求包含 Kubernetes、数据湖和零信任。",
+                                                                    "authority":  "medium",
+                                                                    "directness":  "primary"
+                                                                },
+                                                                {
+                                                                    "id":  "E005",
+                                                                    "provider":  "website",
+                                                                    "source_type":  "company_announcement_mock",
+                                                                    "title":  "云智数据平台 3.0 发布公告（虚构）",
+                                                                    "url":  "https://example.com/news/platform-3",
+                                                                    "locator":  "官网新闻 SAMPLE-NEWS-001",
+                                                                    "tool_name":  "browser",
+                                                                    "query":  "产品发布",
+                                                                    "record_id":  "SAMPLE-NEWS-001",
+                                                                    "published_at":  "2026-04-12",
+                                                                    "accessed_at":  "2026-07-23T17:10:00+08:00",
+                                                                    "subject_legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                                    "excerpt":  "平台新增多云数据编排与零信任访问控制。",
+                                                                    "authority":  "medium",
+                                                                    "directness":  "primary"
+                                                                },
+                                                                {
+                                                                    "id":  "E006",
+                                                                    "provider":  "media",
+                                                                    "source_type":  "news_mock",
+                                                                    "title":  "行业媒体报道平台 3.0 发布（虚构）",
+                                                                    "url":  "https://example.com/media/platform-3",
+                                                                    "locator":  "媒体稿 SAMPLE-MEDIA-001",
+                                                                    "tool_name":  "browser",
+                                                                    "query":  "示例云智 平台 3.0",
+                                                                    "record_id":  "SAMPLE-MEDIA-001",
+                                                                    "published_at":  "2026-04-13",
+                                                                    "accessed_at":  "2026-07-23T17:12:00+08:00",
+                                                                    "subject_legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                                    "excerpt":  "报道复述企业产品发布信息，用于交叉核验事件日期。",
+                                                                    "authority":  "low",
+                                                                    "directness":  "secondary"
+                                                                },
+                                                                {
+                                                                    "id":  "E007",
+                                                                    "provider":  "bidding",
+                                                                    "source_type":  "award_notice_mock",
+                                                                    "title":  "数据治理平台建设项目中标公告（虚构）",
+                                                                    "url":  "https://example.com/bidding/award-001",
+                                                                    "locator":  "中标公告 SAMPLE-BID-001",
+                                                                    "tool_name":  "browser",
+                                                                    "query":  "示例云智 中标",
+                                                                    "record_id":  "SAMPLE-BID-001",
+                                                                    "published_at":  "2026-05-20",
+                                                                    "accessed_at":  "2026-07-23T17:15:00+08:00",
+                                                                    "subject_legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                                    "excerpt":  "虚构项目中标供应商与金额信息。",
+                                                                    "authority":  "high",
+                                                                    "directness":  "primary"
+                                                                },
+                                                                {
+                                                                    "id":  "E008",
+                                                                    "provider":  "government",
+                                                                    "source_type":  "copyright_registry_mock",
+                                                                    "title":  "软件著作权登记记录（虚构）",
+                                                                    "url":  "https://example.com/ip/sample-sr-001",
+                                                                    "locator":  "登记号 SAMPLE-SR-2026-001",
+                                                                    "tool_name":  "browser",
+                                                                    "query":  "示例云智 软件著作权",
+                                                                    "record_id":  "SAMPLE-SR-2026-001",
+                                                                    "published_at":  "2026-03-08",
+                                                                    "accessed_at":  "2026-07-23T17:18:00+08:00",
+                                                                    "subject_legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                                    "excerpt":  "云智数据治理平台软件 V3.0 登记样例。",
+                                                                    "authority":  "high",
+                                                                    "directness":  "primary"
+                                                                },
+                                                                {
+                                                                    "id":  "E009",
+                                                                    "provider":  "government",
+                                                                    "source_type":  "administrative_record_mock",
+                                                                    "title":  "行政整改记录（虚构）",
+                                                                    "url":  "https://example.com/government/rectification-001",
+                                                                    "locator":  "整改记录 SAMPLE-RISK-001",
+                                                                    "tool_name":  "browser",
+                                                                    "query":  "示例云智 整改",
+                                                                    "record_id":  "SAMPLE-RISK-001",
+                                                                    "published_at":  "2026-02-10",
+                                                                    "accessed_at":  "2026-07-23T17:20:00+08:00",
+                                                                    "subject_legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                                    "excerpt":  "样例事项状态标记为已整改。",
+                                                                    "authority":  "high",
+                                                                    "directness":  "primary"
+                                                                },
+                                                                {
+                                                                    "id":  "E010",
+                                                                    "provider":  "website",
+                                                                    "source_type":  "company_statement_mock",
+                                                                    "title":  "关于完成整改的说明（虚构）",
+                                                                    "url":  "https://example.com/news/rectification",
+                                                                    "locator":  "企业说明 SAMPLE-RISK-002",
+                                                                    "tool_name":  "browser",
+                                                                    "query":  "整改说明",
+                                                                    "record_id":  "SAMPLE-RISK-002",
+                                                                    "published_at":  "2026-02-11",
+                                                                    "accessed_at":  "2026-07-23T17:22:00+08:00",
+                                                                    "subject_legal_name":  "示例云智科技有限公司（虚构样例）",
+                                                                    "excerpt":  "企业称相关事项已完成整改。",
+                                                                    "authority":  "medium",
+                                                                    "directness":  "primary"
+                                                                }
+                                                            ],
+                                               "conflicts":  [
+                                                                 {
+                                                                     "topic":  "整改完成日期",
+                                                                     "positions":  [
+                                                                                       {
+                                                                                           "statement":  "政府样例记录日期为 2026-02-10",
+                                                                                           "evidence_ids":  [
+                                                                                                                "E009"
+                                                                                                            ]
+                                                                                       },
+                                                                                       {
+                                                                                           "statement":  "企业样例说明发布日期为 2026-02-11",
+                                                                                           "evidence_ids":  [
+                                                                                                                "E010"
+                                                                                                            ]
+                                                                                       }
+                                                                                   ],
+                                                                     "impact":  "不影响已整改状态判断，但精确闭环日期应以政府记录为准。",
+                                                                     "resolution_status":  "resolved"
+                                                                 }
+                                                             ],
+                                               "blind_spots":  [
+                                                                   {
+                                                                       "dimension":  "境外组织",
+                                                                       "reason":  "虚构样例未提供境外登记数据",
+                                                                       "impact":  "无法确认集团全球边界",
+                                                                       "next_step":  "在真实任务中查询境外登记和企业年报"
+                                                                   },
+                                                                   {
+                                                                       "dimension":  "商业采购",
+                                                                       "reason":  "预算、决策链和现用供应商通常不公开",
+                                                                       "impact":  "不能据公开信号判断真实商机",
+                                                                       "next_step":  "通过获授权的客户访谈确认"
+                                                                   }
+                                                               ]
+                                           }
+                      }
+                  ]
+}

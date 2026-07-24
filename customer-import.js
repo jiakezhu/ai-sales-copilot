@@ -12,6 +12,7 @@
   const JSON_SCHEMA_VERSION = "crm-customer-list.v1";
   const SOURCE_KEYS = ["", "customer", "website", "qcc", "tyc", "qxb", "web", "panshi"];
   const CONFIDENCE_KEYS = ["unverified", "high", "medium", "low"];
+  const RELATION_STATUS_KEYS = ["identified", "pending", "reached", "connected"];
   const COLORS = ["#0052d9", "#0d9488", "#7c3aed", "#ed7b2f", "#6366f1", "#0ea5a4"];
   const FIELD_KEYS = [
     "industry", "founded", "staff", "funding", "website", "product", "dau", "revenue",
@@ -222,7 +223,7 @@
     if (contactName) {
       customer.orgChain.push({
         id: `${id}-contact-1`, pid: null, name: contactName, role: clean(values.role), level: 3,
-        phone: clean(values.phone), phoneType: "unverified", wechat: "", email: clean(values.email), note: clean(values.remarks),
+        relationStatus: "pending", phone: clean(values.phone), phoneType: "unverified", wechat: "", email: clean(values.email), note: clean(values.remarks),
       });
     }
     const nextDate = normalizeImportDate(values.nextDate);
@@ -297,7 +298,7 @@
       ? JSON.parse(String(source).replace(/^\uFEFF/, ""))
       : clone(source);
     if (!isRecord(bundle)) throw new TypeError("JSON 顶层必须是对象");
-    if (bundle.schema_version !== JSON_SCHEMA_VERSION) throw new TypeError(`schema_version 必须为 ${JSON_SCHEMA_VERSION}`);
+    if (bundle.schema_version !== JSON_SCHEMA_VERSION) throw new TypeError(`文件名不限，但 JSON 内容中的 schema_version 必须为 ${JSON_SCHEMA_VERSION}`);
     if (typeof bundle.run_id !== "string" || !clean(bundle.run_id)) throw new TypeError("run_id 不能为空");
     const generatedAt = clean(bundle.generated_at);
     if (typeof bundle.generated_at !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(generatedAt) || Number.isNaN(Date.parse(generatedAt))) throw new TypeError("generated_at 必须是 ISO 8601 date-time");
@@ -306,6 +307,52 @@
     return bundle;
   }
 
+  function validateDeepResearch(value, raw, row) {
+    const errors = [];
+    const add = (field, message) => errors.push({ row, field: `deepResearch.${field}`, message });
+    if (!isRecord(value)) {
+      add("", "deepResearch 必须是对象");
+      return errors;
+    }
+    if (value.schema_version !== "company-deep-research.v1") add("schema_version", "深度调研版本必须为 company-deep-research.v1");
+    if (!clean(value.research_id)) add("research_id", "research_id 不能为空");
+    if (typeof value.generated_at !== "string" || Number.isNaN(Date.parse(value.generated_at))) add("generated_at", "generated_at 必须是有效时间");
+    if (!isRecord(value.subject) || !clean(value.subject.legal_name)) add("subject.legal_name", "深度调研主体名称不能为空");
+    else if (nameKey(value.subject.legal_name) !== nameKey(raw.name)) add("subject.legal_name", "深度调研主体名称必须与客户名称一致");
+    ["source_coverage", "claims", "events", "procurement", "intellectual_property", "risks", "evidence", "conflicts", "blind_spots"].forEach(key => {
+      if (!Array.isArray(value[key])) add(key, `${key} 必须是数组`);
+    });
+    ["scope", "executive_summary", "ownership", "organization", "people", "business", "hiring", "sales_implications"].forEach(key => {
+      if (!isRecord(value[key])) add(key, `${key} 必须是对象`);
+    });
+    return errors;
+  }
+
+  function validateProspectResearch(value, row) {
+    const errors = [];
+    const add = (field, message) => errors.push({ row, field: `prospectResearch.${field}`, message });
+    if (!isRecord(value)) {
+      add("", "prospectResearch 必须是对象");
+      return errors;
+    }
+    if (!Number.isInteger(value.score) || value.score < 0 || value.score > 100) add("score", "潜客评分必须是 0-100 的整数");
+    const dimensions = Array.isArray(value.scoreDimensions) ? value.scoreDimensions : [];
+    if (dimensions.length !== 5) add("scoreDimensions", "必须提供 5 个评分维度");
+    let scoreTotal = 0, maxTotal = 0;
+    dimensions.forEach((item, index) => {
+      if (!isRecord(item) || !clean(item.key) || !clean(item.label) || !clean(item.rationale)) add(`scoreDimensions.${index}`, "评分维度必须包含 key、label 和 rationale");
+      if (!Number.isInteger(item?.score) || !Number.isInteger(item?.maxScore) || item.score < 0 || item.maxScore < 1 || item.score > item.maxScore) add(`scoreDimensions.${index}`, "维度得分必须是未超过满分的非负整数");
+      scoreTotal += Number(item?.score || 0);
+      maxTotal += Number(item?.maxScore || 0);
+    });
+    if (dimensions.length && scoreTotal !== value.score) add("score", `总分 ${value.score} 与维度合计 ${scoreTotal} 不一致`);
+    if (dimensions.length && maxTotal !== 100) add("scoreDimensions", `维度满分合计必须为 100，当前为 ${maxTotal}`);
+    if (!Array.isArray(value.discoveryChannels) || !value.discoveryChannels.some(clean)) add("discoveryChannels", "至少提供一个发现通道");
+    if (!clean(value.selectionRationale)) add("selectionRationale", "缺少入选理由");
+    if (!clean(value.reverseReview)) add("reverseReview", "缺少反向审查结论");
+    if (!Array.isArray(value.evidenceIds)) add("evidenceIds", "evidenceIds 必须是数组");
+    return errors;
+  }
   function validateNativeCustomer(raw, row) {
     const errors = [];
     const add = (field, message) => errors.push({ row, field, message });
@@ -342,8 +389,11 @@
       if (!isRecord(person) || !clean(person.name)) add(`orgChain.${index}`, "联系人必须包含姓名");
       if (isRecord(person) && (typeof person.role !== "string" || typeof person.note !== "string")) add(`orgChain.${index}`, "联系人必须直接提供字符串 role 和 note");
       if (isRecord(person) && (!Number.isInteger(person.level) || ![1, 2, 3].includes(person.level))) add(`orgChain.${index}.level`, "联系人层级只能为整数 1、2 或 3");
+      if (isRecord(person) && person.relationStatus !== undefined && !RELATION_STATUS_KEYS.includes(clean(person.relationStatus))) add(`orgChain.${index}.relationStatus`, "建联状态只能为 identified、pending、reached 或 connected");
     });
     if (isRecord(raw.painChain) && Object.keys(raw.painChain).length && raw.painChain.inferred !== true) add("painChain.inferred", "销售假设必须明确标记 inferred: true");
+    if (raw.prospectResearch !== undefined) errors.push(...validateProspectResearch(raw.prospectResearch, row));
+    if (raw.deepResearch !== undefined) errors.push(...validateDeepResearch(raw.deepResearch, raw, row));
     return errors;
   }
 
@@ -378,6 +428,7 @@
       name: clean(person.name),
       role: clean(person.role),
       level: Number(person.level),
+      relationStatus: RELATION_STATUS_KEYS.includes(clean(person.relationStatus)) ? clean(person.relationStatus) : "pending",
       phone: clean(person.phone),
       phoneType: clean(person.phoneType) || "unverified",
       wechat: clean(person.wechat),
@@ -415,13 +466,15 @@
     (incoming.orgChain || []).forEach(person => {
       const matched = target.orgChain.find(item => nameKey(item.name) === nameKey(person.name));
       if (!matched) target.orgChain.push(clone(person));
-      else Object.entries(person).forEach(([key, value]) => { if (nonEmpty(value) && key !== "id") matched[key] = clone(value); });
+      else Object.entries(person).forEach(([key, value]) => { if (key === "relationStatus") { const rank = status => RELATION_STATUS_KEYS.indexOf(status); if (rank(value) > rank(matched.relationStatus)) matched.relationStatus = value; } else if (nonEmpty(value) && key !== "id") matched[key] = clone(value); });
     });
     ["marketNews", "hiringSignals", "bidding", "qualifications"].forEach(key => mergeRecordArray(target, incoming, key));
     ["businessBrief", "painChain"].forEach(key => {
       target[key] ||= {};
       Object.entries(incoming[key] || {}).forEach(([field, value]) => { if (nonEmpty(value)) target[key][field] = clone(value); });
     });
+    if (isRecord(incoming.prospectResearch)) target.prospectResearch = clone(incoming.prospectResearch);
+    if (isRecord(incoming.deepResearch)) target.deepResearch = clone(incoming.deepResearch);
     target.stageHistory ||= [];
     if (!target.stageHistory.length || target.stageHistory.at(-1)?.stage !== incoming.stage) {
       target.stageHistory.push(clone(incoming.stageHistory[0]));
