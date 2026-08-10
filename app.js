@@ -144,6 +144,7 @@ function ensureCustomerShape(customer) {
   customer.opportunityDiagnosis ||= {};
   customer.businessBrief ||= {};
   if (customer.deepResearch !== undefined && (!customer.deepResearch || typeof customer.deepResearch !== "object" || Array.isArray(customer.deepResearch))) customer.deepResearch = null;
+  if (customer.opportunityIntelligence !== undefined && (!customer.opportunityIntelligence || typeof customer.opportunityIntelligence !== "object" || Array.isArray(customer.opportunityIntelligence))) customer.opportunityIntelligence = null;
   if (!Array.isArray(customer.marketNews)) customer.marketNews = seedCopy("marketNews");
   if (!Array.isArray(customer.hiringSignals)) customer.hiringSignals = seedCopy("hiringSignals");
   if (!customer.painChain || typeof customer.painChain !== "object") customer.painChain = seedCopy("painChain");
@@ -570,8 +571,11 @@ function renderCustomerDetail(customer) {
     ? getTasks(customer).find(task => task.note.id === state.taskFocus.noteId)
     : null;
   const next = focusedTask || getNextTask(customer) || getLatestCompletedTask(customer);
+  const panoramaTabs = customer.opportunityIntelligence
+    ? [["account360", "账户全景"], ["tencent-opportunity", "腾讯机会"], ["meeting-intelligence", "面客准备"]]
+    : [];
   const tabs = [
-    ["overview", "作战概览"], ["admittance", "客户准入"], ["intel", "情报与证据"], ["timeline", "推进记录"], ["relations", "关键关系"], ["signals", "外部信号"], ["closing", "成交工具"],
+    ["overview", "作战概览"], ...panoramaTabs, ["admittance", "客户准入"], ["intel", "情报与证据"], ["timeline", "推进记录"], ["relations", "关键关系"], ["signals", "外部信号"], ["closing", "成交工具"],
   ];
   return `<div class="page customer-detail">
     <button class="back-link" data-action="back-customers">${icon("arrow-left")} 返回客户列表</button>
@@ -830,6 +834,9 @@ function renderChoiceControl(customer, type) {
 }
 
 function renderCustomerTab(customer) {
+  if (state.customerTab === "account360") return renderAccountIntelligence(customer);
+  if (state.customerTab === "tencent-opportunity") return renderTencentOpportunities(customer);
+  if (state.customerTab === "meeting-intelligence") return renderMeetingIntelligence(customer);
   if (state.customerTab === "admittance") return renderAdmittanceWorkspace(customer);
   if (state.customerTab === "intel") return renderIntelligence(customer);
   if (state.customerTab === "timeline") return renderTimeline(customer);
@@ -837,6 +844,78 @@ function renderCustomerTab(customer) {
   if (state.customerTab === "signals") return renderExternalSignals(customer);
   if (state.customerTab === "closing") return renderClosingWorkspace(customer);
   return renderOverview(customer);
+}
+
+function opportunityIntel(customer) {
+  const intel = customer.opportunityIntelligence;
+  return intel && typeof intel === "object" && !Array.isArray(intel) ? intel : null;
+}
+
+function renderFactList(items, emptyText = "暂无公开资料") {
+  return Array.isArray(items) && items.length
+    ? `<ul class="oi-list">${items.map(item => `<li>${safe(typeof item === "string" ? item : item?.summary || item?.title || item?.name || item?.role || "待核实")}</li>`).join("")}</ul>`
+    : `<p class="muted">${safe(emptyText)}</p>`;
+}
+
+function renderAccountIntelligence(customer) {
+  const intel = opportunityIntel(customer);
+  if (!intel) return emptyState("暂无账户全景情报", "导入 crm-customer-list.v2 后可查看完整研究。");
+  const coverage = intel.sourceCoverage || {};
+  const coverageLabels = { identity: "工商身份", ownership: "股权实控", organization: "集团组织", people: "核心人员", business: "真实业务", technology: "技术架构", hiring: "招聘", events: "近期动态", procurement: "招投标", ip: "知识产权", risks: "风险合规", sales: "销售机会" };
+  const readiness = intel.accountReadiness || {};
+  const research = intel.research || {};
+  const identity = research.identity || {};
+  const panshi = intel.panshiVerification || {};
+  const covered = Object.values(coverage).filter(item => ["verified", "partial"].includes(item?.status)).length;
+  const readinessDimensions = readiness.dimensions || {};
+  const dimensions = [
+    ["dataCoverage", "数据覆盖", 25], ["businessUnderstanding", "业务理解", 20], ["technologyUnderstanding", "技术理解", 15],
+    ["decisionChainClarity", "决策链", 10], ["opportunityVerifiability", "机会验证", 20], ["meetingPreparedness", "面客准备", 10],
+  ];
+  return `<div class="oi-workspace">
+    <section class="oi-hero panel"><div><p class="eyebrow">ACCOUNT INTELLIGENCE 360</p><h2>账户全景</h2><p>${safe(identity.businessSummary || research.business?.summary || customer.businessBrief?.operatingStatus || "公开业务信息待补充")}</p></div><div class="oi-score-ring"><b>${safe(readiness.score ?? "-")}</b><span>账户准备度</span></div></section>
+    <section class="oi-kpi-grid">
+      <article><small>研究状态</small><b>${safe(readiness.status || "待研究")}</b><span>${covered}/12 维已覆盖</span></article>
+      <article><small>磐石归属</small><b>${safe(panshi.ownership || "待核")}</b><span>${safe(panshi.checkedAt || "未记录时间")}</span></article>
+      <article><small>法定主体</small><b>${safe(identity.legalName || customer.name)}</b><span>${safe(identity.creditCode || customer.fields.creditCode?.v || "信用代码待补")}</span></article>
+      <article><small>实控与集团</small><b>${safe(research.ownership?.summary || "待核实")}</b><span>${safe(research.organization?.summary || "集团边界待核")}</span></article>
+    </section>
+    <section class="panel"><div class="section-heading"><div><p class="eyebrow">SOURCE COVERAGE</p><h2>12 维研究覆盖</h2></div><span class="health-score">${covered}/12</span></div><div class="oi-coverage-grid">${Object.entries(coverageLabels).map(([key,label]) => { const item = coverage[key] || {}; return `<article class="oi-coverage oi-${safe(item.status || "inaccessible")}"><b>${safe(label)}</b><span>${safe(item.status || "未覆盖")}</span><small>${safe(item.note || "")}</small></article>`; }).join("")}</div></section>
+    <section class="panel"><div class="section-heading"><div><p class="eyebrow">READINESS</p><h2>账户准备度拆解</h2></div></div><div class="oi-readiness-grid">${dimensions.map(([key,label,max]) => { const value = Number(readinessDimensions[key] || 0); return `<article><div><b>${safe(label)}</b><span>${value}/${max}</span></div><i><em style="width:${Math.min(100, value / max * 100)}%"></em></i></article>`; }).join("")}</div>${renderFactList(readiness.gaps, "当前未记录研究缺口")}<p class="oi-completion"><b>完成标准：</b>${safe(readiness.completionCriteria || "待定义")}</p></section>
+    <section class="oi-research-grid">
+      <article class="panel"><h2>真实业务</h2><p>${safe(research.business?.summary || "待核实")}</p><dl><dt>产品</dt><dd>${safe(research.business?.products || customer.fields.product?.v || "待核")}</dd><dt>商业模式</dt><dd>${safe(research.business?.businessModel || "待核")}</dd><dt>客户与渠道</dt><dd>${safe(research.business?.customersChannels || "待核")}</dd></dl></article>
+      <article class="panel"><h2>技术与数据</h2><dl><dt>技术栈</dt><dd>${safe(research.technology?.stack || "待核")}</dd><dt>云与部署</dt><dd>${safe(research.technology?.cloudDeployment || "待核")}</dd><dt>数据链</dt><dd>${safe(research.technology?.dataFlow || "待核")}</dd></dl>${renderFactList(research.technology?.unknowns, "暂无技术未知项")}</article>
+      <article class="panel"><h2>公开关键人员</h2>${renderFactList(research.people, "未识别公开关键人物")}</article>
+      <article class="panel"><h2>事件与招聘</h2>${renderFactList([...(research.events || []), ...(research.hiring || [])], "近窗口未发现公开事件或招聘")}</article>
+    </section>
+    <section class="panel"><h2>风险与盲区</h2><div class="oi-risk-grid">${(intel.riskMatrix || research.risks || []).map(risk => `<article class="oi-risk oi-${safe(String(risk.level || "P2").toLowerCase())}"><b>${safe(risk.level || "P2")} · ${safe(risk.title || risk.summary || "风险事项")}</b><p>${safe(risk.summary || risk.detail || "待核实")}</p></article>`).join("") || '<p class="muted">未发现重大公开风险，不等于无风险。</p>'}</div>${renderFactList(research.limitations, "暂无额外数据盲区")}</section>
+  </div>`;
+}
+
+function renderTencentOpportunities(customer) {
+  const intel = opportunityIntel(customer);
+  if (!intel) return emptyState("暂无腾讯产品机会", "导入 crm-customer-list.v2 后可查看证据型机会矩阵。");
+  const opportunities = intel.tencentOpportunities || [];
+  const landscape = intel.competitiveLandscape || {};
+  return `<div class="oi-workspace">
+    <section class="oi-hero panel"><div><p class="eyebrow">TENCENT OPPORTUNITY MAP</p><h2>腾讯全产品线机会</h2><p>每条机会均保留支持证据、反证、未知项和验证问题，不等同于客户已确认需求。</p></div><div class="oi-score-ring"><b>${opportunities.length}</b><span>可验证机会</span></div></section>
+    <section class="oi-opportunity-grid">${opportunities.map((item,index) => `<article class="panel oi-opportunity-card"><header><span class="oi-category">${safe(item.category || "其他")}</span><span class="oi-confidence">${safe(item.confidence || "low")}</span></header><h2>${safe((item.products || []).join(" + ") || `机会 ${index + 1}`)}</h2><p><b>客户场景：</b>${safe(item.customerScenario || "待核")}</p><p class="oi-hypothesis"><b>销售假设：</b>${safe(item.hypothesis || "待形成")}</p><p><b>客户价值：</b>${safe(item.value || "待核")}</p><div class="oi-two-col"><div><small>反证/替代解释</small>${renderFactList(item.counterSignals, "暂无")}</div><div><small>未知项</small>${renderFactList(item.unknowns, "暂无")}</div></div><div class="oi-question"><small>首轮验证问题</small><b>${safe(item.verificationQuestion || "待形成")}</b></div><footer>证据：${safe((item.supportingEvidenceIds || []).join("、") || "待补")}</footer></article>`).join("") || emptyState("暂无通过门槛的产品机会", "继续补充业务与技术证据后再判断。")}</section>
+    <section class="oi-research-grid"><article class="panel"><h2>竞品格局</h2><p>${safe(landscape.summary || "待补充")}</p>${renderFactList(landscape.competitors, "未形成可靠竞品列表")}</article><article class="panel"><h2>报价与组合条件</h2><p><b>当前是否适合报价：</b>${intel.pricingTiming?.now === true ? "是" : "否"}</p>${renderFactList(intel.pricingTiming?.conditions, "报价条件待确认")}${renderFactList(intel.pricingTiming?.avoidUntil, "暂无明确禁区")}</article></section>
+  </div>`;
+}
+
+function renderMeetingIntelligence(customer) {
+  const intel = opportunityIntel(customer);
+  if (!intel) return emptyState("暂无面客准备", "导入 crm-customer-list.v2 后可查看面客作战卡。");
+  const brief = intel.meetingBrief || {};
+  const action = intel.nextBestAction || {};
+  return `<div class="oi-workspace">
+    <section class="oi-hero panel"><div><p class="eyebrow">MEETING COMMAND CENTER</p><h2>面客准备</h2><p><b>会议目标：</b>${safe(brief.objective || "待定义")}</p></div><div class="oi-meeting-status"><small>建议邀请</small><b>${safe((brief.inviteRoles || []).join("、") || "待确认")}</b></div></section>
+    <section class="panel"><div class="section-heading"><div><p class="eyebrow">AGENDA</p><h2>建议议程</h2></div></div><div class="oi-agenda">${(brief.agenda || []).map(item => `<article><span>${safe(item.minutes || 0)} 分钟</span><div><b>${safe(item.topic || "议题")}</b><p>${safe(item.purpose || "")}</p></div></article>`).join("") || '<p class="muted">议程待生成</p>'}</div></section>
+    <section class="oi-research-grid"><article class="panel"><h2>破冰话题</h2>${renderFactList(brief.openingTopics, "待形成")}</article><article class="panel"><h2>验证型问题</h2>${renderFactList(brief.verificationQuestions, "待形成")}</article><article class="panel"><h2>引导型问题</h2>${renderFactList(brief.guidingQuestions, "待形成")}</article><article class="panel"><h2>沟通红线</h2>${renderFactList(brief.redLines, "暂无")}</article></section>
+    <section class="panel oi-next-action"><div><p class="eyebrow">NEXT BEST ACTION</p><h2>${safe(action.action || "待定义下一步")}</h2><p>${safe(action.reason || "")}</p></div><dl><dt>对象</dt><dd>${safe(action.targetRole || "待确认")}</dd><dt>验证点</dt><dd>${safe(action.validationPoint || "待确认")}</dd><dt>完成标准</dt><dd>${safe(action.completionStandard || "待确认")}</dd><dt>时间窗</dt><dd>${safe(action.timeWindow || "待确认")}</dd></dl></section>
+    <section class="panel"><h2>期望会议下一步</h2><p>${safe(brief.desiredNextStep || action.completionStandard || "待定义")}</p></section>
+  </div>`;
 }
 
 function renderOverview(customer) {
@@ -1956,7 +2035,7 @@ function openCustomerImport() {
   customerImportDragDepth = 0;
   showModal(`<div class="modal-head"><div><p class="eyebrow">BATCH IMPORT</p><h2 id="modalTitle">批量导入客户</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div>
     <form class="modal-form customer-import-form" data-form="customer-import">
-      <div class="import-help"><b>支持 CRM 原生 JSON 和常用表格格式</b><span>JSON 文件名不限，内容版本使用 crm-customer-list.v1；表格可识别客户名称、行业、阶段、等级、联系人和跟进信息。</span></div>
+      <div class="import-help"><b>支持 CRM 原生 JSON 和常用表格格式</b><span>JSON 文件名不限；推荐 crm-customer-list.v2（完整账户全景），同时兼容 v1；表格可识别客户名称、行业、阶段、等级、联系人和跟进信息。</span></div>
       <div class="import-support-row"><span>JSON · CSV · TSV · XLSX · XLS</span><button type="button" class="secondary-button import-template-button" data-action="download-import-template">${icon("download")} 下载 CSV 模板</button></div>
       <label id="customerImportDropzone" class="customer-import-dropzone" data-customer-import-dropzone data-state="idle" role="button" tabindex="0" aria-describedby="customerImportDropHint customerImportDropError">
         <input id="customerImportFile" class="customer-import-file-input" type="file" name="file" tabindex="-1" accept=".json,.csv,.tsv,.xlsx,.xls,application/json,text/csv,text/tab-separated-values" />

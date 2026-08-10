@@ -11,6 +11,37 @@ const fixedOptions = {
   idFactory(_row, sequence) { return `customer-${sequence}`; },
 };
 
+function makeOpportunityIntelligence(name = "全景客户") {
+  const coverage = Object.fromEntries(["identity", "ownership", "organization", "people", "business", "technology", "hiring", "events", "procurement", "ip", "risks", "sales"].map(key => [key, { status: "verified", sources: ["web"], note: `${key} 已核验` }]));
+  return {
+    schema_version: "opportunity-intelligence.v1",
+    source_run_id: "oi-run-1",
+    generated_at: "2026-08-10T16:30:00+08:00",
+    panshiVerification: { ownership: "no_owner", cid: "cid-1", checkedAt: "2026-08-10" },
+    sourceCoverage: coverage,
+    accountReadiness: {
+      score: 78, status: "ready_for_meeting",
+      dimensions: { dataCoverage: 21, businessUnderstanding: 17, technologyUnderstanding: 11, decisionChainClarity: 6, opportunityVerifiability: 15, meetingPreparedness: 8 },
+      gaps: ["云厂商未知"], completionCriteria: "确认技术负责人和负载基线",
+    },
+    research: {
+      identity: { legalName: name, creditCode: "91440300DEMO000001", industry: "AI视频" },
+      ownership: { summary: "实控人已核验" }, organization: { summary: "单一主体" },
+      people: [{ name: "李明", role: "CEO" }], business: { summary: "AI视频平台" }, technology: { stack: "Kubernetes" },
+      hiring: [], events: [], procurement: [], intellectualProperty: [], risks: [], evidence: [], limitations: [],
+    },
+    tencentOpportunities: [{
+      category: "基础设施", products: ["GPU云服务器", "COS"], customerScenario: "AI视频生成",
+      hypothesis: "推测，未获客户确认：存在推理负载。", supportingEvidenceIds: [], counterSignals: ["可能使用第三方API"], unknowns: ["GPU自付比例"],
+      verificationQuestion: "自有GPU与API比例是多少？", value: "弹性与成本优化", confidence: "medium",
+    }],
+    riskMatrix: [{ level: "P1", title: "内容合规" }], competitiveLandscape: { summary: "竞品待确认", competitors: [] },
+    meetingBrief: { objective: "确认负载", inviteRoles: ["CTO"], agenda: [], openingTopics: [], verificationQuestions: ["峰值并发是多少？"], guidingQuestions: [], redLines: [], desiredNextStep: "确认PoC" },
+    nextBestAction: { action: "安排技术发现会", reason: "存在近期窗口", targetRole: "CTO", validationPoint: "推理负载", completionStandard: "拿到基线", timeWindow: "7天内" },
+    pricingTiming: { now: false, conditions: ["拿到负载基线"], avoidUntil: ["未确认前不报价"] },
+  };
+}
+
 test("模块同时提供 Node ESM 可加载 API 和浏览器全局对象", () => {
   assert.equal(typeof CustomerImporter.importCSV, "function");
   const sandbox = {};
@@ -338,4 +369,56 @@ test("CRM 保留获客评分元数据并拒绝非法评分", () => {
   const invalid = CustomerImporter.importJSON(broken, [], fixedOptions);
   assert.equal(invalid.imported, 0);
   assert.ok(invalid.errors.some(item => item.field === "prospectResearch.score"));
+});
+
+test("crm-customer-list.v2 导入并完整保留账户全景情报", () => {
+  const name = "全景客户";
+  const bundle = {
+    schema_version: "crm-customer-list.v2",
+    run_id: "run-v2",
+    generated_at: "2026-08-10T16:30:00+08:00",
+    customers: [{ name, stage: "lead", grade: "A", fields: {}, opportunityIntelligence: makeOpportunityIntelligence(name) }],
+  };
+  const result = CustomerImporter.importJSON(bundle, [], fixedOptions);
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.imported, 1);
+  assert.equal(result.schemaVersion, "crm-customer-list.v2");
+  const oi = result.customers[0].opportunityIntelligence;
+  assert.equal(oi.accountReadiness.score, 78);
+  assert.equal(oi.sourceCoverage.technology.status, "verified");
+  assert.deepEqual(oi.tencentOpportunities[0].products, ["GPU云服务器", "COS"]);
+  assert.equal(oi.meetingBrief.objective, "确认负载");
+  assert.equal(oi.nextBestAction.action, "安排技术发现会");
+});
+
+test("v2 同名更新替换全景研究快照且保留销售私有数据", () => {
+  const existing = [{
+    id: "existing", name: "全景客户", stage: "contact", grade: "B",
+    fields: { relation: { v: "已建立真实关系" } }, notes: [{ id: "n1", content: "真实跟进" }], orgChain: [],
+    opportunityIntelligence: { ...makeOpportunityIntelligence("全景客户"), source_run_id: "old-run" },
+  }];
+  const incoming = makeOpportunityIntelligence("全景客户");
+  incoming.source_run_id = "new-run";
+  incoming.accountReadiness.score = 85;
+  const bundle = { schema_version: "crm-customer-list.v2", run_id: "run-v2-update", generated_at: "2026-08-10T17:00:00+08:00", customers: [{ name: "全景客户", stage: "lead", grade: "A", fields: {}, opportunityIntelligence: incoming }] };
+  const result = CustomerImporter.importJSON(bundle, existing, { ...fixedOptions, strategy: "update" });
+  assert.equal(result.errors.length, 0);
+  assert.equal(result.updated, 1);
+  assert.equal(result.customers[0].id, "existing");
+  assert.equal(result.customers[0].fields.relation.v, "已建立真实关系");
+  assert.equal(result.customers[0].notes[0].content, "真实跟进");
+  assert.equal(result.customers[0].opportunityIntelligence.source_run_id, "new-run");
+  assert.equal(result.customers[0].opportunityIntelligence.accountReadiness.score, 85);
+});
+
+test("v2 拒绝缺少12维覆盖或主体错配的账户全景情报", () => {
+  const broken = makeOpportunityIntelligence("其他公司");
+  delete broken.sourceCoverage.risks;
+  const result = CustomerImporter.importJSON({
+    schema_version: "crm-customer-list.v2", run_id: "run-v2-broken", generated_at: "2026-08-10T17:00:00+08:00",
+    customers: [{ name: "目标公司", stage: "lead", grade: "A", fields: {}, opportunityIntelligence: broken }],
+  }, [], fixedOptions);
+  assert.equal(result.imported, 0);
+  assert.ok(result.errors.some(item => item.field === "opportunityIntelligence.sourceCoverage.risks"));
+  assert.ok(result.errors.some(item => item.field === "opportunityIntelligence.research.identity.legalName"));
 });

@@ -436,6 +436,23 @@ test("due diligence admission is a separate workspace and intelligence precedes 
   assert.match(css, /\.intel-field \.modern-select select\s*\{[^}]*border-radius:9px[^}]*appearance:none/);
 });
 
+test("crm v2 account intelligence adds three evidence-driven customer workspaces", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /\["account360", "账户全景"\]/);
+  assert.match(js, /\["tencent-opportunity", "腾讯机会"\]/);
+  assert.match(js, /\["meeting-intelligence", "面客准备"\]/);
+  assert.match(js, /function renderAccountIntelligence\(customer\)/);
+  assert.match(js, /function renderTencentOpportunities\(customer\)/);
+  assert.match(js, /function renderMeetingIntelligence\(customer\)/);
+  assert.match(js, /12 维研究覆盖/);
+  assert.match(js, /销售假设/);
+  assert.match(js, /NEXT BEST ACTION/);
+  assert.match(css, /\.oi-coverage-grid\s*\{/);
+  assert.match(css, /\.oi-opportunity-grid\s*\{/);
+  assert.match(css, /\.oi-next-action\s*\{/);
+});
+
 test("phase two groups global news and hiring into an editable external signal workspace", () => {
   const js = read("app.js");
   const css = read("style.css");
@@ -1709,7 +1726,8 @@ test("customer workspace exposes validated native JSON, CSV, and Excel batch imp
   assert.match(js, /accept="\.json,\.csv,\.tsv,\.xlsx,\.xls/);
   assert.match(js, /CustomerImporter\.importJSON\(customerImportRows, customers/);
   assert.match(js, /CustomerImporter\.importRows\(customerImportRows, customers/);
-  assert.match(js, /crm-customer-list\.v1/);
+  assert.match(js, /crm-customer-list\.v2/);
+  assert.match(js, /同时兼容 v1/);
   assert.match(js, /JSON 文件名不限/);
   assert.match(js, /XLSX\.utils\.sheet_to_json/);
   assert.match(js, /下载 CSV 模板/);

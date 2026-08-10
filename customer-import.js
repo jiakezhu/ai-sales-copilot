@@ -9,7 +9,9 @@
     "客户名称", "行业", "阶段", "等级", "联系人", "职位", "电话", "邮箱", "下一步", "提醒日期", "备注",
   ];
   const CSV_TEMPLATE = `${CSV_COLUMNS.join(",")}\n示例科技,企业服务,线索,A,张三,CTO,13800000000,zhangsan@example.com,发送方案,2026-08-01,首次接洽`;
-  const JSON_SCHEMA_VERSION = "crm-customer-list.v1";
+  const JSON_SCHEMA_VERSION = "crm-customer-list.v2";
+  const JSON_SCHEMA_VERSIONS = ["crm-customer-list.v1", "crm-customer-list.v2"];
+  const OPPORTUNITY_INTELLIGENCE_VERSION = "opportunity-intelligence.v1";
   const SOURCE_KEYS = ["", "customer", "website", "qcc", "tyc", "qxb", "web", "panshi"];
   const CONFIDENCE_KEYS = ["unverified", "high", "medium", "low"];
   const RELATION_STATUS_KEYS = ["identified", "pending", "reached", "connected"];
@@ -298,7 +300,7 @@
       ? JSON.parse(String(source).replace(/^\uFEFF/, ""))
       : clone(source);
     if (!isRecord(bundle)) throw new TypeError("JSON 顶层必须是对象");
-    if (bundle.schema_version !== JSON_SCHEMA_VERSION) throw new TypeError(`文件名不限，但 JSON 内容中的 schema_version 必须为 ${JSON_SCHEMA_VERSION}`);
+    if (!JSON_SCHEMA_VERSIONS.includes(bundle.schema_version)) throw new TypeError(`文件名不限，但 JSON 内容中的 schema_version 必须为 ${JSON_SCHEMA_VERSIONS.join(" 或 ")}`);
     if (typeof bundle.run_id !== "string" || !clean(bundle.run_id)) throw new TypeError("run_id 不能为空");
     const generatedAt = clean(bundle.generated_at);
     if (typeof bundle.generated_at !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(generatedAt) || Number.isNaN(Date.parse(generatedAt))) throw new TypeError("generated_at 必须是 ISO 8601 date-time");
@@ -325,6 +327,56 @@
     ["scope", "executive_summary", "ownership", "organization", "people", "business", "hiring", "sales_implications"].forEach(key => {
       if (!isRecord(value[key])) add(key, `${key} 必须是对象`);
     });
+    return errors;
+  }
+
+  function validateOpportunityIntelligence(value, raw, row) {
+    const errors = [];
+    const add = (field, message) => errors.push({ row, field: `opportunityIntelligence.${field}`, message });
+    if (!isRecord(value)) {
+      add("", "账户全景情报必须是对象");
+      return errors;
+    }
+    if (value.schema_version !== OPPORTUNITY_INTELLIGENCE_VERSION) add("schema_version", `账户全景情报版本必须为 ${OPPORTUNITY_INTELLIGENCE_VERSION}`);
+    if (!clean(value.source_run_id)) add("source_run_id", "source_run_id 不能为空");
+    if (typeof value.generated_at !== "string" || Number.isNaN(Date.parse(value.generated_at))) add("generated_at", "generated_at 必须是有效时间");
+    if (!isRecord(value.panshiVerification)) add("panshiVerification", "磐石核验必须是对象");
+    else {
+      if (!["no_owner", "pool_owner", "self_owned", "other_owned", "blocked", "unverified"].includes(clean(value.panshiVerification.ownership))) add("panshiVerification.ownership", "归属状态无效");
+      if (!clean(value.panshiVerification.checkedAt)) add("panshiVerification.checkedAt", "缺少磐石核验时间");
+    }
+    const coverage = value.sourceCoverage;
+    const coverageKeys = ["identity", "ownership", "organization", "people", "business", "technology", "hiring", "events", "procurement", "ip", "risks", "sales"];
+    const coverageStates = ["verified", "partial", "not_found", "inaccessible", "not_applicable"];
+    if (!isRecord(coverage)) add("sourceCoverage", "12 维研究覆盖必须是对象");
+    else coverageKeys.forEach(key => {
+      if (!isRecord(coverage[key]) || !coverageStates.includes(clean(coverage[key].status))) add(`sourceCoverage.${key}`, `${key} 缺少合法覆盖状态`);
+    });
+    if (!isRecord(value.accountReadiness)) add("accountReadiness", "账户准备度必须是对象");
+    else {
+      if (!Number.isInteger(value.accountReadiness.score) || value.accountReadiness.score < 0 || value.accountReadiness.score > 100) add("accountReadiness.score", "账户准备度必须是 0-100 的整数");
+      if (!["ready_for_meeting", "ready_for_research", "manual_review", "excluded"].includes(clean(value.accountReadiness.status))) add("accountReadiness.status", "账户准备状态无效");
+      if (!isRecord(value.accountReadiness.dimensions)) add("accountReadiness.dimensions", "账户准备度维度必须是对象");
+    }
+    if (!isRecord(value.research)) add("research", "完整研究快照必须是对象");
+    else {
+      ["identity", "ownership", "organization", "business", "technology"].forEach(key => { if (!isRecord(value.research[key])) add(`research.${key}`, `${key} 必须是对象`); });
+      ["people", "hiring", "events", "procurement", "intellectualProperty", "risks", "evidence", "limitations"].forEach(key => { if (!Array.isArray(value.research[key])) add(`research.${key}`, `${key} 必须是数组`); });
+      const legalName = clean(value.research.identity && value.research.identity.legalName);
+      if (legalName && nameKey(legalName) !== nameKey(raw.name)) add("research.identity.legalName", "研究主体名称必须与客户名称一致");
+    }
+    if (!Array.isArray(value.tencentOpportunities)) add("tencentOpportunities", "腾讯产品机会必须是数组");
+    else value.tencentOpportunities.forEach((item, index) => {
+      if (!isRecord(item)) return add(`tencentOpportunities.${index}`, "产品机会必须是对象");
+      ["category", "customerScenario", "hypothesis", "verificationQuestion", "value", "confidence"].forEach(key => { if (!clean(item[key])) add(`tencentOpportunities.${index}.${key}`, `缺少 ${key}`); });
+      ["products", "supportingEvidenceIds", "counterSignals", "unknowns"].forEach(key => { if (!Array.isArray(item[key])) add(`tencentOpportunities.${index}.${key}`, `${key} 必须是数组`); });
+    });
+    if (!Array.isArray(value.riskMatrix)) add("riskMatrix", "风险矩阵必须是数组");
+    if (!isRecord(value.competitiveLandscape)) add("competitiveLandscape", "竞品格局必须是对象");
+    if (!isRecord(value.meetingBrief)) add("meetingBrief", "面客准备必须是对象");
+    else ["inviteRoles", "agenda", "openingTopics", "verificationQuestions", "guidingQuestions", "redLines"].forEach(key => { if (!Array.isArray(value.meetingBrief[key])) add(`meetingBrief.${key}`, `${key} 必须是数组`); });
+    if (!isRecord(value.nextBestAction)) add("nextBestAction", "下一最佳行动必须是对象");
+    else ["action", "reason", "targetRole", "validationPoint", "completionStandard", "timeWindow"].forEach(key => { if (!clean(value.nextBestAction[key])) add(`nextBestAction.${key}`, `缺少 ${key}`); });
     return errors;
   }
 
@@ -394,6 +446,7 @@
     if (isRecord(raw.painChain) && Object.keys(raw.painChain).length && raw.painChain.inferred !== true) add("painChain.inferred", "销售假设必须明确标记 inferred: true");
     if (raw.prospectResearch !== undefined) errors.push(...validateProspectResearch(raw.prospectResearch, row));
     if (raw.deepResearch !== undefined) errors.push(...validateDeepResearch(raw.deepResearch, raw, row));
+    if (raw.opportunityIntelligence !== undefined) errors.push(...validateOpportunityIntelligence(raw.opportunityIntelligence, raw, row));
     return errors;
   }
 
@@ -475,6 +528,7 @@
     });
     if (isRecord(incoming.prospectResearch)) target.prospectResearch = clone(incoming.prospectResearch);
     if (isRecord(incoming.deepResearch)) target.deepResearch = clone(incoming.deepResearch);
+    if (isRecord(incoming.opportunityIntelligence)) target.opportunityIntelligence = clone(incoming.opportunityIntelligence);
     target.stageHistory ||= [];
     if (!target.stageHistory.length || target.stageHistory.at(-1)?.stage !== incoming.stage) {
       target.stageHistory.push(clone(incoming.stageHistory[0]));
@@ -655,6 +709,8 @@
   return {
     CSV_TEMPLATE,
     JSON_SCHEMA_VERSION,
+    JSON_SCHEMA_VERSIONS,
+    OPPORTUNITY_INTELLIGENCE_VERSION,
     template: CSV_TEMPLATE,
     parseCSV,
     parseCsv: parseCSV,
