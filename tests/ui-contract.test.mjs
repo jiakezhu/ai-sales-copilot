@@ -548,9 +548,14 @@ test("Today surfaces remain readable in dark theme", () => {
   assert.doesNotMatch(css, /\.ai-assistant-card\s*\{[^}]*#fff\s+72%/s);
 });
 
-test("mobile Today actions keep their date chips visible", () => {
+test("mobile Today actions align a compact checkbox beside task context", () => {
   const css = read("style.css");
-  assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.today-action-list \.date-chip\s*\{[^}]*display:\s*inline-flex[^}]*white-space:\s*normal/i);
+  const mobileActions = css.slice(css.indexOf('@media (max-width:680px){.today-command'), css.indexOf('@media (max-width:900px){.analytics-workspace'));
+  assert.match(mobileActions, /\.today-action-list \.priority-item\s*\{[^}]*display:grid[^}]*grid-template-columns:44px minmax\(0,1fr\)[^}]*grid-template-areas:"check main" "\. date"/);
+  assert.match(mobileActions, /\.today-action-list \.task-check\s*\{[^}]*grid-area:check[^}]*width:44px[^}]*border:0[^}]*background:transparent/);
+  assert.match(mobileActions, /\.today-action-list \.task-check::before\s*\{[^}]*width:22px[^}]*height:22px[^}]*border:1\.5px solid var\(--line-strong\)/);
+  assert.match(mobileActions, /\.today-action-list \.priority-main\s*\{[^}]*grid-area:main/);
+  assert.match(mobileActions, /\.today-action-list \.date-chip\s*\{[^}]*grid-area:date[^}]*display:inline-flex[^}]*margin-left:0[^}]*white-space:normal/);
 });
 
 test("copilot attachments are read, reviewed, and saved with the note", () => {
