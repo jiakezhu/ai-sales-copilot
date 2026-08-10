@@ -15,6 +15,23 @@
   const CONFIDENCE_LABELS = { unverified: "待核", high: "高置信", medium: "中置信", low: "低置信" };
   const CHANNEL_LABELS = { direct: "官网直客", longtail: "长尾", ka: "KA", region: "区域", partner: "渠道/合作伙伴" };
   const PHONE_TYPE_LABELS = { direct: "直联号码", agent: "代记账/第三方", unverified: "待核验" };
+  const SECTION_META = {
+    "执行摘要": ["summary", "blue"], "客户基本信息与情报": ["profile", "teal"], "客户准入与存量": ["admittance", "amber"],
+    "产品与商业模式简报": ["business", "violet"], "外部市场与招聘信号": ["signals", "cyan"], "近期招投标 / 中标": ["bidding", "amber"],
+    "资质与许可": ["qualifications", "teal"], "机会痛苦链": ["opportunity-path", "green"], "销售假设与待确认问题（非事实）": ["hypotheses", "amber"],
+    "组织与关键关系": ["relationships", "violet"], "痛点、竞品与匹配方案": ["market", "green"], "会前沟通准备": ["meeting-prep", "blue"],
+    "会后确认": ["meeting-review", "teal"], "全流程客户推进记录": ["progress", "blue"], "当前未完成行动": ["pending", "red"],
+    "阶段历史、目标与攻坚计划": ["execution", "violet"], "联合工作计划": ["joint-plan", "green"], "谈判与成交策略": ["negotiation", "red"],
+    "材料与证据索引": ["evidence", "slate"], "六维机会诊断": ["diagnosis", "violet"],
+  };
+  const PROFILE_GROUPS = [
+    { key: "identity", label: "工商身份", icon: "企", fields: ["creditCode", "legalPerson", "regCapital", "regAddress", "founded", "website"] },
+    { key: "scale", label: "规模与资本", icon: "资", fields: ["staff", "funding", "shareholders", "parentSubs"] },
+    { key: "business", label: "产品与经营", icon: "营", fields: ["industry", "product", "businessModel", "dau", "revenue", "supplyChain"] },
+    { key: "technology", label: "技术与云现状", icon: "云", fields: ["techStack", "cloudStatus", "billNote"] },
+    { key: "signals", label: "市场信号与风险", icon: "势", fields: ["recentNews", "hiring", "triggerEvents", "riskNote"] },
+    { key: "sales", label: "销售关系与策略", icon: "销", fields: ["relation"] },
+  ];
 
   const escape = value => String(value == null ? "" : value).replace(/[&<>\"]/g, character => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
@@ -79,10 +96,31 @@
     return parts.map(clean).filter(Boolean).join(separator || " · ");
   }
 
+  function sectionMeta(title) {
+    return SECTION_META[title] || [rawText(title).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "section", "slate"];
+  }
+
   function section(title, body, className) {
     if (!body) return "";
-    const classes = ["report-section", className].filter(Boolean).join(" ");
-    return `<section class="${classes}"><div class="report-section-title"><h2>${escape(title)}</h2></div>${body}</section>`;
+    const [id, tone] = sectionMeta(title);
+    const classes = ["report-section", `report-tone-${tone}`, className].filter(Boolean).join(" ");
+    return `<section class="${classes}" id="report-${id}" data-report-title="${escape(title)}"><div class="report-section-title"><h2>${escape(title)}</h2></div>${body}</section>`;
+  }
+
+  function reportToc(specs) {
+    const links = specs.filter(spec => spec.body).map(spec => {
+      const [id, tone] = sectionMeta(spec.title);
+      return `<a class="report-toc-link report-toc-${tone}" href="#report-${id}"><i></i><span>${escape(spec.title)}</span></a>`;
+    }).join("");
+    return links ? `<aside class="report-toc" aria-label="报告目录"><div class="report-toc-head"><b>目录</b><small>点击快速定位</small></div>${links}</aside>` : "";
+  }
+
+  function openingSummary(entries, mascotSrc) {
+    const facts = entries.map(([label, value, tone]) => ({ label: clean(label), value: clean(value), tone })).filter(item => item.value).slice(0, 4);
+    if (!facts.length) return "";
+    const cards = facts.map(item => `<article class="report-summary-card report-summary-${item.tone || "blue"}"><small>${escape(item.label)}</small><p>${escape(item.value)}</p></article>`).join("");
+    const mascot = clean(mascotSrc) ? `<img class="report-summary-mascot" src="${escape(mascotSrc)}" alt="Sales Buddy 企鹅助手">` : "";
+    return `<section class="report-opening-summary"><div class="report-summary-copy"><span>EXECUTIVE SNAPSHOT</span><h2>一页看懂这家客户</h2><p>先看判断与行动，再下钻事实、机会和证据。</p></div>${mascot}<div class="report-summary-grid">${cards}</div></section>`;
   }
 
   function fieldGrid(entries, className) {
@@ -91,6 +129,97 @@
       ? `<div class="report-field"><span>${escape(label)}</span><p>${escape(value)}</p></div>`
       : "").join("");
     return body ? `<div class="${className || "report-field-grid"}">${body}</div>` : "";
+  }
+
+  function profileTree(fieldDefs, fields, extras, formatter) {
+    const definitions = new Map(array(fieldDefs).map(definition => [definition && definition.key, definition]));
+    const groupedKeys = new Set(PROFILE_GROUPS.flatMap(group => group.fields));
+    const extraEntries = array(extras).map(entry => [clean(entry[0]), clean(entry[1]), clean(entry[2])]).filter(([, value]) => value);
+    const branches = PROFILE_GROUPS.map(group => {
+      const items = group.fields.map(key => {
+        const definition = definitions.get(key);
+        const label = valueOf(definition && (definition.label || definition.key)) || key;
+        const value = fieldWithProvenance(fields[key], formatter);
+        return value ? [label, value] : null;
+      }).filter(Boolean);
+      if (group.key === "business") extraEntries.filter(([, , target]) => target === "business").forEach(([label, value]) => items.push([label, value]));
+      if (group.key === "sales") extraEntries.filter(([, , target]) => target === "sales").forEach(([label, value]) => items.push([label, value]));
+      const unique = uniqueRecords(items, entry => keyOf(entry));
+      if (!unique.length) return "";
+      const leaves = unique.map(([label, value]) => `<article class="report-tree-leaf"><span>${escape(label)}</span><p>${escape(value)}</p></article>`).join("");
+      return `<div class="report-tree-branch report-tree-${group.key}"><div class="report-tree-root"><i>${escape(group.icon)}</i><b>${escape(group.label)}</b><small>${unique.length} 项</small></div><div class="report-tree-leaves">${leaves}</div></div>`;
+    }).filter(Boolean);
+    const other = array(fieldDefs).filter(definition => definition && !groupedKeys.has(definition.key)).map(definition => {
+      const value = fieldWithProvenance(fields[definition.key], formatter);
+      return value ? [valueOf(definition.label || definition.key), value] : null;
+    }).filter(Boolean);
+    if (other.length) {
+      const leaves = other.map(([label, value]) => `<article class="report-tree-leaf"><span>${escape(label)}</span><p>${escape(value)}</p></article>`).join("");
+      branches.push(`<div class="report-tree-branch report-tree-other"><div class="report-tree-root"><i>补</i><b>补充信息</b><small>${other.length} 项</small></div><div class="report-tree-leaves">${leaves}</div></div>`);
+    }
+    return branches.length ? `<div class="report-profile-tree">${branches.join("")}</div>` : "";
+  }
+
+  function executiveMap(entries) {
+    const facts = entries.map(([label, value]) => ({ label: clean(label), value: clean(value) })).filter(item => item.value);
+    if (!facts.length) return "";
+    const nodes = facts.map((item, index) => `<article class="report-mind-node report-mind-node--${index + 1}"><span>${escape(item.label)}</span><p>${escape(item.value)}</p></article>`).join("");
+    const compact = facts.length < 4 ? " report-mindmap--compact" : "";
+    return `<div class="report-mindmap${compact}"><div class="report-mindmap-core"><small>领导速览</small><b>客户推进主线</b><span>判断 · 机会 · 风险 · 行动</span></div>${nodes}</div>`;
+  }
+
+  function diagnosisVisual(source) {
+    const dimensions = [
+      ["pain", "痛苦"], ["power", "权力"], ["vision", "构想"],
+      ["value", "价值"], ["control", "控制"], ["milestone", "里程碑"],
+    ].map(([key, label]) => {
+      const raw = clean(source[key]);
+      const numeric = raw === "" ? Number.NaN : Number(raw);
+      return { key, label, value: Number.isFinite(numeric) ? Math.max(0, Math.min(10, numeric)) : null };
+    });
+    const available = dimensions.filter(item => item.value != null);
+    if (!available.length && !valueOf(source.note)) return "";
+    const center = 110;
+    const radius = 76;
+    const point = (index, scale) => {
+      const angle = (-90 + index * 60) * Math.PI / 180;
+      return `${(center + Math.cos(angle) * radius * scale).toFixed(1)},${(center + Math.sin(angle) * radius * scale).toFixed(1)}`;
+    };
+    const complete = available.length === dimensions.length;
+    const rings = [.25, .5, .75, 1].map(scale => `<polygon points="${dimensions.map((_, index) => point(index, scale)).join(" ")}" />`).join("");
+    const axes = dimensions.map((_, index) => { const [x, y] = point(index, 1).split(","); return `<line x1="${center}" y1="${center}" x2="${x}" y2="${y}" />`; }).join("");
+    const area = complete ? `<polygon class="report-radar-area" points="${dimensions.map((item, index) => point(index, item.value / 10)).join(" ")}" />` : "";
+    const dots = complete ? dimensions.map((item, index) => { const [cx, cy] = point(index, item.value / 10).split(","); return `<circle cx="${cx}" cy="${cy}" r="4" />`; }).join("") : "";
+    const labels = dimensions.map((item, index) => { const [x, y] = point(index, 1.26).split(","); return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle">${escape(item.label)}</text>`; }).join("");
+    const radar = complete ? `<svg class="report-radar" viewBox="0 0 220 220" role="img" aria-label="六维机会诊断雷达图"><g class="report-radar-grid">${rings}${axes}</g>${area}<g class="report-radar-points">${dots}</g><g class="report-radar-labels">${labels}</g></svg>` : `<div class="report-radar-empty">部分维度待确认</div>`;
+    const cards = dimensions.map(item => item.value == null ? "" : `<li aria-label="${escape(`${item.label}：${item.value}/10`)}"><span>${escape(item.label)}</span><b>${item.value}<small>/10</small></b><i style="--score:${item.value * 10}%"><em></em></i></li>`).join("");
+    const note = valueOf(source.note);
+    return `<div class="report-diagnosis-visual"><div class="report-radar-wrap">${radar}</div><div class="report-diagnosis-copy"><ul class="report-diagnosis-list">${cards}</ul>${note ? `<p class="report-diagnosis-note">${escape(note)}</p>` : ""}</div></div>`;
+  }
+
+  function opportunityPath(source) {
+    const entries = [
+      ["01", "外部信号", valueOf(source.signal)],
+      ["02", "业务痛点", valueOf(source.pain)],
+      ["03", "经营影响", valueOf(source.impact)],
+      ["04", "腾讯云切入", valueOf(source.solution)],
+      ["05", "客户确认问题", valueOf(source.question)],
+    ].filter(([, , value]) => value);
+    if (!entries.length) return "";
+    const nodes = entries.map(([step, label, value], index) => `<article class="report-path-node"><small>${step}</small><b>${escape(label)}</b><p>${escape(value)}</p>${index < entries.length - 1 ? `<i aria-hidden="true">→</i>` : ""}</article>`).join("");
+    return `<div class="report-opportunity-path" style="--path-count:${entries.length}">${nodes}</div>`;
+  }
+
+  function stageJourney(stages, currentStage) {
+    const items = array(stages).filter(item => item && item.key);
+    if (!items.length) return "";
+    const currentIndex = items.findIndex(item => item.key === currentStage);
+    const nodes = items.map((item, index) => `<div class="report-stage-node ${index < currentIndex ? "is-done" : ""} ${index === currentIndex ? "is-current" : ""}"><i></i><span>${escape(item.label || item.key)}</span></div>`).join("");
+    return `<div class="report-journey"><div class="report-journey-heading"><small>推进导航</small><b>${escape(resolveLabel(items, currentStage) || "阶段待确认")}</b></div><div class="report-stage-track">${nodes}</div></div>`;
+  }
+
+  function reportGuide() {
+    return `<div class="report-guide"><article><b>01</b><span>管理判断</span><small>先看结论和风险</small></article><article><b>02</b><span>客户事实</span><small>再看业务与组织</small></article><article><b>03</b><span>机会路径</span><small>理解为什么值得推进</small></article><article><b>04</b><span>行动与证据</span><small>最后确认下一步</small></article></div>`;
   }
 
   function list(items, className) {
@@ -168,46 +297,36 @@
 
     const nextAction = pendingNotes[0] && valueOf(pendingNotes[0].next)
       || valueOf(raid.plan && raid.plan.action);
-    const executive = fieldGrid([
+    const executive = executiveMap([
       ["当前判断", valueOf(fields.relation) || valueOf(raid.dm && raid.dm.reachLevel)],
       ["核心机会", painPoints[0]],
       ["主要风险", valueOf(raid.dm && raid.dm.concern) || valueOf(raid.plan && raid.plan.support)],
       ["下一步行动", nextAction],
-    ], "report-field-grid report-field-grid--summary");
-
-    const diagnosisLabels = { pain: "痛苦", power: "权力", vision: "构想", value: "价值", control: "控制", milestone: "里程碑" };
-    const diagnosisItems = Object.entries(diagnosisLabels).map(([key, label]) => {
-      const numeric = Number(diagnosisSource[key]);
-      return Number.isFinite(numeric) ? `${label}：${Math.max(0, Math.min(10, numeric))}/10` : "";
-    });
-    if (valueOf(diagnosisSource.note)) diagnosisItems.push(`诊断备注：${valueOf(diagnosisSource.note)}`);
-    const diagnosis = list(diagnosisItems, "report-diagnosis-list");
-
-    const profileEntries = fieldDefs.map(definition => [
-      valueOf(definition && (definition.label || definition.key)),
-      fieldWithProvenance(fields[definition && definition.key], context.formatShortDate),
     ]);
+    const journey = stageJourney(context.stages, source.stage);
+    const diagnosis = diagnosisVisual(diagnosisSource);
+
     const raidBasic = raid.basic && typeof raid.basic === "object" ? raid.basic : {};
     const raidDm = raid.dm && typeof raid.dm === "object" ? raid.dm : {};
-    profileEntries.push(
-      ["经营范围", valueOf(raidBasic.scope)],
-      ["商业模式", valueOf(raidBasic.model)],
-      ["市场分布", valueOf(raidBasic.market)],
-      ["当前触达", valueOf(raidDm.reachLevel)],
-      ["合作态度", ATTITUDE_LABELS[valueOf(raidDm.attitude)] || valueOf(raidDm.attitude)],
-      ["核心诉求", valueOf(raidDm.coreDemand)],
-      ["主要顾虑", valueOf(raidDm.concern)],
-      ["内部协同", valueOf(raid.competitor && raid.competitor.internal)],
-      ["商务策略", valueOf(raid.solution && raid.solution.biz)],
-      ["技术策略", valueOf(raid.solution && raid.solution.tech)],
-    );
+    const profileExtras = [
+      ["经营范围", valueOf(raidBasic.scope), "business"],
+      ["商业模式", valueOf(raidBasic.model), "business"],
+      ["市场分布", valueOf(raidBasic.market), "business"],
+      ["当前触达", valueOf(raidDm.reachLevel), "sales"],
+      ["合作态度", ATTITUDE_LABELS[valueOf(raidDm.attitude)] || valueOf(raidDm.attitude), "sales"],
+      ["核心诉求", valueOf(raidDm.coreDemand), "sales"],
+      ["主要顾虑", valueOf(raidDm.concern), "sales"],
+      ["内部协同", valueOf(raid.competitor && raid.competitor.internal), "sales"],
+      ["商务策略", valueOf(raid.solution && raid.solution.biz), "sales"],
+      ["技术策略", valueOf(raid.solution && raid.solution.tech), "sales"],
+    ];
     uniqueRecords(array(raid.scenes), scene => keyOf([
       valueOf(scene && scene.title), valueOf(scene && (scene.scene || scene.description)), valueOf(scene && scene.link),
     ])).forEach((scene, index) => {
       const sceneValue = describeParts([valueOf(scene.title), valueOf(scene.scene || scene.description), valueOf(scene.link)]);
-      if (sceneValue) profileEntries.push([`业务场景 ${index + 1}`, sceneValue]);
+      if (sceneValue) profileExtras.push([`业务场景 ${index + 1}`, sceneValue, "business"]);
     });
-    const profile = fieldGrid(profileEntries);
+    const profile = profileTree(fieldDefs, fields, profileExtras, context.formatShortDate);
 
     const admittanceSource = source.admittance && typeof source.admittance === "object" ? source.admittance : {};
     const hasAdmittance = ["status", "reportedBy", "channel", "uin", "groupGid", "source", "verifiedAt"].some(key => valueOf(admittanceSource[key]));
@@ -276,13 +395,7 @@
     ]));
     const qualifications = list(qualificationItems, "report-qualification-list");
 
-    const painChainFacts = fieldGrid([
-      ["外部或经营信号", valueOf(painChainSource.signal)],
-      ["业务痛点", valueOf(painChainSource.pain)],
-      ["经营影响", valueOf(painChainSource.impact)],
-      ["腾讯云切入点", valueOf(painChainSource.solution)],
-      ["客户确认问题", valueOf(painChainSource.question)],
-    ], "report-field-grid report-pain-chain");
+    const painChainFacts = opportunityPath(painChainSource);
     const painChain = painChainFacts && painChainSource.inferred === true ? `<div class="report-inferred"><p>以下为销售假设与待确认问题，非已核实客户事实。</p>${painChainFacts}</div>` : "";
     const confirmedPainChain = painChainFacts && painChainSource.inferred !== true ? painChainFacts : "";
 
@@ -458,32 +571,56 @@
       asset.name, asset.type, asset.caption, asset.created, asset.url, asset.size,
     ])), "report-evidence-list");
 
-    return heading
-      + section("执行摘要", executive, "report-executive")
-      + section("六维机会诊断", diagnosis)
-      + section("客户基本信息与情报", profile)
-      + section("客户准入与存量", admittance)
-      + section("产品与商业模式简报", businessBrief)
-      + section("外部市场与招聘信号", externalSignals)
-      + section("近期招投标 / 中标", bidding)
-      + section("资质与许可", qualifications)
-      + section("机会痛苦链", confirmedPainChain)
-      + section("销售假设与待确认问题（非事实）", inferredSales)
-      + section("组织与关键关系", organization)
-      + section("痛点、竞品与匹配方案", market)
-      + section("会前沟通准备", meetingPreps)
-      + section("会后确认", meetingReviews)
-      + section("全流程客户推进记录", progress)
-      + section("当前未完成行动", pending)
-      + section("阶段历史、目标与攻坚计划", execution)
-      + section("联合工作计划", jointWorkPlan)
-      + section("谈判与成交策略", negotiation)
-      + section("材料与证据索引", evidence);
+    const summaryEntries = [
+      ["当前判断", valueOf(fields.relation) || valueOf(raid.dm && raid.dm.reachLevel), "blue"],
+      ["核心机会", painPoints[0], "green"],
+      ["主要风险", valueOf(raid.dm && raid.dm.concern) || valueOf(raid.plan && raid.plan.support), "red"],
+      ["下一步行动", nextAction, "amber"],
+    ];
+    const specs = [
+      { title: "执行摘要", body: executive, className: "report-executive" },
+      { title: "客户基本信息与情报", body: profile },
+      { title: "客户准入与存量", body: admittance },
+      { title: "产品与商业模式简报", body: businessBrief },
+      { title: "外部市场与招聘信号", body: externalSignals },
+      { title: "近期招投标 / 中标", body: bidding },
+      { title: "资质与许可", body: qualifications },
+      { title: "机会痛苦链", body: confirmedPainChain },
+      { title: "销售假设与待确认问题（非事实）", body: inferredSales },
+      { title: "组织与关键关系", body: organization },
+      { title: "痛点、竞品与匹配方案", body: market },
+      { title: "会前沟通准备", body: meetingPreps },
+      { title: "会后确认", body: meetingReviews },
+      { title: "全流程客户推进记录", body: progress },
+      { title: "当前未完成行动", body: pending },
+      { title: "阶段历史、目标与攻坚计划", body: execution },
+      { title: "联合工作计划", body: jointWorkPlan },
+      { title: "谈判与成交策略", body: negotiation },
+      { title: "材料与证据索引", body: evidence },
+      { title: "六维机会诊断", body: diagnosis, className: "report-diagnosis-section" },
+    ];
+    const sections = specs.map(spec => section(spec.title, spec.body, spec.className)).join("");
+    const toc = reportToc(specs);
+    const opening = openingSummary(summaryEntries, context.mascotSrc);
+    return heading + opening + reportGuide() + journey + `<div class="report-body-layout">${toc}<div class="report-main">${sections}</div></div>`;
   }
 
   function wrapWord(html, styles) {
     return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><style>${String(styles == null ? "" : styles)}</style></head><body>${String(html == null ? "" : html)}</body></html>`;
   }
 
-  return { build, wrapWord };
+  function wrapHtml(html, options) {
+    const config = options && typeof options === "object" ? options : {};
+    const title = clean(config.title) || "客户全景报告";
+    const description = clean(config.description) || title;
+    const generatedAt = clean(config.generatedAt);
+    const styles = String(config.styles == null ? "" : config.styles);
+    const body = String(html == null ? "" : html);
+    const footer = generatedAt
+      ? `<footer class="report-export-footer">报告生成于 ${escape(generatedAt)} · 请结合最新客户沟通核验</footer>`
+      : `<footer class="report-export-footer">请结合最新客户沟通核验</footer>`;
+    return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'"><meta name="description" content="${escape(description)}"><title>${escape(title)}</title><style>${styles}</style></head><body class="report-export-page"><main class="report-document">${body}</main>${footer}</body></html>`;
+  }
+
+  return { build, wrapWord, wrapHtml };
 });
