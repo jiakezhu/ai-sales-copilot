@@ -191,7 +191,16 @@ function loadAssetEngineApi({ uploadFile, getTempFileURL }) {
 }
 
 function reportSection(html, title) {
-  return html.match(new RegExp(`<section[^>]*>\\s*<div class="report-section-title"><h2>${title}</h2></div>[\\s\\S]*?</section>`))?.[0] || "";
+  const section = html.match(new RegExp(`<section[^>]*>\\s*<div class="report-section-title"><h2>${title}</h2></div>[\\s\\S]*?</section>`))?.[0];
+  if (section) return section;
+  const marker = `<h3>${title}</h3>`;
+  const markerIndex = html.indexOf(marker);
+  if (markerIndex < 0) return "";
+  const start = html.lastIndexOf('<article class="report-subsection', markerIndex);
+  const next = html.indexOf('<article class="report-subsection', markerIndex + marker.length);
+  const categoryEnd = html.indexOf('</div></section>', markerIndex);
+  const end = [next, categoryEnd].filter(index => index > markerIndex).sort((a, b) => a - b)[0] ?? html.length;
+  return html.slice(start, end);
 }
 
 test("Tencent shell uses the supplied QQ penguin and TDesign tokens", () => {
@@ -429,21 +438,18 @@ test("phase one closes the loop with a meeting-linked post-meeting confirmation"
   assert.match(js, /weakDimensions/);
 });
 
-test("due diligence admission is a separate workspace and intelligence precedes progress", () => {
+test("customer admission is removed while bidding and qualifications move into intelligence", () => {
   const js = read("app.js");
   const css = read("style.css");
   const detail = js.slice(js.indexOf("function renderCustomerDetail"), js.indexOf("function renderGuidedActions"));
   const intelligence = js.slice(js.indexOf("function renderIntelligence"), js.indexOf("function evidenceOpenTarget"));
-  assert.ok(detail.indexOf('["admittance", "客户准入"]') < detail.indexOf('["intel", "情报与证据"]'));
+  assert.doesNotMatch(detail, /\["admittance", "客户准入"\]/);
   assert.ok(detail.indexOf('["intel", "情报与证据"]') < detail.indexOf('["timeline", "推进记录"]'));
-  assert.match(js, /function renderAdmittanceWorkspace\(customer\)/);
-  assert.match(js, /if \(state\.customerTab === "admittance"\) return renderAdmittanceWorkspace\(customer\)/);
-  assert.doesNotMatch(intelligence, /renderAdmittance\(customer\)/);
-  assert.doesNotMatch(intelligence, /renderBidding\(customer\)|renderQualifications\(customer\)/);
-  assert.match(js, /admittance-fact-grid[\s\S]*renderBidding\(customer\)[\s\S]*renderQualifications\(customer\)/);
-  assert.match(css, /\.admittance-workspace\s*\{/);
-  assert.match(css, /\.admittance-fact-grid\s*\{[^}]*grid-template-columns:repeat\(2/);
-  assert.match(css, /\.intel-field \.modern-select select\s*\{[^}]*border-radius:9px[^}]*appearance:none/);
+  assert.doesNotMatch(js, /function renderAdmittance|data-admittance-field|ADMITTANCE_CHANNELS|ADMITTANCE_STATUSES/);
+  assert.match(intelligence, /商业与资质情报[\s\S]*renderBidding\(customer\)[\s\S]*renderQualifications\(customer\)/);
+  assert.match(css, /\.intelligence-workspace\s*\{/);
+  assert.match(css, /\.intelligence-research-grid\s*\{[^}]*grid-template-columns:repeat\(2/);
+  assert.match(css, /\.modern-select select\s*\{[^}]*appearance:none/);
 });
 
 test("crm v2 account intelligence adds three evidence-driven customer workspaces", () => {
@@ -493,6 +499,10 @@ test("phase two renders an editable pain chain and joint work plan", () => {
   assert.match(js, /customer\.jointWorkPlan\.push/);
   assert.match(css, /\.pain-chain-flow\s*\{/);
   assert.match(css, /\.joint-plan-list\s*\{/);
+  assert.match(css, /\.business-brief-grid small\{[^}]*font-size:14px[^}]*text-align:center/);
+  assert.match(css, /\.business-brief-grid p\{[^}]*font-size:11\.5px/);
+  assert.match(css, /\.pain-chain-flow article>small\{[^}]*font-size:14px[^}]*text-align:center/);
+  assert.match(css, /\.pain-chain-flow article>p\{[^}]*font-size:11\.5px/);
 });
 
 test("company avatars are removed from customer business surfaces", () => {
@@ -909,6 +919,7 @@ const reportContext = {
   formatDateTime: value => value,
   formatShortDate: value => value,
   reportDate: "2026年7月16日",
+  mascotSrc: "assets/qq-penguin-stand.png",
 };
 
 test("report omits empty sections and all product-generation copy", () => {
@@ -923,10 +934,11 @@ test("report omits empty sections and all product-generation copy", () => {
   const html = ReportBuilder.build(customer, reportContext);
 
   assert.match(html, /星澜互娱/);
-  assert.match(html, /执行摘要/);
+  assert.match(html, /先看这四件事/);
   assert.match(html, /全流程客户推进记录/);
   assert.match(html, /当前未完成行动/);
-  assert.doesNotMatch(html, /云销副驾|AI\s*生成|实时汇总|企鹅|营销话术|>(?:未填写|暂无|暂无内容|待补充)</);
+  assert.doesNotMatch(html, /云销副驾|AI\s*生成|实时汇总|营销话术|>(?:未填写|暂无|暂无内容|待补充)</);
+  assert.match(html, /report-stage-penguin/);
   assert.doesNotMatch(html, /关键关系与组织架构|材料与证据索引/);
 });
 
@@ -962,13 +974,15 @@ test("report covers populated customer intelligence without mutating source data
   const html = ReportBuilder.build(customer, reportContext);
 
   for (const expected of [
-    "执行摘要", "客户基本信息与情报", "组织与关键关系", "痛点、竞品与匹配方案",
+    "先看这四件事", "客户基本信息与情报", "组织与关键关系", "痛点、竞品与匹配方案",
     "全流程客户推进记录", "当前未完成行动", "阶段历史、目标与攻坚计划", "材料与证据索引",
     "远帆科技", "企业服务", "李总", "成本压力", "迁移方案", "确认预算范围", "提交报价",
     "采购向 CFO 汇报", "进入方案评估", "完成测试", "组织技术评审", "会议纪要.pdf",
   ]) assert.match(html, new RegExp(expected));
-  assert.equal((html.match(/成本压力/g) || []).length, 3, "opening summary and mind map must not remove the pain point from its core section");
+  assert.equal((html.match(/成本压力/g) || []).length, 2, "opening summary must not remove the pain point from its core section");
   assert.match(reportSection(html, "痛点、竞品与匹配方案"), /成本压力/);
+  assert.match(reportSection(html, "痛点、竞品与匹配方案"), /class="report-market-tree[^"]*"[\s\S]*客户痛点[\s\S]*竞品与替代[\s\S]*匹配方案/);
+  assert.match(reportSection(html, "组织与关键关系"), /class="report-org-tree"/);
   assert.match(reportSection(html, "客户基本信息与情报"), /迁移风险/);
   assert.equal(JSON.stringify(customer), before);
 });
@@ -1002,7 +1016,7 @@ test("report retains salesperson confirmation notes for pain and decision proces
     },
   }, reportContext);
 
-  assert.match(html, /客户确认依据：客户 CTO 在会议中明确确认/);
+  assert.match(html, /客户确认依据<\/b><p>客户 CTO 在会议中明确确认/);
   assert.match(html, /决策流程确认：CTO 技术评估，CEO 审批预算/);
 });
 
@@ -1031,6 +1045,7 @@ test("report includes phase-one diagnosis, business brief, and post-meeting conf
   assert.match(html, /六维机会诊断/);
   assert.match(html, /痛苦：8\/10/);
   assert.match(html, /产品与商业模式简报/);
+  assert.match(reportSection(html, "产品与商业模式简报"), /class="report-business-model"[\s\S]*产品供给[\s\S]*商业变现[\s\S]*经营表现/);
   assert.match(html, /订阅与广告收入/);
   assert.match(html, /会后确认/);
   assert.match(html, /同意下周进行技术评审/);
@@ -1050,7 +1065,7 @@ test("report includes phase-two external signals, pain chain, and joint work pla
   }
 });
 
-test("report shows due diligence facts, provenance, and inferred content separately", () => {
+test("report shows bidding, qualifications, provenance, and inferred content separately", () => {
   const html = ReportBuilder.build({
     name: "准入科技",
     fields: { industry: { v: "企业服务", source: "qcc", confidence: "high", verifiedAt: "2026-07-21" } },
@@ -1062,21 +1077,19 @@ test("report shows due diligence facts, provenance, and inferred content separat
     painChain: { pain: "成本偏高", solution: "迁移与弹性方案", inferred: true },
   }, reportContext);
 
-  for (const expected of ["客户准入与存量", "已报备", "腾讯云 UIN", "近期招投标 / 中标", "企业云资源采购", "资质与许可", "ICP 许可证", "来源：企查查", "高置信", "直联号码", "销售假设与待确认问题（非事实）", "非已核实客户事实", "匹配方案：迁移方案：降低成本"]) {
+  for (const expected of ["招投标 / 中标", "企业云资源采购", "资质与许可", "ICP 许可证", "来源：企查查", "高置信", "直联号码", "销售假设与待确认问题（非事实）", "非已核实客户事实", "匹配方案：迁移方案：降低成本"]) {
     assert.match(html, new RegExp(expected));
   }
+  assert.doesNotMatch(html, /客户准入与存量|已报备|腾讯云 UIN/);
 });
 
-test("report keeps unverified admission data from becoming a collision conclusion", () => {
+test("report excludes legacy admission data", () => {
   const html = ReportBuilder.build({
     name: "待核客户",
     admittance: { reportedBy: "历史联系人", channel: "ka", uin: "10009" },
   }, reportContext);
 
-  const admittance = reportSection(html, "客户准入与存量");
-  assert.match(admittance, /待核/);
-  assert.match(admittance, /待核验，不构成准入结论/);
-  assert.doesNotMatch(admittance, /已报备|已有人跟|无主报备/);
+  assert.doesNotMatch(html, /客户准入|历史联系人|10009|已报备|已有人跟|无主报备/);
 });
 
 test("report keeps confirmed facts outside the inferred section", () => {
@@ -1110,6 +1123,7 @@ test("report includes the confirmed negotiation brief without duplicating genera
   }, reportContext);
 
   assert.match(html, /谈判与成交策略/);
+  assert.match(reportSection(html, "谈判与成交策略"), /class="report-negotiation-map"[\s\S]*目标结果[\s\S]*价值锚点[\s\S]*交换条件[\s\S]*谈判红线[\s\S]*收口动作/);
   assert.match(html, /签署海外加速 PoC/);
   assert.match(html, /提供测试资源，换取 CTO 评审和采购时间表/);
   assert.doesNotMatch(html, /这段内容不应重复进入全景报告/);
@@ -1126,7 +1140,7 @@ test("report escapes customer data and suppresses empty values", () => {
   }, reportContext);
 
   assert.match(html, /&lt;客户&amp;公司&gt;/);
-  assert.equal((html.match(new RegExp(repeatedFact, "g")) || []).length, 3, "opening summary and mind map may reference a fact retained in its core section");
+  assert.equal((html.match(new RegExp(repeatedFact, "g")) || []).length, 2, "opening summary may reference a fact retained in its core section");
   assert.doesNotMatch(html, />\s*undefined\s*</);
   assert.doesNotMatch(html, /<p><\/p>|<li><\/li>|<td><\/td>/);
   assert.doesNotMatch(html, /全流程客户推进记录|组织与关键关系/);
@@ -1145,7 +1159,7 @@ test("report builder is the single source for preview and standalone HTML export
   assert.doesNotMatch(html, /data-action="export-(?:word|pdf)"/);
   assert.doesNotMatch(js, /function reportList|function reportEmpty|const reportRow/);
   assert.doesNotMatch(read("report.js"), /云销副驾|AI\s*生成|实时汇总|class="report-footer"/);
-  assert.match(read("report.js"), /report-summary-mascot[\s\S]*Sales Buddy 企鹅助手/);
+  assert.match(read("report.js"), /report-stage-penguin[\s\S]*Sales Buddy 企鹅位于当前阶段/);
 });
 
 test("report markup exposes one professional hierarchy without legacy decoration", () => {
@@ -1166,7 +1180,11 @@ test("report opens with a visual management narrative instead of a flat list", (
     name: "客户视觉样例",
     stage: "proposal",
     grade: "A",
-    fields: { relation: { v: "技术负责人支持" } },
+    fields: {
+      relation: { v: "技术负责人支持" }, industry: { v: "企业服务" }, staff: { v: "500 人" },
+      funding: { v: "B 轮" }, website: { v: "https://visual.example.com" },
+    },
+    orgChain: [{ id: "cto", name: "李总", role: "CTO", level: 1 }],
     painPoints: [{ v: "海外访问体验影响付费" }],
     notes: [{ next: "安排技术评审", nextDate: "2026-08-15", taskDone: false }],
     opportunityDiagnosis: { pain: 8, power: 6, vision: 5, value: 4, control: 3, milestone: 7 },
@@ -1174,17 +1192,39 @@ test("report opens with a visual management narrative instead of a flat list", (
   }, { ...reportContext, stages: [
     { key: "lead", label: "线索" }, { key: "contact", label: "建联中" }, { key: "meeting", label: "已约见" }, { key: "proposal", label: "方案中" }, { key: "won", label: "已成交" },
   ] });
-  assert.match(html, /class="report-opening-summary"[\s\S]*一页看懂这家客户/);
-  assert.match(html, /class="report-guide"/);
+  assert.match(html, /class="report-opening-summary"[\s\S]*先看这四件事/);
+  assert.match(html, /class="report-body-layout">[\s\S]*class="report-toc"[\s\S]*class="report-content"/);
+  assert.match(html, /class="report-toc-link report-toc-blue"[^>]*><strong>01<\/strong><span>客户画像<\/span>/);
+  assert.match(html, /class="report-toc-subs"[\s\S]*href="#report-sub-diagnosis"[\s\S]*六维机会诊断/);
+  assert.match(html, /href="#report-sub-journey"[\s\S]*客户推进阶段/);
+  assert.match(html, /class="report-heading-facts"[\s\S]*行业[\s\S]*团队[\s\S]*融资[\s\S]*官网/);
+  assert.ok(html.indexOf('class="report-toc"') > html.indexOf('class="report-heading"'));
+  assert.ok(html.indexOf('class="report-toc"') < html.indexOf('class="report-opening-summary"'));
   assert.match(html, /class="report-journey"/);
-  assert.match(html, /class="report-toc"[\s\S]*href="#report-summary"[\s\S]*href="#report-diagnosis"/);
-  assert.ok(html.indexOf('id="report-diagnosis"') > html.indexOf('id="report-evidence"') || !html.includes('id="report-evidence"'));
+  assert.match(html, /class="report-panorama"[\s\S]*客户画像[\s\S]*机会判断[\s\S]*关系与决策[\s\S]*推进与行动/);
+  assert.match(html, /class="report-toc"[\s\S]*href="#report-profile"[\s\S]*href="#report-opportunity"[\s\S]*href="#report-relationships"[\s\S]*href="#report-progress"/);
   assert.match(html, /class="report-stage-node is-done /);
   assert.match(html, /class="report-stage-node  is-current/);
-  assert.match(html, /class="report-mindmap report-mindmap--compact"[\s\S]*客户推进主线/);
+  assert.match(html, /class="report-stage-penguin"/);
   assert.match(html, /class="report-radar"[\s\S]*class="report-radar-area"/);
   assert.match(html, /class="report-opportunity-path" style="--path-count:5"[\s\S]*外部信号[\s\S]*客户确认问题/);
   assert.match(html, /销售假设与待确认问题（非事实）/);
+  assert.match(html, /class="report-heading-brand"[\s\S]*SALES BUDDY[\s\S]*客户全景报告/);
+  assert.doesNotMatch(html, /<(?:details|summary)\b|展开详情|收起/);
+  assert.doesNotMatch(html, /<(?:ul|li)\b/);
+});
+
+test("report turns website, signals, and evidence URLs into safe clickable links", () => {
+  const html = ReportBuilder.build({
+    name: "链接客户",
+    fields: { website: { v: "https://customer.example.com" } },
+    marketNews: [{ title: "融资新闻", sourceUrl: "https://news.example.com/item" }],
+    assets: [{ name: "客户材料", url: "https://files.example.com/proof" }],
+  }, reportContext);
+
+  for (const url of ["https://customer.example.com", "https://news.example.com/item", "https://files.example.com/proof"]) {
+    assert.match(html, new RegExp(`href="${url.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}" target="_blank" rel="noopener noreferrer"`));
+  }
 });
 
 test("customer intelligence is grouped into a classified tree and keeps every populated fact", () => {
@@ -1238,8 +1278,9 @@ test("report styles are content-first, A4 printable, dark-safe, and mobile reada
   assert.match(css, /body\s*>\s*\*\s*\{[^}]*display:\s*none\s*!important/i);
   assert.match(css, /\.report-layer\s*\{[^}]*display:\s*block\s*!important/i);
   assert.match(css, /\.no-print\s*\{[^}]*display:\s*none\s*!important/i);
-  assert.match(css, /\.report-document\s*\{[^}]*border-radius:24px[^}]*background:#fff[^}]*color:#172033/i);
-  assert.match(css, /\.report-heading\s*\{[^}]*linear-gradient\(135deg,#102a56 0%,#155eef 62%,#4d8dff 100%\)/i);
+  assert.match(css, /\.report-document\s*\{[^}]*border-radius:20px[^}]*background:#fff[^}]*color:#172033/i);
+  assert.match(css, /\.report-heading\s*\{[^}]*background:#f8faff[^}]*box-shadow:inset 0 5px 0 #155eef/i);
+  assert.doesNotMatch(css, /\.report-heading\s*\{[^}]*linear-gradient\(135deg,#102a56/i);
   assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-actions\s*\{[^}]*flex-wrap:\s*wrap/i);
   assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-field-grid\s*\{[^}]*grid-template-columns:\s*1fr/i);
   assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-diagnosis-list\s*\{[^}]*grid-template-columns:\s*1fr 1fr/i);
@@ -1295,12 +1336,20 @@ test("HTML export downloads one UTF-8 self-contained report with a safe filename
 
 test("HTML export uses a leadership-ready responsive theme", () => {
   const styles = read("app.js").match(/const HTML_REPORT_STYLES = `([\s\S]*?)`;/)?.[1] || "";
-  assert.match(styles, /body\.report-export-page[\s\S]*background:\s*#edf2f8/i);
-  assert.match(styles, /\.report-document[\s\S]*width:\s*min\(1120px,[\s\S]*border-radius:\s*24px/i);
-  assert.match(styles, /\.report-heading[\s\S]*linear-gradient\(135deg,/i);
-  assert.match(styles, /\.report-guide[\s\S]*\.report-journey[\s\S]*\.report-mindmap[\s\S]*\.report-radar[\s\S]*\.report-opportunity-path/);
-  assert.match(styles, /\.report-executive[\s\S]*\.report-diagnosis-list[\s\S]*\.report-progress/);
-  assert.match(read("style.css"), /\.report-guide[\s\S]*\.report-mindmap[\s\S]*\.report-radar[\s\S]*\.report-opportunity-path/);
+  assert.match(styles, /body\.report-export-page[\s\S]*background:\s*#f3f5f8/i);
+  assert.match(styles, /\.report-document[\s\S]*width:\s*min\(1120px,[\s\S]*border-radius:\s*20px/i);
+  assert.match(styles, /\.report-heading[\s\S]*background:\s*#f8faff[\s\S]*box-shadow:\s*inset 0 5px 0 #155eef/i);
+  assert.match(styles, /\.report-body-layout\s*\{[^}]*grid-template-columns:\s*190px minmax\(0,1fr\)/i);
+  assert.match(styles, /\.report-body-layout\s*\{[^}]*grid-template-columns:\s*220px minmax\(0,1fr\)/i);
+  assert.match(styles, /\.report-toc-head b\s*\{[^}]*font-size:\s*16px/i);
+  assert.match(styles, /\.report-toc-link\s*\{[^}]*min-height:\s*48px[^}]*font-size:\s*12px/i);
+  assert.match(styles, /\.report-toc\s*\{[^}]*position:\s*sticky[^}]*top:\s*20px/i);
+  for (const selector of ["report-guide", "report-journey", "report-panorama", "report-radar", "report-opportunity-path", "report-opening-summary", "report-diagnosis-list", "report-progress"]) {
+    assert.match(styles, new RegExp(`\\.${selector}`));
+  }
+  for (const selector of ["report-guide", "report-panorama", "report-radar", "report-opportunity-path"]) {
+    assert.match(read("style.css"), new RegExp(`\\.${selector}`));
+  }
   assert.match(styles, /@media\s*\(max-width:\s*680px\)/i);
   assert.match(styles, /@media\s*print/i);
   assert.doesNotMatch(styles, /@import|url\s*\(/i);
@@ -1387,7 +1436,7 @@ test("timeline preserves each meaningful note action while pending actions remai
   }, reportContext);
   const timeline = reportSection(html, "全流程客户推进记录");
   const pending = reportSection(html, "当前未完成行动");
-  const summary = reportSection(html, "执行摘要");
+  const summary = html.match(/<section class="report-opening-summary">[\s\S]*?<\/section>/)?.[0] || "";
 
   assert.equal((timeline.match(/<article>/g) || []).length, 2);
   assert.doesNotMatch(timeline, /<time><\/time>/);
@@ -1457,7 +1506,8 @@ test("attachment metadata alone cannot create evidence or an empty timeline reco
 
   assert.doesNotMatch(html, /全流程客户推进记录/);
   assert.match(evidence, /https:\/\/files\.example\.com\/proof-1/);
-  assert.equal((evidence.match(/<li>/g) || []).length, 1);
+  assert.equal((evidence.match(/class="report-record-cards[^"]*report-evidence-list"/g) || []).length, 1);
+  assert.equal((evidence.match(/<article>/g) || []).length, 1);
   assert.doesNotMatch(evidence, /2048|1024|512|未填写|待补充|暂无/);
 });
 
@@ -1559,6 +1609,10 @@ test("dark surfaces and compact report preview remain explicit", () => {
 
   assert.match(css, /\[data-theme="dark"\]\s+\.modal-panel\s*\{/);
   assert.match(css, /\[data-theme="dark"\]\s+\.report-toolbar\s*\{/);
+  assert.match(css, /\.report-body-layout\s*\{[^}]*grid-template-columns:\s*190px minmax\(0,1fr\)/i);
+  assert.match(css, /\.report-toc\s*\{[^}]*position:\s*sticky[^}]*top:\s*82px/i);
+  assert.match(css, /\.report-document\s*\{[^}]*overflow:\s*visible/i);
+  assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-body-layout\s*\{[^}]*display:\s*block/i);
   assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-document\s*\{[^}]*width:\s*100%[^}]*padding:\s*0 16px 34px/i);
   assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-field-grid\s*\{[^}]*grid-template-columns:\s*1fr/i);
   assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-diagnosis-list\s*\{[^}]*grid-template-columns:\s*1fr 1fr/i);

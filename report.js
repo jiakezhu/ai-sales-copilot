@@ -13,16 +13,16 @@
   const LEVEL_LABELS = { 1: "决策层", 2: "影响层", 3: "执行层" };
   const SOURCE_LABELS = { customer: "客户自报", website: "官网", qcc: "企查查", tyc: "天眼查", qxb: "企信慧眼", web: "全网检索", panshi: "磐石" };
   const CONFIDENCE_LABELS = { unverified: "待核", high: "高置信", medium: "中置信", low: "低置信" };
-  const CHANNEL_LABELS = { direct: "官网直客", longtail: "长尾", ka: "KA", region: "区域", partner: "渠道/合作伙伴" };
   const PHONE_TYPE_LABELS = { direct: "直联号码", agent: "代记账/第三方", unverified: "待核验" };
   const SECTION_META = {
-    "执行摘要": ["summary", "blue"], "客户基本信息与情报": ["profile", "teal"], "客户准入与存量": ["admittance", "amber"],
+    "客户画像": ["profile", "blue"], "机会判断": ["opportunity", "amber"],
+    "关系与决策": ["relationships", "violet"], "推进与行动": ["progress", "green"], "客户基本信息与情报": ["profile-detail", "teal"],
     "产品与商业模式简报": ["business", "violet"], "外部市场与招聘信号": ["signals", "cyan"], "近期招投标 / 中标": ["bidding", "amber"],
     "资质与许可": ["qualifications", "teal"], "机会痛苦链": ["opportunity-path", "green"], "销售假设与待确认问题（非事实）": ["hypotheses", "amber"],
     "组织与关键关系": ["relationships", "violet"], "痛点、竞品与匹配方案": ["market", "green"], "会前沟通准备": ["meeting-prep", "blue"],
     "会后确认": ["meeting-review", "teal"], "全流程客户推进记录": ["progress", "blue"], "当前未完成行动": ["pending", "red"],
     "阶段历史、目标与攻坚计划": ["execution", "violet"], "联合工作计划": ["joint-plan", "green"], "谈判与成交策略": ["negotiation", "red"],
-    "材料与证据索引": ["evidence", "slate"], "六维机会诊断": ["diagnosis", "violet"],
+    "材料与证据索引": ["evidence", "slate"], "六维机会诊断": ["diagnosis", "violet"], "客户推进阶段": ["journey", "green"],
   };
   const PROFILE_GROUPS = [
     { key: "identity", label: "工商身份", icon: "企", fields: ["creditCode", "legalPerson", "regCapital", "regAddress", "founded", "website"] },
@@ -38,6 +38,29 @@
   })[character]);
   const rawText = value => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
   const array = value => Array.isArray(value) ? value : [];
+
+  function linkHref(value) {
+    const source = clean(value);
+    if (/^https?:\/\/[^\s<>"']+$/i.test(source)) return source;
+    if (/^(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s<>"']*)?$/i.test(source)) return `https://${source.replace(/^www\./i, "www.")}`;
+    return "";
+  }
+
+  function linked(value) {
+    const source = String(value == null ? "" : value);
+    const pattern = /https?:\/\/[^\s<>"']+/gi;
+    let cursor = 0;
+    let output = "";
+    for (const match of source.matchAll(pattern)) {
+      output += escape(source.slice(cursor, match.index));
+      const rawUrl = match[0];
+      const url = rawUrl.replace(/[),.;!?，。；！？，、]+$/g, "");
+      const suffix = rawUrl.slice(url.length);
+      output += `<a class="report-link" href="${escape(url)}" target="_blank" rel="noopener noreferrer">${escape(url)}</a>${escape(suffix)}`;
+      cursor = Number(match.index) + rawUrl.length;
+    }
+    return output + escape(source.slice(cursor));
+  }
 
   function clean(value) {
     const result = rawText(value);
@@ -107,12 +130,36 @@
     return `<section class="${classes}" id="report-${id}" data-report-title="${escape(title)}"><div class="report-section-title"><h2>${escape(title)}</h2></div>${body}</section>`;
   }
 
+  function subsection(title, body, kind, collapsed, id) {
+    if (!body) return "";
+    const heading = `<i aria-hidden="true"></i><h3>${escape(title)}</h3>`;
+    const anchor = id ? ` id="report-sub-${escape(id)}"` : "";
+    return `<article class="report-subsection report-subsection--${escape(kind || "default")}"${anchor}><header>${heading}</header><div class="report-subsection-body">${body}</div></article>`;
+  }
+
+  function categoryBody(summary, items) {
+    const blocks = items.filter(item => item.body).map(item => subsection(item.title, item.body, item.kind, item.collapsed, sectionMeta(item.title)[0])).join("");
+    if (!blocks) return "";
+    return `<p class="report-category-summary">${escape(summary)}</p><div class="report-category-content">${blocks}</div>`;
+  }
+
+  function panorama(name, groups) {
+    const branches = groups.map((group, index) => {
+      const nodes = group.items.filter(item => item.body).map(item => `<span>${escape(item.title)}</span>`).join("");
+      if (!nodes) return "";
+      return `<article class="report-panorama-branch report-panorama-${escape(group.tone)}"><div class="report-panorama-group"><small>0${index + 1}</small><b>${escape(group.title)}</b></div><div class="report-panorama-leaves">${nodes}</div></article>`;
+    }).filter(Boolean).join("");
+    if (!branches) return "";
+    return `<section class="report-panorama"><div class="report-panorama-heading"><span>CUSTOMER 360 MAP</span><h2>客户全景树</h2><p>从客户事实出发，沿机会、关系和行动四条主线快速阅读。</p></div><div class="report-panorama-tree"><div class="report-panorama-core"><small>客户中心</small><b>${escape(name || "客户")}</b></div><div class="report-panorama-branches">${branches}</div></div></section>`;
+  }
+
   function reportToc(specs) {
-    const links = specs.filter(spec => spec.body).map(spec => {
+    const links = specs.filter(spec => spec.body).map((spec, index) => {
       const [id, tone] = sectionMeta(spec.title);
-      return `<a class="report-toc-link report-toc-${tone}" href="#report-${id}"><i></i><span>${escape(spec.title)}</span></a>`;
+      const children = array(spec.children).map(child => `<a class="report-toc-sub" href="#report-sub-${escape(child.id)}"><i></i><span>${escape(child.title)}</span></a>`).join("");
+      return `<div class="report-toc-group"><a class="report-toc-link report-toc-${tone}" href="#report-${id}"><strong>0${index + 1}</strong><span>${escape(spec.title)}</span></a>${children ? `<div class="report-toc-subs">${children}</div>` : ""}</div>`;
     }).join("");
-    return links ? `<aside class="report-toc" aria-label="报告目录"><div class="report-toc-head"><b>目录</b><small>点击快速定位</small></div>${links}</aside>` : "";
+    return links ? `<nav class="report-toc" aria-label="报告目录"><div class="report-toc-head"><b>报告导航</b><small>REPORT CONTENTS</small></div>${links}</nav>` : "";
   }
 
   function openingSummary(entries, mascotSrc) {
@@ -120,15 +167,50 @@
     if (!facts.length) return "";
     const cards = facts.map(item => `<article class="report-summary-card report-summary-${item.tone || "blue"}"><small>${escape(item.label)}</small><p>${escape(item.value)}</p></article>`).join("");
     const mascot = clean(mascotSrc) ? `<img class="report-summary-mascot" src="${escape(mascotSrc)}" alt="Sales Buddy 企鹅助手">` : "";
-    return `<section class="report-opening-summary"><div class="report-summary-copy"><span>EXECUTIVE SNAPSHOT</span><h2>一页看懂这家客户</h2><p>先看判断与行动，再下钻事实、机会和证据。</p></div>${mascot}<div class="report-summary-grid">${cards}</div></section>`;
+    return `<section class="report-opening-summary"><div class="report-summary-copy"><span>KEY TAKEAWAYS</span><h2>先看这四件事</h2><p>结论先行，详细事实按需展开。</p></div>${mascot}<div class="report-summary-grid">${cards}</div></section>`;
   }
 
   function fieldGrid(entries, className) {
     const facts = uniqueRecords(entries.map(([label, value]) => [clean(label), clean(value)]), entry => keyOf(entry));
     const body = facts.map(([label, value]) => value
-      ? `<div class="report-field"><span>${escape(label)}</span><p>${escape(value)}</p></div>`
+      ? `<div class="report-field"><span>${escape(label)}</span><p>${linked(value)}</p></div>`
       : "").join("");
     return body ? `<div class="${className || "report-field-grid"}">${body}</div>` : "";
+  }
+
+  function businessModelMap(source) {
+    const flow = [
+      ["01", "产品供给", "WHAT", valueOf(source.products)],
+      ["02", "商业变现", "HOW", valueOf(source.revenueLogic)],
+      ["03", "经营表现", "RESULT", valueOf(source.operatingStatus)],
+    ].filter(entry => entry[3]);
+    const context = [
+      ["竞争参照", "MARKET", valueOf(source.competitors), "amber"],
+      ["业务阻力", "FRICTION", valueOf(source.painHypothesis), "red"],
+    ].filter(entry => entry[2]);
+    if (!flow.length && !context.length) return "";
+    const flowHtml = flow.map(entry => `<article><span>${entry[0]}</span><small>${entry[2]}</small><b>${entry[1]}</b><p>${linked(entry[3])}</p></article>`).join("");
+    const contextHtml = context.map(entry => `<article class="report-business-${entry[3]}"><small>${entry[1]}</small><b>${entry[0]}</b><p>${linked(entry[2])}</p></article>`).join("");
+    return `<div class="report-business-model"><div class="report-business-flow" style="--business-count:${flow.length}">${flowHtml}</div>${contextHtml ? `<div class="report-business-context">${contextHtml}</div>` : ""}</div>`;
+  }
+
+  function negotiationMap(source) {
+    const path = [
+      ["01", "目标结果", valueOf(source.objective), "blue"],
+      ["02", "价值锚点", valueOf(source.valueAnchor), "violet"],
+      ["03", "交换条件", valueOf(source.giveGet), "amber"],
+      ["04", "谈判红线", valueOf(source.redLine), "red"],
+      ["05", "收口动作", valueOf(source.closeAction), "green"],
+    ].filter(entry => entry[2]);
+    const rails = [
+      ["客户立场", valueOf(source.customerPosition), "必须守住", valueOf(source.mustHave)],
+      ["可交换项", valueOf(source.flexible), "主要异议", valueOf(source.objections)],
+      ["回应策略", valueOf(source.response), "", ""],
+    ].filter(entry => entry[1] || entry[3]);
+    if (!path.length && !rails.length) return "";
+    const pathHtml = path.map((entry, index) => `<article class="report-negotiation-${entry[3]}"><small>${entry[0]}</small><b>${escape(entry[1])}</b><p>${linked(entry[2])}</p>${index < path.length - 1 ? `<i aria-hidden="true">→</i>` : ""}</article>`).join("");
+    const railHtml = rails.map(entry => `<article>${entry[1] ? `<div><small>${escape(entry[0])}</small><p>${linked(entry[1])}</p></div>` : ""}${entry[3] ? `<div><small>${escape(entry[2])}</small><p>${linked(entry[3])}</p></div>` : ""}</article>`).join("");
+    return `<div class="report-negotiation-map">${pathHtml ? `<div class="report-negotiation-path" style="--negotiation-count:${path.length}">${pathHtml}</div>` : ""}${railHtml ? `<div class="report-negotiation-rails">${railHtml}</div>` : ""}</div>`;
   }
 
   function profileTree(fieldDefs, fields, extras, formatter) {
@@ -146,7 +228,7 @@
       if (group.key === "sales") extraEntries.filter(([, , target]) => target === "sales").forEach(([label, value]) => items.push([label, value]));
       const unique = uniqueRecords(items, entry => keyOf(entry));
       if (!unique.length) return "";
-      const leaves = unique.map(([label, value]) => `<article class="report-tree-leaf"><span>${escape(label)}</span><p>${escape(value)}</p></article>`).join("");
+      const leaves = unique.map(([label, value]) => `<article class="report-tree-leaf"><span>${escape(label)}</span><p>${linked(value)}</p></article>`).join("");
       return `<div class="report-tree-branch report-tree-${group.key}"><div class="report-tree-root"><i>${escape(group.icon)}</i><b>${escape(group.label)}</b><small>${unique.length} 项</small></div><div class="report-tree-leaves">${leaves}</div></div>`;
     }).filter(Boolean);
     const other = array(fieldDefs).filter(definition => definition && !groupedKeys.has(definition.key)).map(definition => {
@@ -154,18 +236,10 @@
       return value ? [valueOf(definition.label || definition.key), value] : null;
     }).filter(Boolean);
     if (other.length) {
-      const leaves = other.map(([label, value]) => `<article class="report-tree-leaf"><span>${escape(label)}</span><p>${escape(value)}</p></article>`).join("");
+      const leaves = other.map(([label, value]) => `<article class="report-tree-leaf"><span>${escape(label)}</span><p>${linked(value)}</p></article>`).join("");
       branches.push(`<div class="report-tree-branch report-tree-other"><div class="report-tree-root"><i>补</i><b>补充信息</b><small>${other.length} 项</small></div><div class="report-tree-leaves">${leaves}</div></div>`);
     }
     return branches.length ? `<div class="report-profile-tree">${branches.join("")}</div>` : "";
-  }
-
-  function executiveMap(entries) {
-    const facts = entries.map(([label, value]) => ({ label: clean(label), value: clean(value) })).filter(item => item.value);
-    if (!facts.length) return "";
-    const nodes = facts.map((item, index) => `<article class="report-mind-node report-mind-node--${index + 1}"><span>${escape(item.label)}</span><p>${escape(item.value)}</p></article>`).join("");
-    const compact = facts.length < 4 ? " report-mindmap--compact" : "";
-    return `<div class="report-mindmap${compact}"><div class="report-mindmap-core"><small>领导速览</small><b>客户推进主线</b><span>判断 · 机会 · 风险 · 行动</span></div>${nodes}</div>`;
   }
 
   function diagnosisVisual(source) {
@@ -192,9 +266,9 @@
     const dots = complete ? dimensions.map((item, index) => { const [cx, cy] = point(index, item.value / 10).split(","); return `<circle cx="${cx}" cy="${cy}" r="4" />`; }).join("") : "";
     const labels = dimensions.map((item, index) => { const [x, y] = point(index, 1.26).split(","); return `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle">${escape(item.label)}</text>`; }).join("");
     const radar = complete ? `<svg class="report-radar" viewBox="0 0 220 220" role="img" aria-label="六维机会诊断雷达图"><g class="report-radar-grid">${rings}${axes}</g>${area}<g class="report-radar-points">${dots}</g><g class="report-radar-labels">${labels}</g></svg>` : `<div class="report-radar-empty">部分维度待确认</div>`;
-    const cards = dimensions.map(item => item.value == null ? "" : `<li aria-label="${escape(`${item.label}：${item.value}/10`)}"><span>${escape(item.label)}</span><b>${item.value}<small>/10</small></b><i style="--score:${item.value * 10}%"><em></em></i></li>`).join("");
+    const cards = dimensions.map(item => item.value == null ? "" : `<article aria-label="${escape(`${item.label}：${item.value}/10`)}"><span>${escape(item.label)}</span><b>${item.value}<small>/10</small></b><i style="--score:${item.value * 10}%"><em></em></i></article>`).join("");
     const note = valueOf(source.note);
-    return `<div class="report-diagnosis-visual"><div class="report-radar-wrap">${radar}</div><div class="report-diagnosis-copy"><ul class="report-diagnosis-list">${cards}</ul>${note ? `<p class="report-diagnosis-note">${escape(note)}</p>` : ""}</div></div>`;
+    return `<div class="report-diagnosis-visual"><div class="report-radar-wrap">${radar}</div><div class="report-diagnosis-copy"><div class="report-diagnosis-list">${cards}</div>${note ? `<p class="report-diagnosis-note">${escape(note)}</p>` : ""}</div></div>`;
   }
 
   function opportunityPath(source) {
@@ -210,11 +284,12 @@
     return `<div class="report-opportunity-path" style="--path-count:${entries.length}">${nodes}</div>`;
   }
 
-  function stageJourney(stages, currentStage) {
+  function stageJourney(stages, currentStage, mascotSrc) {
     const items = array(stages).filter(item => item && item.key);
     if (!items.length) return "";
     const currentIndex = items.findIndex(item => item.key === currentStage);
-    const nodes = items.map((item, index) => `<div class="report-stage-node ${index < currentIndex ? "is-done" : ""} ${index === currentIndex ? "is-current" : ""}"><i></i><span>${escape(item.label || item.key)}</span></div>`).join("");
+    const mascot = clean(mascotSrc);
+    const nodes = items.map((item, index) => `<div class="report-stage-node ${index < currentIndex ? "is-done" : ""} ${index === currentIndex ? "is-current" : ""}"><i></i>${index === currentIndex && mascot ? `<img class="report-stage-penguin" src="${escape(mascot)}" alt="Sales Buddy 企鹅位于当前阶段">` : ""}<span>${escape(item.label || item.key)}</span></div>`).join("");
     return `<div class="report-journey"><div class="report-journey-heading"><small>推进导航</small><b>${escape(resolveLabel(items, currentStage) || "阶段待确认")}</b></div><div class="report-stage-track">${nodes}</div></div>`;
   }
 
@@ -222,10 +297,55 @@
     return `<div class="report-guide"><article><b>01</b><span>管理判断</span><small>先看结论和风险</small></article><article><b>02</b><span>客户事实</span><small>再看业务与组织</small></article><article><b>03</b><span>机会路径</span><small>理解为什么值得推进</small></article><article><b>04</b><span>行动与证据</span><small>最后确认下一步</small></article></div>`;
   }
 
-  function list(items, className) {
+  function recordCards(items, className, label) {
     const facts = uniqueRecords(items.map(clean).filter(Boolean), item => item.toLocaleLowerCase());
-    const body = facts.map(item => `<li>${escape(item)}</li>`).join("");
-    return body ? `<ul class="${className || "report-list"}">${body}</ul>` : "";
+    const body = facts.map((item, index) => `<article><span>${String(index + 1).padStart(2, "0")}</span><div>${label ? `<small>${escape(label)}</small>` : ""}<p>${linked(item)}</p></div></article>`).join("");
+    return body ? `<div class="report-record-cards ${className || ""}">${body}</div>` : "";
+  }
+
+  function branchTree(rootName, eyebrow, hint, branches, className) {
+    const visible = branches.map(branch => ({
+      ...branch,
+      items: uniqueRecords(array(branch.items).filter(item => item && clean(item.value)), item => keyOf([item.label, item.value])),
+    })).filter(branch => branch.items.length);
+    if (!visible.length) return "";
+    const branchHtml = visible.map((branch, index) => `<article class="report-market-branch report-market-${escape(branch.tone)}"><div class="report-market-group"><span>0${index + 1}</span><b>${escape(branch.title)}</b><small>${escape(branch.caption)}</small></div><div class="report-market-nodes">${branch.items.map(item => `<div class="report-market-node"><b>${escape(item.label)}</b><p>${linked(item.value)}</p></div>`).join("")}</div></article>`).join("");
+    return `<div class="report-market-tree ${escape(className || "")}"><div class="report-market-core"><small>${escape(eyebrow)}</small><b>${escape(rootName || "客户")}</b><span>${escape(hint)}</span></div><div class="report-market-branches">${branchHtml}</div></div>`;
+  }
+
+  function marketTree(customerName, branches) {
+    return branchTree(customerName || "客户机会", "OPPORTUNITY MAP", "问题 → 竞争 → 方案", branches, "report-opportunity-tree");
+  }
+
+  function organizationTree(people, paths, insights) {
+    const entries = people.filter(person => [person.name, person.role, person.phone, person.wechat, person.email, person.note].some(value => clean(value))).map((person, index) => ({ person, key: clean(person.id) || `person-${index}`, parent: clean(person.pid) }));
+    const byKey = new Map(entries.map(entry => [entry.key, entry]));
+    const byParent = new Map();
+    entries.forEach(entry => {
+      if (!entry.parent || !byKey.has(entry.parent)) return;
+      if (!byParent.has(entry.parent)) byParent.set(entry.parent, []);
+      byParent.get(entry.parent).push(entry);
+    });
+    const roots = entries.filter(entry => !entry.parent || !byKey.has(entry.parent));
+    const renderNode = (entry, visited = new Set()) => {
+      if (!entry || visited.has(entry.key)) return "";
+      const nextVisited = new Set(visited).add(entry.key);
+      const person = entry.person;
+      const name = valueOf(person.name) || valueOf(person.role) || "关键角色";
+      const contacts = [
+        person.phone ? `${clean(person.phone)}（${PHONE_TYPE_LABELS[clean(person.phoneType)] || "待核验"}）` : "",
+        clean(person.wechat), clean(person.email),
+      ].filter(Boolean).join(" · ");
+      const parentEntry = byKey.get(entry.parent);
+      const parentName = parentEntry ? valueOf(parentEntry.person.name) || valueOf(parentEntry.person.role) : "";
+      const children = (byParent.get(entry.key) || []).map(child => renderNode(child, nextVisited)).join("");
+      return `<div class="report-org-node"><article class="report-org-person"><span>${escape(name.slice(0, 1))}</span><div><small>${escape(LEVEL_LABELS[Number(person.level)] || "关键角色")}</small><b>${escape(name)}</b>${valueOf(person.role) && valueOf(person.role) !== name ? `<em>${escape(valueOf(person.role))}</em>` : ""}${parentName ? `<p class="report-org-parent">上级：${escape(parentName)}</p>` : ""}${contacts ? `<p>${escape(contacts)}</p>` : ""}${valueOf(person.note) ? `<p>${linked(valueOf(person.note))}</p>` : ""}</div></article>${children ? `<div class="report-org-children">${children}</div>` : ""}</div>`;
+    };
+    const nodes = (roots.length ? roots : entries).map(entry => renderNode(entry)).join("");
+    const pathHtml = uniqueRecords(array(paths).map(clean).filter(Boolean), item => item.toLocaleLowerCase()).map(path => `<span>${escape(path)}</span>`).join("");
+    const insightHtml = uniqueRecords(array(insights).map(clean).filter(Boolean), item => item.toLocaleLowerCase()).map(item => `<article>${linked(item)}</article>`).join("");
+    if (!nodes && !pathHtml && !insightHtml) return "";
+    return `<div class="report-org-tree">${pathHtml ? `<div class="report-org-paths">${pathHtml}</div>` : ""}${nodes ? `<div class="report-org-roots">${nodes}</div>` : ""}${insightHtml ? `<div class="report-org-insights">${insightHtml}</div>` : ""}</div>`;
   }
 
   function normalizedAsset(asset, context) {
@@ -293,17 +413,19 @@
       clean(source.grade) ? `${clean(source.grade)} 级客户` : "",
       clean(context.reportDate),
     ].filter(Boolean).map(item => `<span>${escape(item)}</span>`).join("");
-    const heading = `<header class="report-heading"><p>客户全景报告</p><h1>${escape(name || "客户报告")}</h1>${headingMeta ? `<div>${headingMeta}</div>` : ""}</header>`;
+    const website = valueOf(fields.website);
+    const websiteHref = linkHref(website);
+    const headingFacts = [
+      ["行业", valueOf(fields.industry)],
+      ["团队", valueOf(fields.staff)],
+      ["融资", valueOf(fields.funding)],
+      ["官网", websiteHref ? `<a href="${escape(websiteHref)}" target="_blank" rel="noopener noreferrer">${escape(website.replace(/^https?:\/\//i, ""))}</a>` : escape(website)],
+    ].filter(([, value]) => value).map(([label, value]) => `<article><small>${escape(label)}</small><b>${value}</b></article>`).join("");
+    const heading = `<header class="report-heading"><div class="report-heading-brand"><span>SALES BUDDY</span><b>客户全景报告</b></div><div class="report-heading-layout"><div class="report-heading-identity"><h1>${escape(name || "客户报告")}</h1>${headingMeta ? `<div class="report-heading-meta">${headingMeta}</div>` : ""}</div>${headingFacts ? `<div class="report-heading-facts">${headingFacts}</div>` : ""}</div></header>`;
 
     const nextAction = pendingNotes[0] && valueOf(pendingNotes[0].next)
       || valueOf(raid.plan && raid.plan.action);
-    const executive = executiveMap([
-      ["当前判断", valueOf(fields.relation) || valueOf(raid.dm && raid.dm.reachLevel)],
-      ["核心机会", painPoints[0]],
-      ["主要风险", valueOf(raid.dm && raid.dm.concern) || valueOf(raid.plan && raid.plan.support)],
-      ["下一步行动", nextAction],
-    ]);
-    const journey = stageJourney(context.stages, source.stage);
+    const journey = stageJourney(context.stages, source.stage, context.mascotSrc);
     const diagnosis = diagnosisVisual(diagnosisSource);
 
     const raidBasic = raid.basic && typeof raid.basic === "object" ? raid.basic : {};
@@ -328,50 +450,32 @@
     });
     const profile = profileTree(fieldDefs, fields, profileExtras, context.formatShortDate);
 
-    const admittanceSource = source.admittance && typeof source.admittance === "object" ? source.admittance : {};
-    const hasAdmittance = ["status", "reportedBy", "channel", "uin", "groupGid", "source", "verifiedAt"].some(key => valueOf(admittanceSource[key]));
-    const admittanceVerified = Boolean(admittanceSource.verifiedAt) && ["clear", "reported", "followed"].includes(clean(admittanceSource.status));
-    const admittanceStatus = admittanceVerified ? ({ clear: "无主报备", reported: "已报备", followed: "已有人跟" })[clean(admittanceSource.status)] : "待核";
-    const admittance = hasAdmittance ? fieldGrid([
-      ["准入核验状态", admittanceStatus],
-      ["主商务 / 报备人", valueOf(admittanceSource.reportedBy)],
-      ["归属通路", CHANNEL_LABELS[clean(admittanceSource.channel)] || "待核"],
-      ["腾讯云 UIN", valueOf(admittanceSource.uin)],
-      ["集团 GID", valueOf(admittanceSource.groupGid)],
-      ["来源", SOURCE_LABELS[clean(admittanceSource.source)] || "来源待补充"],
-      ["置信度", CONFIDENCE_LABELS[clean(admittanceSource.confidence)] || "待核"],
-      ["核验日期", format(admittanceSource.verifiedAt, context.formatShortDate)],
-      ["核验说明", admittanceVerified ? "该状态已完成核验" : "待核验，不构成准入结论"],
-    ]) : "";
+    const businessBrief = businessModelMap(businessBriefSource);
 
-    const businessBrief = fieldGrid([
-      ["核心产品或服务", valueOf(businessBriefSource.products)],
-      ["赚钱逻辑", valueOf(businessBriefSource.revenueLogic)],
-      ["经营状况", valueOf(businessBriefSource.operatingStatus)],
-      ["相似竞品", valueOf(businessBriefSource.competitors)],
-      ["可能的业务痛点", valueOf(businessBriefSource.painHypothesis)],
-    ]);
-
-    const externalSignalItems = [];
+    const newsSignalNodes = [];
     uniqueRecords(array(source.marketNews).filter(Boolean), item => keyOf([
       valueOf(item.title), item.publishedAt, valueOf(item.market), valueOf(item.sourceUrl), valueOf(item.signal), valueOf(item.impact),
     ])).forEach(item => {
       const detail = describeParts([
-        valueOf(item.title), format(item.publishedAt, context.formatShortDate), valueOf(item.market),
+        format(item.publishedAt, context.formatShortDate), valueOf(item.market),
         valueOf(item.signal), valueOf(item.impact), valueOf(item.sourceUrl),
       ]);
-      if (detail) externalSignalItems.push(`全球新闻：${detail}`);
+      if (detail) newsSignalNodes.push({ label: valueOf(item.title) || "市场新闻", value: detail });
     });
+    const hiringSignalNodes = [];
     uniqueRecords(array(source.hiringSignals).filter(Boolean), item => keyOf([
       valueOf(item.role), item.postedAt, valueOf(item.location), valueOf(item.sourceUrl), valueOf(item.signal), valueOf(item.opportunity),
     ])).forEach(item => {
       const detail = describeParts([
-        valueOf(item.role), format(item.postedAt, context.formatShortDate), valueOf(item.location),
+        format(item.postedAt, context.formatShortDate), valueOf(item.location),
         valueOf(item.signal), valueOf(item.opportunity), valueOf(item.sourceUrl),
       ]);
-      if (detail) externalSignalItems.push(`招聘动向：${detail}`);
+      if (detail) hiringSignalNodes.push({ label: valueOf(item.role) || "招聘动向", value: detail });
     });
-    const externalSignals = list(externalSignalItems, "report-external-signals");
+    const externalSignals = branchTree(name, "SIGNAL MAP", "市场变化 → 人才投入 → 销售机会", [
+      { title: "全球新闻", caption: "MARKET", tone: "blue", items: newsSignalNodes },
+      { title: "招聘动向", caption: "HIRING", tone: "cyan", items: hiringSignalNodes },
+    ], "report-signal-tree");
 
     const researchEvidence = item => describeParts([
       SOURCE_LABELS[clean(item.source)] || "来源待补充",
@@ -387,13 +491,13 @@
       valueOf(item.role) ? `角色：${valueOf(item.role)}` : "", valueOf(item.amount) ? `金额：${valueOf(item.amount)}` : "",
       format(item.date, context.formatShortDate), valueOf(item.signal), researchEvidence(item),
     ]));
-    const bidding = list(biddingItems, "report-bidding-list");
+    const bidding = recordCards(biddingItems, "report-bidding-list", "招投标记录");
     const qualificationItems = uniqueRecords(array(source.qualifications).filter(Boolean), item => keyOf([
       valueOf(item.name), valueOf(item.type), valueOf(item.authority), item.validTo, valueOf(item.sourceUrl),
     ])).map(item => describeParts([
       `${recordStatus(item)}：${valueOf(item.name)}`, valueOf(item.type), valueOf(item.authority), item.validTo ? `有效至 ${format(item.validTo, context.formatShortDate)}` : "", researchEvidence(item),
     ]));
-    const qualifications = list(qualificationItems, "report-qualification-list");
+    const qualifications = recordCards(qualificationItems, "report-qualification-list", "资质文件");
 
     const painChainFacts = opportunityPath(painChainSource);
     const painChain = painChainFacts && painChainSource.inferred === true ? `<div class="report-inferred"><p>以下为销售假设与待确认问题，非已核实客户事实。</p>${painChainFacts}</div>` : "";
@@ -407,68 +511,40 @@
       valueOf(item.customerOwner) ? `客户：${valueOf(item.customerOwner)}` : "",
       ({ todo: "待开始", doing: "进行中", done: "已完成" })[clean(item.status)] || "",
     ]));
-    const jointWorkPlan = list(jointPlanItems, "report-joint-plan");
+    const jointWorkPlan = recordCards(jointPlanItems, "report-joint-plan", "双方协同节点");
 
-    const negotiation = fieldGrid([
-      ["目标结果", valueOf(negotiationSource.objective)],
-      ["客户当前立场", valueOf(negotiationSource.customerPosition)],
-      ["价值锚点", valueOf(negotiationSource.valueAnchor)],
-      ["必须守住", valueOf(negotiationSource.mustHave)],
-      ["可以交换", valueOf(negotiationSource.flexible)],
-      ["交换条件", valueOf(negotiationSource.giveGet)],
-      ["红线", valueOf(negotiationSource.redLine)],
-      ["主要异议", valueOf(negotiationSource.objections)],
-      ["回应策略", valueOf(negotiationSource.response)],
-      ["本轮收口动作", valueOf(negotiationSource.closeAction)],
-    ], "report-field-grid report-negotiation");
+    const negotiation = negotiationMap(negotiationSource);
 
     const people = uniqueRecords(array(source.orgChain).filter(person => person && typeof person === "object"), person => keyOf([
       person.id, person.pid, valueOf(person.name), valueOf(person.role), person.level,
       person.phone, person.phoneType, person.wechat, person.email, valueOf(person.note),
     ]));
-    const peopleById = new Map(people.map(person => [clean(person.id), person]).filter(([id]) => id));
-    const orgItems = decisionChains(people);
-    people.forEach(person => {
-      const parentId = clean(person.pid);
-      const parent = parentId ? peopleById.get(parentId) : null;
-      const contacts = [
-        person.phone ? `${clean(person.phone)}（${PHONE_TYPE_LABELS[clean(person.phoneType)] || "待核验"}）` : "",
-        person.wechat, person.email,
-      ].map(clean).filter(Boolean).join(" · ");
-      const detail = describeParts([
-        valueOf(person.name), valueOf(person.role), LEVEL_LABELS[Number(person.level)] || "",
-        parent ? `上级：${valueOf(parent.name) || valueOf(parent.role)}` : "", contacts, valueOf(person.note),
-      ]);
-      if (detail) orgItems.push(detail);
-    });
+    const orgInsights = [];
     const raidOrg = raid.org && typeof raid.org === "object" ? raid.org : {};
-    if (valueOf(raidOrg.orgDesc)) orgItems.push(valueOf(raidOrg.orgDesc));
+    if (valueOf(raidOrg.orgDesc)) orgInsights.push(valueOf(raidOrg.orgDesc));
     const roles = uniqueRecords(array(raid.roles).concat(array(raidOrg.roles)), role => keyOf([
       valueOf(role && role.name), valueOf(role && role.role), valueOf(role && role.position), valueOf(role && role.demand),
     ]));
     roles.forEach(role => {
       const detail = describeParts([valueOf(role.name), valueOf(role.role), valueOf(role.position), valueOf(role.demand)]);
-      if (detail) orgItems.push(detail);
+      if (detail) orgInsights.push(detail);
     });
     const decisionProcess = valueOf(confirmations["confirm-power"] && confirmations["confirm-power"].note);
-    if (decisionProcess) orgItems.push(`决策流程确认：${decisionProcess}`);
-    const organization = list(orgItems, "report-relation-list");
+    if (decisionProcess) orgInsights.push(`决策流程确认：${decisionProcess}`);
+    const organization = organizationTree(people, decisionChains(people), orgInsights);
 
-    const marketItems = painPoints.map(item => `客户痛点：${item}`);
     const painConfirmation = valueOf(confirmations["confirm-pain"] && confirmations["confirm-pain"].note);
-    if (painConfirmation) marketItems.push(`客户确认依据：${painConfirmation}`);
     const competitors = uniqueRecords(array(raid.competitors).filter(Boolean), competitor => keyOf([
       valueOf(competitor.name), valueOf(competitor.coverage), valueOf(competitor.pros), valueOf(competitor.cons),
     ]));
-    competitors.forEach(competitor => {
-      const detail = [
-        valueOf(competitor.name),
+    const competitorNodes = competitors.map((competitor, index) => ({
+      label: valueOf(competitor.name) || `竞品 ${index + 1}`,
+      value: [
         valueOf(competitor.coverage) ? `覆盖 ${valueOf(competitor.coverage)}` : "",
         valueOf(competitor.pros) ? `优势 ${valueOf(competitor.pros)}` : "",
         valueOf(competitor.cons) ? `劣势 ${valueOf(competitor.cons)}` : "",
-      ].filter(Boolean).join("；");
-      if (detail) marketItems.push(`竞品：${detail}`);
-    });
+      ].filter(Boolean).join("；") || "竞品信息待进一步核实",
+    }));
     const solutions = uniqueRecords(array(source.solution), solution => keyOf([
       valueOf(solution && (solution.product || solution.name || solution.title || solution)),
       valueOf(solution && (solution.reason || solution.description || solution.detail)),
@@ -477,14 +553,19 @@
       valueOf(solution && (solution.product || solution.name || solution.title || solution)),
       valueOf(solution && (solution.reason || solution.description || solution.detail)),
     ], "：")).filter(Boolean);
-    const confirmedSolutionItems = solutions.filter(solution => solution?.inferred !== true).map(solution => describeParts([
-      valueOf(solution && (solution.product || solution.name || solution.title || solution)),
-      valueOf(solution && (solution.reason || solution.description || solution.detail)),
-    ], "：")).filter(Boolean);
-    confirmedSolutionItems.forEach(item => marketItems.push(`匹配方案：${item}`));
-    const inferredSolutions = list(inferredSolutionItems.map(item => `匹配方案：${item}`), "report-inferred-solutions");
+    const confirmedSolutionNodes = solutions.filter(solution => solution?.inferred !== true).map((solution, index) => ({
+      label: valueOf(solution && (solution.product || solution.name || solution.title || solution)) || `方案 ${index + 1}`,
+      value: valueOf(solution && (solution.reason || solution.description || solution.detail)) || "已纳入客户匹配方案",
+    }));
+    const inferredSolutions = recordCards(inferredSolutionItems.map(item => `匹配方案：${item}`), "report-inferred-solutions", "待客户确认");
     const inferredSales = [painChain, inferredSolutions ? `<div class="report-inferred"><p>以下匹配方案为销售推测，需以客户确认的真实需求为准。</p>${inferredSolutions}</div>` : ""].filter(Boolean).join("");
-    const market = list(marketItems);
+    const painNodes = painPoints.map((item, index) => ({ label: `痛点 ${index + 1}`, value: item }));
+    if (painConfirmation) painNodes.push({ label: "客户确认依据", value: painConfirmation });
+    const market = marketTree(name, [
+      { title: "客户痛点", caption: "WHY CHANGE", tone: "red", items: painNodes },
+      { title: "竞品与替代", caption: "STATUS QUO", tone: "amber", items: competitorNodes },
+      { title: "匹配方案", caption: "WHY US", tone: "green", items: confirmedSolutionNodes },
+    ]);
 
     const progressItems = uniqueRecords(notes.filter(note => note && typeof note === "object"), note => keyOf([
       note.date, note.method, valueOf(note.contact), valueOf(note.place),
@@ -515,7 +596,7 @@
     ])).map(note => describeParts([
       format(note.nextDate, context.formatShortDate), valueOf(note.next), valueOf(note.contact),
     ]));
-    const pending = list(pendingItems, "report-action-list");
+    const pending = recordCards(pendingItems, "report-action-list", "待执行动作");
 
     const meetingPrepItems = uniqueRecords(array(source.meetingPreps).filter(Boolean), prep => keyOf([
       prep.id, prep.createdAt, prep.updatedAt, valueOf(prep.objective),
@@ -561,15 +642,15 @@
       const fact = valueOf(value);
       if (fact) executionItems.push(`${label}：${fact}`);
     });
-    const execution = list(executionItems, "report-plan-list");
+    const execution = recordCards(executionItems, "report-plan-list", "推进节点");
 
     const allAssets = array(source.assets).concat(notes.flatMap(note => array(note && note.attachments)));
     const assets = uniqueRecords(allAssets.map(asset => normalizedAsset(asset, context)).filter(Boolean), asset => keyOf([
       asset.name, asset.type, asset.caption, asset.created, asset.identifier, asset.size,
     ]));
-    const evidence = list(assets.map(asset => describeParts([
+    const evidence = recordCards(assets.map(asset => describeParts([
       asset.name, asset.type, asset.caption, asset.created, asset.url, asset.size,
-    ])), "report-evidence-list");
+    ])), "report-evidence-list", "证据材料");
 
     const summaryEntries = [
       ["当前判断", valueOf(fields.relation) || valueOf(raid.dm && raid.dm.reachLevel), "blue"],
@@ -577,32 +658,57 @@
       ["主要风险", valueOf(raid.dm && raid.dm.concern) || valueOf(raid.plan && raid.plan.support), "red"],
       ["下一步行动", nextAction, "amber"],
     ];
-    const specs = [
-      { title: "执行摘要", body: executive, className: "report-executive" },
-      { title: "客户基本信息与情报", body: profile },
-      { title: "客户准入与存量", body: admittance },
-      { title: "产品与商业模式简报", body: businessBrief },
-      { title: "外部市场与招聘信号", body: externalSignals },
-      { title: "近期招投标 / 中标", body: bidding },
-      { title: "资质与许可", body: qualifications },
-      { title: "机会痛苦链", body: confirmedPainChain },
-      { title: "销售假设与待确认问题（非事实）", body: inferredSales },
-      { title: "组织与关键关系", body: organization },
-      { title: "痛点、竞品与匹配方案", body: market },
-      { title: "会前沟通准备", body: meetingPreps },
-      { title: "会后确认", body: meetingReviews },
-      { title: "全流程客户推进记录", body: progress },
-      { title: "当前未完成行动", body: pending },
-      { title: "阶段历史、目标与攻坚计划", body: execution },
-      { title: "联合工作计划", body: jointWorkPlan },
-      { title: "谈判与成交策略", body: negotiation },
-      { title: "材料与证据索引", body: evidence },
-      { title: "六维机会诊断", body: diagnosis, className: "report-diagnosis-section" },
+    const groups = [
+      {
+        title: "客户画像", tone: "blue", summary: "确认这是谁、如何经营，以及哪些外部事实值得关注。",
+        items: [
+          { title: "客户基本信息与情报", body: profile, kind: "tree", collapsed: true },
+          { title: "产品与商业模式简报", body: businessBrief, kind: "cards" },
+          { title: "外部市场与招聘信号", body: externalSignals, kind: "signals", collapsed: true },
+          { title: "招投标 / 中标", body: bidding, kind: "records", collapsed: true },
+          { title: "资质与许可", body: qualifications, kind: "records", collapsed: true },
+        ],
+      },
+      {
+        title: "机会判断", tone: "amber", summary: "把客户问题、机会质量、竞争态势和成交边界放在同一条判断链上。",
+        items: [
+          { title: "六维机会诊断", body: diagnosis, kind: "diagnosis" },
+          { title: "机会痛苦链", body: confirmedPainChain, kind: "path" },
+          { title: "销售假设与待确认问题（非事实）", body: inferredSales, kind: "hypothesis", collapsed: true },
+          { title: "痛点、竞品与匹配方案", body: market, kind: "market", collapsed: true },
+          { title: "谈判与成交策略", body: negotiation, kind: "negotiation", collapsed: true },
+        ],
+      },
+      {
+        title: "关系与决策", tone: "violet", summary: "看清关键人、汇报关系、决策流程和每次面客形成的共识。",
+        items: [
+          { title: "组织与关键关系", body: organization, kind: "relationships" },
+          { title: "会前沟通准备", body: meetingPreps, kind: "meeting", collapsed: true },
+          { title: "会后确认", body: meetingReviews, kind: "meeting", collapsed: true },
+        ],
+      },
+      {
+        title: "推进与行动", tone: "green", summary: "沿阶段、时间线和双方计划检查推进节奏，并落实下一步。",
+        items: [
+          { title: "客户推进阶段", body: journey, kind: "journey" },
+          { title: "全流程客户推进记录", body: progress, kind: "timeline", collapsed: true },
+          { title: "当前未完成行动", body: pending, kind: "actions" },
+          { title: "阶段历史、目标与攻坚计划", body: execution, kind: "plan", collapsed: true },
+          { title: "联合工作计划", body: jointWorkPlan, kind: "plan", collapsed: true },
+          { title: "材料与证据索引", body: evidence, kind: "evidence", collapsed: true },
+        ],
+      },
     ];
+    const specs = groups.map(group => ({
+      title: group.title,
+      body: categoryBody(group.summary, group.items),
+      className: `report-category report-category--${group.tone}`,
+      children: group.items.filter(item => item.body).map(item => ({ title: item.title, id: sectionMeta(item.title)[0] })),
+    }));
     const sections = specs.map(spec => section(spec.title, spec.body, spec.className)).join("");
     const toc = reportToc(specs);
-    const opening = openingSummary(summaryEntries, context.mascotSrc);
-    return heading + opening + reportGuide() + journey + `<div class="report-body-layout">${toc}<div class="report-main">${sections}</div></div>`;
+    const opening = openingSummary(summaryEntries);
+    return heading + `<div class="report-body-layout">${toc}<div class="report-content">${opening}${panorama(name, groups)}<div class="report-main">${sections}</div></div></div>`;
   }
 
   function wrapWord(html, styles) {
