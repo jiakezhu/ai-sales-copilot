@@ -73,6 +73,9 @@ function loadReportIntegrationTestApi(reportBuilder) {
   const reportLayerClasses = makeClasses(["hidden"]);
   const toastClasses = makeClasses(["hidden"]);
   let focused = false;
+  const downloads = [];
+  const revokedUrls = [];
+  const createdBlobs = [];
   const returnFocus = { focus() { focused = true; } };
   const elements = {
     "#reportDocument": { innerHTML: "" },
@@ -84,21 +87,28 @@ function loadReportIntegrationTestApi(reportBuilder) {
     console: { ...console, error() {} },
     ReportBuilder: reportBuilder,
     FIELD_DEFS: [], CRM_STAGES: [], CONTACT_METHODS: [], ASSET_TYPES: [],
-    THEME_KEY: "theme",
+    THEME_KEY: "theme", todayStr() { return "2026-08-10"; },
     document: {
       activeElement: returnFocus,
       documentElement: { dataset: { theme: "light" } },
-      body: { classList: makeClasses([]).api },
+      body: { classList: makeClasses([]).api, appendChild() {} },
       addEventListener() {},
+      createElement(tag) {
+        if (tag !== "a") return {};
+        return { href: "", download: "", click() { downloads.push({ href: this.href, download: this.download }); }, remove() {} };
+      },
       querySelector(selector) { return elements[selector] || null; },
       querySelectorAll() { return []; },
     },
+    Blob,
+    fetch: async () => ({ ok: false }),
+    URL: { createObjectURL(blob) { createdBlobs.push(blob); return "blob:report"; }, revokeObjectURL(url) { revokedUrls.push(url); } },
     window: { scrollTo() {} },
     localStorage: { setItem() {} },
-    setTimeout() { return 1; }, clearTimeout() {}, requestAnimationFrame() {},
+    setTimeout(callback) { if (typeof callback === "function") callback(); return 1; }, clearTimeout() {}, requestAnimationFrame() {},
   };
-  vm.runInNewContext(`${read("app.js")}\n;globalThis.__reportIntegrationTestApi = { openReport, buildReport, exportWordReport, setCustomers(value) { customers = value; }, setReportCustomer(value) { reportCustomer = value; }, setReportReturnFocus(value) { reportReturnFocus = value; } };`, sandbox);
-  return { api: sandbox.__reportIntegrationTestApi, elements, reportLayerClasses, toastClasses, returnFocus, wasFocused: () => focused };
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__reportIntegrationTestApi = { openReport, buildReport, exportHtmlReport, exportWordReport, setCustomers(value) { customers = value; }, setReportCustomer(value) { reportCustomer = value; }, setReportReturnFocus(value) { reportReturnFocus = value; } };`, sandbox);
+  return { api: sandbox.__reportIntegrationTestApi, elements, reportLayerClasses, toastClasses, returnFocus, downloads, revokedUrls, createdBlobs, wasFocused: () => focused };
 }
 
 function loadFinalFixApi() {
@@ -957,7 +967,7 @@ test("report covers populated customer intelligence without mutating source data
     "远帆科技", "企业服务", "李总", "成本压力", "迁移方案", "确认预算范围", "提交报价",
     "采购向 CFO 汇报", "进入方案评估", "完成测试", "组织技术评审", "会议纪要.pdf",
   ]) assert.match(html, new RegExp(expected));
-  assert.equal((html.match(/成本压力/g) || []).length, 2, "summary must not remove the pain point from its core section");
+  assert.equal((html.match(/成本压力/g) || []).length, 3, "opening summary and mind map must not remove the pain point from its core section");
   assert.match(reportSection(html, "痛点、竞品与匹配方案"), /成本压力/);
   assert.match(reportSection(html, "客户基本信息与情报"), /迁移风险/);
   assert.equal(JSON.stringify(customer), before);
@@ -1116,13 +1126,13 @@ test("report escapes customer data and suppresses empty values", () => {
   }, reportContext);
 
   assert.match(html, /&lt;客户&amp;公司&gt;/);
-  assert.equal((html.match(new RegExp(repeatedFact, "g")) || []).length, 2, "summary may reference a fact retained in its core section");
+  assert.equal((html.match(new RegExp(repeatedFact, "g")) || []).length, 3, "opening summary and mind map may reference a fact retained in its core section");
   assert.doesNotMatch(html, />\s*undefined\s*</);
   assert.doesNotMatch(html, /<p><\/p>|<li><\/li>|<td><\/td>/);
   assert.doesNotMatch(html, /全流程客户推进记录|组织与关键关系/);
 });
 
-test("report builder is the single source for preview and Word export", () => {
+test("report builder is the single source for preview and standalone HTML export", () => {
   const html = read("index.html");
   const js = read("app.js");
   const reportScript = html.indexOf('<script src="report.js"></script>');
@@ -1130,9 +1140,12 @@ test("report builder is the single source for preview and Word export", () => {
 
   assert.ok(reportScript > 0 && appScript > reportScript);
   assert.match(js, /return builder\.build\(reportSource,\s*\{/);
-  assert.match(js, /builder\.wrapWord\(\$\("#reportDocument"\)\.innerHTML,\s*WORD_REPORT_STYLES\)/);
+  assert.match(js, /builder\.wrapHtml\(reportBody,\s*\{/);
+  assert.match(html, /data-action="export-html"[\s\S]*一键导出 HTML/);
+  assert.doesNotMatch(html, /data-action="export-(?:word|pdf)"/);
   assert.doesNotMatch(js, /function reportList|function reportEmpty|const reportRow/);
-  assert.doesNotMatch(read("report.js"), /云销副驾|企鹅|AI\s*生成|实时汇总|report-footer/);
+  assert.doesNotMatch(read("report.js"), /云销副驾|AI\s*生成|实时汇总|class="report-footer"/);
+  assert.match(read("report.js"), /report-summary-mascot[\s\S]*Sales Buddy 企鹅助手/);
 });
 
 test("report markup exposes one professional hierarchy without legacy decoration", () => {
@@ -1143,9 +1156,64 @@ test("report markup exposes one professional hierarchy without legacy decoration
   }, reportContext);
 
   assert.match(report, /^<header class="report-heading">/);
-  assert.match(report, /class="report-field-grid/);
+  assert.match(report, /class="report-profile-tree/);
   assert.match(report, /class="report-progress"/);
   assert.doesNotMatch(report, /report-cover|report-brand|report-empty|report-footer/);
+});
+
+test("report opens with a visual management narrative instead of a flat list", () => {
+  const html = ReportBuilder.build({
+    name: "客户视觉样例",
+    stage: "proposal",
+    grade: "A",
+    fields: { relation: { v: "技术负责人支持" } },
+    painPoints: [{ v: "海外访问体验影响付费" }],
+    notes: [{ next: "安排技术评审", nextDate: "2026-08-15", taskDone: false }],
+    opportunityDiagnosis: { pain: 8, power: 6, vision: 5, value: 4, control: 3, milestone: 7 },
+    painChain: { signal: "海外用户增长", pain: "访问延迟", impact: "付费转化下降", solution: "全球加速", question: "是否愿意进行延迟测试", inferred: true },
+  }, { ...reportContext, stages: [
+    { key: "lead", label: "线索" }, { key: "contact", label: "建联中" }, { key: "meeting", label: "已约见" }, { key: "proposal", label: "方案中" }, { key: "won", label: "已成交" },
+  ] });
+  assert.match(html, /class="report-opening-summary"[\s\S]*一页看懂这家客户/);
+  assert.match(html, /class="report-guide"/);
+  assert.match(html, /class="report-journey"/);
+  assert.match(html, /class="report-toc"[\s\S]*href="#report-summary"[\s\S]*href="#report-diagnosis"/);
+  assert.ok(html.indexOf('id="report-diagnosis"') > html.indexOf('id="report-evidence"') || !html.includes('id="report-evidence"'));
+  assert.match(html, /class="report-stage-node is-done /);
+  assert.match(html, /class="report-stage-node  is-current/);
+  assert.match(html, /class="report-mindmap report-mindmap--compact"[\s\S]*客户推进主线/);
+  assert.match(html, /class="report-radar"[\s\S]*class="report-radar-area"/);
+  assert.match(html, /class="report-opportunity-path" style="--path-count:5"[\s\S]*外部信号[\s\S]*客户确认问题/);
+  assert.match(html, /销售假设与待确认问题（非事实）/);
+});
+
+test("customer intelligence is grouped into a classified tree and keeps every populated fact", () => {
+  const html = ReportBuilder.build({
+    name: "分类树客户",
+    fields: {
+      creditCode: { v: "91110000TEST" }, staff: { v: "500人" }, product: { v: "出海应用" },
+      techStack: { v: "Go + Kubernetes" }, hiring: { v: "招聘海外运营" }, relation: { v: "CTO已建联" },
+    },
+  }, { ...reportContext, fieldDefs: [
+    { key: "creditCode", label: "统一社会信用代码" }, { key: "staff", label: "团队规模" }, { key: "product", label: "主力产品" },
+    { key: "techStack", label: "技术栈" }, { key: "hiring", label: "招聘信号" }, { key: "relation", label: "客户关系" },
+  ] });
+  const profile = reportSection(html, "客户基本信息与情报");
+  for (const category of ["工商身份", "规模与资本", "产品与经营", "技术与云现状", "市场信号与风险", "销售关系与策略"]) assert.match(profile, new RegExp(category));
+  for (const fact of ["91110000TEST", "500人", "出海应用", "Go + Kubernetes", "招聘海外运营", "CTO已建联"]) assert.ok(profile.includes(fact));
+  assert.match(profile, /class="report-profile-tree"/);
+  assert.doesNotMatch(profile, /class="report-field-grid"/);
+});
+
+test("empty diagnosis fields do not become fake zero-score radar data", () => {
+  const html = ReportBuilder.build({
+    name: "诊断待确认客户",
+    opportunityDiagnosis: { pain: "", power: null, note: "等待客户确认" },
+  }, reportContext);
+  const diagnosis = reportSection(html, "六维机会诊断");
+  assert.match(diagnosis, /部分维度待确认/);
+  assert.match(diagnosis, /等待客户确认/);
+  assert.doesNotMatch(diagnosis, /report-radar-area|：0\/10|--score:0%/);
 });
 
 test("a minimal report flows naturally without forcing progress onto a new page", () => {
@@ -1157,7 +1225,7 @@ test("a minimal report flows naturally without forcing progress onto a new page"
   assert.match(report, /全流程客户推进记录/);
   assert.doesNotMatch(report, /page-break/);
   assert.doesNotMatch(read("style.css"), /\.report-section\.page-break|break-before:\s*page/i);
-  assert.doesNotMatch(read("app.js").match(/const WORD_REPORT_STYLES = `([\s\S]*?)`;/)?.[1] || "", /page-break-before:\s*always/i);
+  assert.doesNotMatch(read("app.js").match(/const HTML_REPORT_STYLES = `([\s\S]*?)`;/)?.[1] || "", /page-break-before:\s*always/i);
 });
 
 test("report styles are content-first, A4 printable, dark-safe, and mobile readable", () => {
@@ -1170,9 +1238,11 @@ test("report styles are content-first, A4 printable, dark-safe, and mobile reada
   assert.match(css, /body\s*>\s*\*\s*\{[^}]*display:\s*none\s*!important/i);
   assert.match(css, /\.report-layer\s*\{[^}]*display:\s*block\s*!important/i);
   assert.match(css, /\.no-print\s*\{[^}]*display:\s*none\s*!important/i);
-  assert.match(css, /\.report-document\s*\{[^}]*background:\s*#fff[^}]*color:\s*#172b4d/i);
+  assert.match(css, /\.report-document\s*\{[^}]*border-radius:24px[^}]*background:#fff[^}]*color:#172033/i);
+  assert.match(css, /\.report-heading\s*\{[^}]*linear-gradient\(135deg,#102a56 0%,#155eef 62%,#4d8dff 100%\)/i);
   assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-actions\s*\{[^}]*flex-wrap:\s*wrap/i);
   assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-field-grid\s*\{[^}]*grid-template-columns:\s*1fr/i);
+  assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-diagnosis-list\s*\{[^}]*grid-template-columns:\s*1fr 1fr/i);
   assert.doesNotMatch(css, /\.report-brand|\.report-cover|\.report-empty|\.report-footer/);
 });
 
@@ -1184,6 +1254,56 @@ test("Word wrapper embeds the supplied professional styles around exactly the re
   assert.match(word, /<style>body\{font-family:'Microsoft YaHei';margin:20mm\}<\/style>/);
   assert.equal((word.match(/客户事实/g) || []).length, 1);
   assert.doesNotMatch(word, /云销副驾|企鹅|AI\s*生成|实时汇总|report-footer/);
+});
+
+test("standalone HTML wrapper is responsive, self-contained, and safe to share", () => {
+  const body = '<header class="report-heading"><h1>客户甲</h1></header>';
+  const styles = ".report-document{background:#fff}@media(max-width:720px){.report-document{width:100%}}";
+  const html = ReportBuilder.wrapHtml(body, {
+    styles,
+    title: '<客户&甲> · 全景报告',
+    description: '客户甲报告',
+    generatedAt: '2026年8月10日',
+  });
+  assert.match(html, /^<!DOCTYPE html>/i);
+  assert.match(html, /<meta name="viewport" content="width=device-width,initial-scale=1">/);
+  assert.match(html, /Content-Security-Policy[^>]*default-src 'none'/);
+  assert.match(html, /<title>&lt;客户&amp;甲&gt; · 全景报告<\/title>/);
+  assert.match(html, /<body class="report-export-page"><main class="report-document">/);
+  assert.match(html, /<style>\.report-document\{background:#fff\}/);
+  assert.match(html, /报告生成于 2026年8月10日/);
+  assert.ok((html.match(/客户甲/g) || []).length >= 2);
+  assert.doesNotMatch(html, /<script\b|<link\b|https?:\/\//i);
+});
+
+test("HTML export downloads one UTF-8 self-contained report with a safe filename", async () => {
+  const harness = loadReportIntegrationTestApi(ReportBuilder);
+  harness.api.setReportCustomer({ id: "c1", name: '客户/甲:*?' });
+  harness.elements["#reportDocument"].innerHTML = '<header class="report-heading"><h1>客户甲</h1></header>';
+  await harness.api.exportHtmlReport();
+  assert.equal(harness.downloads.length, 1);
+  assert.match(harness.downloads[0].download, /^客户_甲____客户全景报告_\d{4}-\d{2}-\d{2}\.html$/);
+  assert.equal(harness.downloads[0].href, "blob:report");
+  assert.equal(harness.createdBlobs[0].type, "text/html;charset=utf-8");
+  assert.equal(harness.revokedUrls[0], "blob:report");
+  const content = await harness.createdBlobs[0].text();
+  assert.match(content, /^<!DOCTYPE html>/);
+  assert.match(read("app.js"), /new Blob\(\["\\ufeff", doc\], \{ type: "text\/html;charset=utf-8" \}\)/);
+  assert.match(content, /<style>[\s\S]*report-heading[\s\S]*<body class="report-export-page">/);
+  assert.match(harness.elements["#toast"].textContent, /HTML 报告已导出/);
+});
+
+test("HTML export uses a leadership-ready responsive theme", () => {
+  const styles = read("app.js").match(/const HTML_REPORT_STYLES = `([\s\S]*?)`;/)?.[1] || "";
+  assert.match(styles, /body\.report-export-page[\s\S]*background:\s*#edf2f8/i);
+  assert.match(styles, /\.report-document[\s\S]*width:\s*min\(1120px,[\s\S]*border-radius:\s*24px/i);
+  assert.match(styles, /\.report-heading[\s\S]*linear-gradient\(135deg,/i);
+  assert.match(styles, /\.report-guide[\s\S]*\.report-journey[\s\S]*\.report-mindmap[\s\S]*\.report-radar[\s\S]*\.report-opportunity-path/);
+  assert.match(styles, /\.report-executive[\s\S]*\.report-diagnosis-list[\s\S]*\.report-progress/);
+  assert.match(read("style.css"), /\.report-guide[\s\S]*\.report-mindmap[\s\S]*\.report-radar[\s\S]*\.report-opportunity-path/);
+  assert.match(styles, /@media\s*\(max-width:\s*680px\)/i);
+  assert.match(styles, /@media\s*print/i);
+  assert.doesNotMatch(styles, /@import|url\s*\(/i);
 });
 
 test("Word export mirrors the preview hierarchy with professional Chinese pagination", () => {
@@ -1378,7 +1498,10 @@ test("mobile, motion, and mascot boundaries are explicit", () => {
   assert.match(css, /@media\s*\(max-width:\s*680px\)/);
   assert.match(css, /@media\s*\(max-width:\s*390px\)/);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
-  assert.doesNotMatch(reportAdapter, /qq-penguin|企鹅|assets\//);
+  assert.doesNotMatch(reportAdapter, /qq-penguin/);
+  assert.match(reportAdapter, /mascotSrc:\s*"assets\/penguin\/stand\.png"/);
+  assert.match(reportAdapter, /function blobToDataUrl/);
+  assert.match(reportAdapter, /function inlineReportMascot/);
 });
 
 test("390px customer cards retain every business-priority field", () => {
@@ -1436,17 +1559,21 @@ test("dark surfaces and compact report preview remain explicit", () => {
 
   assert.match(css, /\[data-theme="dark"\]\s+\.modal-panel\s*\{/);
   assert.match(css, /\[data-theme="dark"\]\s+\.report-toolbar\s*\{/);
-  assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-document\s*\{[^}]*width:\s*100%[^}]*padding:\s*30px 18px/i);
+  assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-document\s*\{[^}]*width:\s*100%[^}]*padding:\s*0 16px 34px/i);
   assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-field-grid\s*\{[^}]*grid-template-columns:\s*1fr/i);
+  assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-diagnosis-list\s*\{[^}]*grid-template-columns:\s*1fr 1fr/i);
 });
 
-test("390px report toolbar keeps close in the title row and exports together", () => {
+test("390px report toolbar keeps one HTML export action and an accessible close button", () => {
   const css = read("style.css");
+  const html = read("index.html");
   const compact = css.slice(css.indexOf("@media (max-width:390px)"), css.indexOf("@media print"));
 
   assert.match(compact, /\.report-toolbar\s*\{[^}]*position:\s*relative/i);
-  assert.match(compact, /\.report-actions\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(2,minmax\(0,1fr\)\)/i);
+  assert.match(compact, /\.report-actions\s*\{[^}]*display:\s*flex/i);
+  assert.match(compact, /\.report-actions \.primary-button\s*\{[^}]*width:\s*100%[^}]*height:\s*44px/i);
   assert.match(compact, /\.report-actions \.icon-button\s*\{[^}]*position:\s*absolute[^}]*top:\s*10px[^}]*right:\s*12px[^}]*width:\s*44px[^}]*height:\s*44px/i);
+  assert.equal((html.match(/data-action="export-html"/g) || []).length, 1);
 });
 
 test("natural Chinese dates and date-prefixed actions resolve against a fixed base date", () => {
