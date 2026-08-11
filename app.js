@@ -19,6 +19,7 @@ let customerMultiSelectEnabled = false;
 let toastTimer = null;
 let assistantStateTimer = null;
 let currentAssistantState = "idle";
+let activeVoiceCapture = null;
 let modalReturnFocus = null;
 let reportReturnFocus = null;
 const trustedEvidenceBlobUrls = new Set();
@@ -261,6 +262,7 @@ async function handleAction(event) {
   if (action === "edit-note") return openManualEntry(trigger.dataset.customer, trigger.dataset.note);
   if (action === "remove-note") return deleteProgressNote(trigger.dataset.customer, trigger.dataset.note);
   if (action === "focus-copilot") return focusCopilot();
+  if (action === "mobile-voice") return startMobileVoiceCapture();
   if (action === "analyze-ai") return analyzeCopilot();
   if (action === "voice") return startVoiceCapture(trigger);
   if (action === "confirm-ai") return confirmAIDraft();
@@ -1783,6 +1785,18 @@ function focusCopilot() {
   });
 }
 
+function startMobileVoiceCapture() {
+  if (state.page !== "today") {
+    state.page = "today";
+    state.customerId = null;
+    renderApp();
+  }
+  const button = $(".voice-button");
+  if (!button) return toast("语音输入暂时不可用，请刷新页面后重试");
+  $("#copilotCard")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  return startVoiceCapture(button);
+}
+
 async function handleCopilotFiles(fileList) {
   const attachments = [];
   let failed = 0;
@@ -1947,9 +1961,111 @@ function discardAIDraft() {
   setAssistantState("idle");
 }
 
+function restoreVoiceButton(button) {
+  if (!button) return;
+  button.classList.remove("recording");
+  button.disabled = false;
+  button.innerHTML = `${icon("mic")} 语音`;
+  refreshIcons();
+}
+
+function appendVoiceText(text, before = "") {
+  const input = $("#copilotInput");
+  if (!input || !text) return;
+  input.value = `${before}${before ? " " : ""}${text}`;
+  input.dispatchEvent?.(new Event("input", { bubbles: true }));
+  input.focus();
+}
+
+function voiceErrorMessage(error) {
+  if (error?.name === "NotAllowedError" || error?.name === "SecurityError") return "麦克风权限未开启，请在浏览器设置中允许后重试";
+  if (error?.name === "NotFoundError") return "没有找到可用麦克风";
+  if (error?.code === "AI_NOT_CONFIGURED") return "手机语音识别服务尚未配置，请联系管理员";
+  if (error?.code === "UNAUTHORIZED") return "登录已过期，请重新登录后使用语音输入";
+  return error?.message || "语音识别失败，请再试一次或改用文字输入";
+}
+
+async function blobToBase64(blob) {
+  const buffer = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function startRecordedVoiceCapture(button) {
+  if (activeVoiceCapture?.recorder?.state === "recording") {
+    activeVoiceCapture.recorder.stop();
+    return;
+  }
+  if (window.isSecureContext === false) {
+    return toast("手机语音需要 HTTPS 安全连接，请通过正式域名打开");
+  }
+  const mediaDevices = window.navigator?.mediaDevices;
+  if (!mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    return toast("当前浏览器不支持语音输入，请使用最新版 Safari 或 Chrome");
+  }
+  if (typeof SalesAPI === "undefined" || !SalesAPI.transcribeAudio) {
+    return toast("语音识别服务暂时不可用，请稍后重试");
+  }
+  const input = $("#copilotInput");
+  const before = input?.value || "";
+  let stream;
+  try {
+    stream = await mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    const candidates = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
+    const mimeType = candidates.find(type => window.MediaRecorder.isTypeSupported?.(type)) || "";
+    const recorder = new window.MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const chunks = [];
+    const capture = { recorder, stream, timer: null };
+    activeVoiceCapture = capture;
+    recorder.ondataavailable = event => { if (event.data?.size) chunks.push(event.data); };
+    recorder.onerror = () => toast("录音失败，请检查麦克风权限后重试");
+    recorder.onstop = async () => {
+      clearTimeout(capture.timer);
+      stream.getTracks().forEach(track => track.stop());
+      if (activeVoiceCapture === capture) activeVoiceCapture = null;
+      button.innerHTML = `${icon("loader-circle")} 识别中`;
+      button.disabled = true;
+      refreshIcons();
+      try {
+        const blob = new Blob(chunks, { type: recorder.mimeType || chunks[0]?.type || "audio/mp4" });
+        if (!blob.size) throw new Error("录音内容为空，请重试");
+        const text = await SalesAPI.transcribeAudio(await blobToBase64(blob), blob.type.split(";")[0]);
+        appendVoiceText(text, before);
+      } catch (error) {
+        toast(voiceErrorMessage(error));
+      } finally {
+        state.recording = false;
+        reconcileAssistantState();
+        restoreVoiceButton(button);
+      }
+    };
+    state.recording = true;
+    setAssistantState("listening");
+    button.classList.add("recording");
+    button.innerHTML = `${icon("square")} 结束录音`;
+    refreshIcons();
+    recorder.start(250);
+    capture.timer = setTimeout(() => recorder.state === "recording" && recorder.stop(), 60_000);
+  } catch (error) {
+    stream?.getTracks?.().forEach(track => track.stop());
+    activeVoiceCapture = null;
+    state.recording = false;
+    reconcileAssistantState();
+    restoreVoiceButton(button);
+    toast(voiceErrorMessage(error));
+  }
+}
+
 function startVoiceCapture(button) {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) return toast("当前浏览器暂不支持语音识别，可以直接输入文字");
+  const mobileDevice = /Android|iPhone|iPad|iPod|Mobile/i.test(window.navigator?.userAgent || "")
+    || (window.navigator?.maxTouchPoints > 0 && window.matchMedia?.("(pointer: coarse)").matches);
+  if (!Recognition || mobileDevice) return startRecordedVoiceCapture(button);
   if (state.recording) return;
   const recognition = new Recognition();
   recognition.lang = "zh-CN";
@@ -1966,13 +2082,11 @@ function startVoiceCapture(button) {
     const speech = Array.from(event.results).map(result => result[0].transcript).join("");
     input.value = `${before}${before ? " " : ""}${speech}`;
   };
-  recognition.onerror = () => toast("没有听清，请再试一次或改用文字输入");
+  recognition.onerror = event => toast(event?.error === "not-allowed" ? "麦克风权限未开启，请在浏览器设置中允许后重试" : "没有听清，请再试一次或改用文字输入");
   recognition.onend = () => {
     state.recording = false;
     reconcileAssistantState();
-    button.classList.remove("recording");
-    button.innerHTML = `${icon("mic")} 语音`;
-    refreshIcons();
+    restoreVoiceButton(button);
     input.focus();
   };
   recognition.start();

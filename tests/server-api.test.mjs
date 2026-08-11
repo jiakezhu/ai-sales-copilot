@@ -161,6 +161,52 @@ test("周期总结 AI 未配置时保留明确的 503 契约", async t => {
   assert.equal(result.json.error.code, "AI_NOT_CONFIGURED");
 });
 
+test("手机录音可通过服务端转成文字", async t => {
+  let upstreamCall;
+  const baseUrl = await startTestServer(t, {
+    aiApiUrl: "https://api.example.com/v1/chat/completions",
+    aiApiKey: "test-key",
+    aiTranscribeModel: "test-transcribe-model",
+    async fetchFn(url, init) {
+      upstreamCall = { url, init };
+      return new Response(JSON.stringify({ text: "客户计划下周扩容" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  const user = await register(baseUrl, "voice@example.com");
+
+  const result = await request(baseUrl, "/api/ai/transcribe", {
+    method: "POST",
+    token: user.token,
+    body: { audio: Buffer.from("fake-audio").toString("base64"), mimeType: "audio/mp4" },
+  });
+
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.json, { text: "客户计划下周扩容" });
+  assert.equal(upstreamCall.url, "https://api.example.com/v1/audio/transcriptions");
+  assert.equal(upstreamCall.init.headers.authorization, "Bearer test-key");
+  assert.equal(upstreamCall.init.body.get("model"), "test-transcribe-model");
+  assert.equal(upstreamCall.init.body.get("language"), "zh");
+  assert.equal(await upstreamCall.init.body.get("file").text(), "fake-audio");
+});
+
+test("手机录音接口拒绝不支持的音频格式", async t => {
+  const baseUrl = await startTestServer(t, {
+    aiApiUrl: "https://api.example.com/v1",
+    aiApiKey: "test-key",
+  });
+  const user = await register(baseUrl, "voice-format@example.com");
+  const result = await request(baseUrl, "/api/ai/transcribe", {
+    method: "POST",
+    token: user.token,
+    body: { audio: "YWJj", mimeType: "text/plain" },
+  });
+  assert.equal(result.response.status, 400);
+  assert.equal(result.json.error.code, "INVALID_AUDIO_TYPE");
+});
+
 test("周期总结润色拒绝空内容", async t => {
   const baseUrl = await startTestServer(t);
   const user = await register(baseUrl, "empty-review@example.com");

@@ -148,6 +148,19 @@ test("polishReview sends the rule summary and returns polished text", async () =
   assert.deepEqual(JSON.parse(harness.calls[0].init.body), { summary: "本周有效跟进 3 次" });
 });
 
+test("transcribeAudio sends mobile recording data and returns recognized text", async () => {
+  const harness = loadAPI([
+    jsonResponse(200, { text: "刚和王工沟通了云资源扩容" }),
+  ], { storage: { sales_api_token: "valid-token" } });
+
+  const result = await harness.api.transcribeAudio("YWJj", "audio/mp4");
+
+  assert.equal(result, "刚和王工沟通了云资源扩容");
+  assert.equal(harness.calls[0].url, "/api/ai/transcribe");
+  assert.equal(harness.calls[0].init.headers.Authorization, "Bearer valid-token");
+  assert.deepEqual(JSON.parse(harness.calls[0].init.body), { audio: "YWJj", mimeType: "audio/mp4" });
+});
+
 test("isConfigured only enables API calls on HTTP(S) pages", () => {
   assert.equal(loadAPI([], { protocol: "https:" }).api.isConfigured(), true);
   assert.equal(loadAPI([], { protocol: "http:" }).api.isConfigured(), true);
