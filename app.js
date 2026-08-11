@@ -98,10 +98,15 @@ function updateCurrentUserUI() {
   const nameNode = $("#currentUserName");
   const metaNode = $("#currentUserMeta");
   const avatarNode = $("#currentUserAvatar");
+  const mobileAvatarNode = $("#mobileUserAvatar");
+  const mobileAccountButton = $("#mobileAccountButton");
   const logoutButton = $(".user-logout");
   if (nameNode) nameNode.textContent = name;
   if (metaNode) metaNode.textContent = user?.email || (user ? "数据仅当前账号可见" : "本地演示模式");
-  if (avatarNode) avatarNode.textContent = String(name).trim().slice(0, 1) || "销";
+  const avatarText = String(name).trim().slice(0, 1) || "销";
+  if (avatarNode) avatarNode.textContent = avatarText;
+  if (mobileAvatarNode) mobileAvatarNode.textContent = avatarText;
+  if (mobileAccountButton) mobileAccountButton.setAttribute("aria-label", `账户：${name}`);
   if (logoutButton) logoutButton.hidden = !user;
 }
 
@@ -227,7 +232,10 @@ async function handleAction(event) {
   if (action === "nav") return navigate(trigger.dataset.page);
   if (action === "go-today") return navigate("today");
   if (action === "theme") return toggleTheme();
-  if (action === "logout") return AuthCoordinator?.logout?.();
+  if (action === "open-mobile-account") return openMobileAccount();
+  if (action === "mobile-account-theme") { toggleTheme(); return updateMobileAccountThemeUI(); }
+  if (action === "logout" || action === "request-logout") return openLogoutConfirmation();
+  if (action === "confirm-logout") return AuthCoordinator?.logout?.();
   if (action === "new-customer") return openNewCustomer();
   if (action === "import-customers") return openCustomerImport();
   if (action === "download-import-template") return downloadCustomerImportTemplate();
@@ -3333,10 +3341,68 @@ function toggleTheme() {
   applyTheme(next);
   localStorage.setItem(THEME_KEY, next);
 }
-function showModal(content) {
+
+function openMobileAccount() {
+  const user = typeof AuthCoordinator !== "undefined" ? AuthCoordinator.user : null;
+  const mode = typeof AuthCoordinator !== "undefined" ? AuthCoordinator.mode : "local";
+  const name = user?.name || user?.displayName || user?.email || "我的工作台";
+  const meta = user?.email || (user ? "数据仅当前账号可见" : "本地演示模式");
+  const avatarText = String(name).trim().slice(0, 1) || "销";
+  const dark = document.documentElement.dataset.theme === "dark";
+  showModal(`
+    <div class="mobile-account-sheet">
+      <div class="modal-head mobile-account-head">
+        <div><p class="eyebrow">ACCOUNT</p><h2 id="modalTitle">账户与设置</h2></div>
+        <button class="icon-button" type="button" data-action="close-modal" aria-label="关闭账户面板">${icon("x")}</button>
+      </div>
+      <section class="mobile-account-identity" aria-label="当前账户">
+        <span class="mobile-account-avatar" aria-hidden="true">${safe(avatarText)}</span>
+        <span><b>${safe(name)}</b><small>${safe(meta)}</small></span>
+        <em>${user ? "已登录" : mode === "local" ? "演示模式" : "未登录"}</em>
+      </section>
+      <div class="mobile-account-actions">
+        <button id="mobileAccountTheme" class="mobile-account-row" type="button" data-action="mobile-account-theme" aria-pressed="${dark}">
+          <span class="mobile-account-row-icon">${icon(dark ? "sun" : "moon-star")}</span>
+          <span><b>外观模式</b><small>切换应用的明暗主题</small></span>
+          <em>${dark ? "深色" : "浅色"}</em>${icon("chevron-right")}
+        </button>
+        ${user ? `<button class="mobile-account-row mobile-account-logout" type="button" data-action="request-logout">
+          <span class="mobile-account-row-icon">${icon("log-out")}</span>
+          <span><b>退出登录</b><small>退出后需要重新验证账户</small></span>${icon("chevron-right")}
+        </button>` : `<div class="mobile-account-note">当前未连接账户服务，因此没有可退出的登录会话。</div>`}
+      </div>
+    </div>`, "mobile-account-panel");
+}
+
+function updateMobileAccountThemeUI() {
+  const button = $("#mobileAccountTheme");
+  if (!button) return;
+  const dark = document.documentElement.dataset.theme === "dark";
+  button.setAttribute("aria-pressed", String(dark));
+  button.querySelector(".mobile-account-row-icon").innerHTML = icon(dark ? "sun" : "moon-star");
+  button.querySelector("em").textContent = dark ? "深色" : "浅色";
+  refreshIcons();
+}
+
+function openLogoutConfirmation() {
+  const user = typeof AuthCoordinator !== "undefined" ? AuthCoordinator.user : null;
+  if (!user) return;
+  const name = user?.name || user?.displayName || user?.email || "当前账户";
+  showModal(`
+    <div class="logout-confirmation">
+      <div class="logout-confirm-icon">${icon("log-out")}</div>
+      <div><p class="eyebrow">SIGN OUT</p><h2 id="modalTitle">确认退出登录？</h2></div>
+      <p>即将退出“${safe(name)}”。已保存的客户数据不会被删除，下次进入时需要重新登录。</p>
+      <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button type="button" class="danger-button" data-action="confirm-logout">确认退出</button></div>
+    </div>`, "logout-confirm-panel");
+}
+
+function showModal(content, panelClass = "") {
   const layer = $("#modalLayer");
   const panel = $("#modalPanel");
-  modalReturnFocus = document.activeElement;
+  if (layer.classList.contains("hidden")) modalReturnFocus = document.activeElement;
+  panel.className = `modal-panel${panelClass ? ` ${panelClass}` : ""}`;
+  layer.classList.toggle("mobile-account-layer", panelClass === "mobile-account-panel");
   panel.innerHTML = content;
   layer.classList.remove("hidden");
   layer.setAttribute("aria-hidden", "false");
@@ -3350,9 +3416,11 @@ function closeModal() {
   layer.classList.add("hidden");
   layer.setAttribute("aria-hidden", "true");
   document.body.classList.remove("modal-open");
+  layer.classList.remove("mobile-account-layer");
   resetCustomerImportDragState();
   restoreDialogFocus(modalReturnFocus);
   modalReturnFocus = null;
+  $("#modalPanel")?.classList.remove("mobile-account-panel", "logout-confirm-panel");
 }
 function restoreDialogFocus(element) {
   if (element && typeof element.focus === "function") element.focus({ preventScroll: true });
