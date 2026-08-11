@@ -454,21 +454,17 @@ test("customer admission is removed while bidding and qualifications move into i
   assert.match(css, /\.modern-select select\s*\{[^}]*appearance:none/);
 });
 
-test("crm v2 account intelligence adds three evidence-driven customer workspaces", () => {
+test("crm v2 intelligence is adapted into the fixed CRM workspace", () => {
   const js = read("app.js");
-  const css = read("style.css");
-  assert.match(js, /\["account360", "账户全景"\]/);
-  assert.match(js, /\["tencent-opportunity", "腾讯机会"\]/);
-  assert.match(js, /\["meeting-intelligence", "面客准备"\]/);
-  assert.match(js, /function renderAccountIntelligence\(customer\)/);
-  assert.match(js, /function renderTencentOpportunities\(customer\)/);
-  assert.match(js, /function renderMeetingIntelligence\(customer\)/);
-  assert.match(js, /12 维研究覆盖/);
-  assert.match(js, /销售假设/);
-  assert.match(js, /NEXT BEST ACTION/);
-  assert.match(css, /\.oi-coverage-grid\s*\{/);
-  assert.match(css, /\.oi-opportunity-grid\s*\{/);
-  assert.match(css, /\.oi-next-action\s*\{/);
+  const importer = read("customer-import.js");
+  const detail = js.slice(js.indexOf("function renderCustomerDetail"), js.indexOf("function renderGuidedActions"));
+  assert.doesNotMatch(detail, /账户全景|腾讯机会|面客准备/);
+  assert.match(detail, /作战概览[\s\S]*情报与证据[\s\S]*推进记录[\s\S]*关键关系/);
+  assert.match(importer, /function adaptOpportunityIntelligence\(customer\)/);
+  assert.match(importer, /putField\("industry"/);
+  assert.match(importer, /customer\.solution\.push/);
+  assert.match(importer, /customer\.meetingPreps\.push/);
+  assert.match(importer, /delete customer\.opportunityIntelligence/);
 });
 
 test("phase two groups global news and hiring into an editable external signal workspace", () => {

@@ -147,6 +147,9 @@ function ensureCustomerShape(customer) {
   if (!Array.isArray(customer.marketNews)) customer.marketNews = seedCopy("marketNews");
   if (!Array.isArray(customer.hiringSignals)) customer.hiringSignals = seedCopy("hiringSignals");
   if (!customer.painChain || typeof customer.painChain !== "object") customer.painChain = seedCopy("painChain");
+  if (customer.opportunityIntelligence && typeof CustomerImporter !== "undefined" && typeof CustomerImporter.adaptOpportunityIntelligence === "function") {
+    CustomerImporter.adaptOpportunityIntelligence(customer);
+  }
   if (!Array.isArray(customer.jointWorkPlan)) customer.jointWorkPlan = seedCopy("jointWorkPlan");
   if (Number(customer.phase2SeedVersion || 0) < 2 && seed) {
     if (!customer.marketNews.length) customer.marketNews = seedCopy("marketNews");
@@ -570,11 +573,8 @@ function renderCustomerDetail(customer) {
     ? getTasks(customer).find(task => task.note.id === state.taskFocus.noteId)
     : null;
   const next = focusedTask || getNextTask(customer) || getLatestCompletedTask(customer);
-  const panoramaTabs = customer.opportunityIntelligence
-    ? [["account360", "账户全景"], ["tencent-opportunity", "腾讯机会"], ["meeting-intelligence", "面客准备"]]
-    : [];
   const tabs = [
-    ["overview", "作战概览"], ...panoramaTabs, ["intel", "情报与证据"], ["timeline", "推进记录"], ["relations", "关键关系"], ["signals", "外部信号"], ["closing", "成交工具"],
+    ["overview", "作战概览"], ["intel", "情报与证据"], ["timeline", "推进记录"], ["relations", "关键关系"], ["signals", "外部信号"], ["closing", "成交工具"],
   ];
   return `<div class="page customer-detail">
     <button class="back-link" data-action="back-customers">${icon("arrow-left")} 返回客户列表</button>
@@ -833,9 +833,6 @@ function renderChoiceControl(customer, type) {
 }
 
 function renderCustomerTab(customer) {
-  if (state.customerTab === "account360") return renderAccountIntelligence(customer);
-  if (state.customerTab === "tencent-opportunity") return renderTencentOpportunities(customer);
-  if (state.customerTab === "meeting-intelligence") return renderMeetingIntelligence(customer);
   if (state.customerTab === "intel") return renderIntelligence(customer);
   if (state.customerTab === "timeline") return renderTimeline(customer);
   if (state.customerTab === "relations") return renderRelations(customer);
