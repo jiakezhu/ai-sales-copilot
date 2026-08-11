@@ -301,6 +301,20 @@
       if (!polished) throw new SalesAPIError("AI 未返回润色后的总结", { code: "INVALID_RESPONSE" });
       return polished;
     },
+
+    async transcribeAudio(audio, mimeType) {
+      const payload = payloadOf(await request("/api/ai/transcribe", {
+        method: "POST",
+        timeoutMs: 45_000,
+        body: {
+          audio: requiredText(audio, "录音数据"),
+          mimeType: requiredText(mimeType, "录音格式"),
+        },
+      }));
+      const text = stringValue(payload?.text || payload?.transcript);
+      if (!text) throw new SalesAPIError("没有识别到清晰语音", { code: "EMPTY_TRANSCRIPTION" });
+      return text;
+    },
   });
 
   global.SalesAPI = SalesAPI;

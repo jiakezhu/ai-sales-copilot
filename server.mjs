@@ -10,6 +10,8 @@ const scrypt = promisify(scryptCallback);
 const PROJECT_ROOT = fileURLToPath(new URL(".", import.meta.url));
 const JSON_BODY_LIMIT = 1024 * 1024;
 const CUSTOMERS_BODY_LIMIT = 10 * 1024 * 1024;
+const AUDIO_BODY_LIMIT = 12 * 1024 * 1024;
+const AUDIO_FILE_LIMIT = 8 * 1024 * 1024;
 const TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const AI_TEXT_LIMIT = 20_000;
 const FIELD_KEYS = [
@@ -345,6 +347,57 @@ function aiEndpoint(apiUrl) {
     : `${apiUrl.replace(/\/+$/, "")}/chat/completions`;
 }
 
+function transcriptionEndpoint(apiUrl) {
+  const normalized = apiUrl.replace(/\/+$/, "").replace(/\/chat\/completions$/, "");
+  return `${normalized}/audio/transcriptions`;
+}
+
+async function transcribeAudioWithAi(body, config) {
+  if (!config.apiUrl || !config.apiKey || !config.transcribeModel) {
+    error(503, "AI_NOT_CONFIGURED", "语音转文字服务尚未配置，请设置 AI_API_URL、AI_API_KEY 和 AI_TRANSCRIBE_MODEL");
+  }
+  const mimeType = typeof body.mimeType === "string" ? body.mimeType.trim().toLowerCase().split(";")[0] : "";
+  const supportedTypes = new Set(["audio/webm", "audio/mp4", "audio/mpeg", "audio/wav", "audio/ogg", "audio/x-m4a"]);
+  if (!supportedTypes.has(mimeType)) error(400, "INVALID_AUDIO_TYPE", "不支持当前录音格式，请换用系统浏览器后重试");
+  const encoded = typeof body.audio === "string" ? body.audio.trim() : "";
+  if (!encoded || !/^[a-z0-9+/]+={0,2}$/i.test(encoded)) error(400, "INVALID_AUDIO", "录音数据无效");
+  const audio = Buffer.from(encoded, "base64");
+  if (!audio.length) error(400, "INVALID_AUDIO", "录音内容为空");
+  if (audio.length > AUDIO_FILE_LIMIT) error(413, "AUDIO_TOO_LARGE", "单次录音不能超过 8 MB");
+
+  const extension = ({
+    "audio/webm": "webm", "audio/mp4": "m4a", "audio/mpeg": "mp3",
+    "audio/wav": "wav", "audio/ogg": "ogg", "audio/x-m4a": "m4a",
+  })[mimeType];
+  const form = new FormData();
+  form.append("model", config.transcribeModel);
+  form.append("language", "zh");
+  form.append("file", new Blob([audio], { type: mimeType }), `sales-voice.${extension}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  let response;
+  try {
+    response = await config.fetchFn(transcriptionEndpoint(config.apiUrl), {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.apiKey}` },
+      body: form,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") error(504, "AI_TIMEOUT", "语音识别响应超时");
+    error(502, "AI_UNAVAILABLE", "暂时无法连接语音识别服务");
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!response.ok) error(502, "AI_UPSTREAM_ERROR", `语音识别服务返回错误（HTTP ${response.status}）`);
+  let upstream;
+  try { upstream = await response.json(); }
+  catch { error(502, "AI_INVALID_RESPONSE", "语音识别服务返回了无效响应"); }
+  const text = typeof upstream?.text === "string" ? upstream.text.trim() : "";
+  if (!text) error(422, "EMPTY_TRANSCRIPTION", "没有识别到清晰语音，请靠近麦克风后重试");
+  return text;
+}
+
 async function extractWithAi(text, customerNames, config) {
   if (!config.apiUrl || !config.apiKey || !config.model) {
     error(503, "AI_NOT_CONFIGURED", "AI 服务尚未配置，请设置 AI_API_URL、AI_API_KEY 和 AI_MODEL");
@@ -556,7 +609,9 @@ export function createApp(options = {}) {
     apiUrl: options.aiApiUrl ?? process.env.AI_API_URL ?? "",
     apiKey: options.aiApiKey ?? process.env.AI_API_KEY ?? "",
     model: options.aiModel ?? process.env.AI_MODEL ?? "",
+    transcribeModel: options.aiTranscribeModel ?? process.env.AI_TRANSCRIBE_MODEL ?? "gpt-4o-mini-transcribe",
     timeoutMs: options.aiTimeoutMs || 30_000,
+    fetchFn: options.fetchFn || fetch,
   };
 
   return createServer(async (request, response) => {
@@ -653,6 +708,17 @@ export function createApp(options = {}) {
         if (summary.length > AI_TEXT_LIMIT) error(400, "INVALID_SUMMARY", `summary 不能超过 ${AI_TEXT_LIMIT} 个字符`);
         const polishedSummary = await polishReviewWithAi(summary, ai);
         sendJson(response, 200, { summary: polishedSummary });
+        return;
+      }
+
+      if (pathname === "/api/ai/transcribe" && request.method === "POST") {
+        const userId = requireAuth(request, tokenSecret);
+        const actor = `${userId}:${request.socket.remoteAddress || "unknown"}`;
+        checkAiMinuteRate(`${actor}:minute`);
+        checkAiDailyRate(`${actor}:day`);
+        const body = await readJsonBody(request, AUDIO_BODY_LIMIT);
+        const text = await transcribeAudioWithAi(body, ai);
+        sendJson(response, 200, { text });
         return;
       }
 

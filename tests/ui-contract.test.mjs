@@ -701,6 +701,16 @@ test("voice end returns to reviewing when an AI draft already exists", () => {
   assert.equal(buttonClasses.has("recording"), false);
 });
 
+test("mobile voice capture has a recording fallback instead of only rejecting unsupported speech APIs", () => {
+  const html = read("index.html");
+  const js = read("app.js");
+  assert.match(html, /data-action="mobile-voice"[^>]*aria-label="开始语音记录"/);
+  assert.match(js, /navigator\?\.mediaDevices/);
+  assert.match(js, /new window\.MediaRecorder/);
+  assert.match(js, /SalesAPI\.transcribeAudio/);
+  assert.match(js, /手机语音需要 HTTPS 安全连接/);
+});
+
 test("reconcile restores listening on a rebuilt Today card without extending success", () => {
   const makeCard = () => {
     const classes = new Set(["ai-assistant-card"]);
