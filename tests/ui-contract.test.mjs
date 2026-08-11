@@ -1931,6 +1931,24 @@ test("account API, import module, and SheetJS load before the application runtim
   assert.match(html, /data-action="logout"/);
 });
 
+test("mobile topbar exposes an account sheet without replacing the four primary tabs", () => {
+  const html = read("index.html");
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(html, /id="mobileAccountButton"[^>]*data-action="open-mobile-account"/);
+  assert.match(html, /id="mobileUserAvatar"/);
+  assert.match(js, /function openMobileAccount\(/);
+  assert.match(js, /data-action="mobile-account-theme"/);
+  assert.match(js, /data-action="request-logout"/);
+  assert.match(js, /data-action="confirm-logout"/);
+  assert.match(js, /function openLogoutConfirmation\(/);
+  assert.match(css, /\.mobile-account-trigger\{display:none/);
+  assert.match(css, /@media \(max-width:900px\)\{#themeToggle\{display:none\}\.mobile-account-trigger\{[^}]*width:44px[^}]*min-height:44px[^}]*display:grid/);
+  assert.match(css, /\.modal-layer\.mobile-account-layer\{[^}]*place-items:end center/);
+  assert.match(css, /\.modal-panel\.mobile-account-panel\{[^}]*border-radius:22px 22px 0 0/);
+  assert.match(css, /\.mobile-nav\{[^}]*grid-template-columns:repeat\(4,1fr\)/);
+});
+
 test("customer workspace exposes validated native JSON, CSV, and Excel batch import", () => {
   const js = read("app.js");
   assert.match(js, /data-action="import-customers"/);
