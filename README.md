@@ -17,7 +17,7 @@
 
 Sales Buddy 不是一个孤立的 CRM 页面，而是一条完整的销售工作流：WorkBuddy 中的专家理解目标并编排两个专业 Skill；Skill 生成可核验、可导入的客户数据；CRM Web App 接住研究结果，继续完成跟进、诊断、协同、复盘与报告输出。
 
-## 一眼看懂
+## 🚀 一眼看懂
 
 ```mermaid
 flowchart LR
@@ -32,7 +32,7 @@ flowchart LR
 > **示例：**“帮我找一批适合腾讯云的 AI 视频行业客户。”<br>
 > 系统可以把这句话逐步转成潜客清单、重点客户研究、CRM 客户档案、下一步行动和可分享报告。
 
-## 产品组成
+## 🧩 产品组成
 
 | 组件 | 角色 | 交付结果 |
 |---|---|---|
@@ -43,7 +43,7 @@ flowchart LR
 
 > WorkBuddy 专家运行在 WorkBuddy 中，不在本仓库内。本仓库包含 CRM Web App、两个 Skill 的源码与样例，以及它们之间的数据契约。
 
-## CRM Web App
+## 🖥️ CRM Web App
 
 CRM 以“下一步行动”为中心，而不是以填写字段为中心。
 
@@ -53,6 +53,37 @@ CRM 以“下一步行动”为中心，而不是以填写字段为中心。
 | **客户** | 客户筛选与分级、批量导入、客户作战空间、全景报告 |
 | **任务** | 从跟进记录自动形成待办，支持逾期识别、完成与恢复 |
 | **分析与复盘** | 周/月指标、关键进展、风险、下周期行动、规则总结与 AI 润色 |
+
+### 当前产品界面
+
+<p align="center">
+  <img src="docs/images/sales-buddy-today.png" alt="Sales Buddy 今日工作台" width="100%" />
+</p>
+
+<p align="center"><sub>🏠 今日工作台：AI 信息收件箱、优先行动与客户脉搏</sub></p>
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/sales-buddy-customers.png" alt="Sales Buddy 客户列表" />
+      <p align="center"><sub>📋 客户工作区</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/sales-buddy-account.png" alt="Sales Buddy 客户作战空间" />
+      <p align="center"><sub>🎯 单客户作战空间</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/images/sales-buddy-analytics.png" alt="Sales Buddy 分析与复盘" />
+      <p align="center"><sub>📊 分析与复盘</sub></p>
+    </td>
+    <td width="50%">
+      <img src="docs/images/sales-buddy-report.png" alt="Sales Buddy 客户全景报告" />
+      <p align="center"><sub>🗺️ 客户全景报告</sub></p>
+    </td>
+  </tr>
+</table>
 
 ### 从研究到成交的客户作战空间
 
@@ -94,21 +125,21 @@ CRM 以“下一步行动”为中心，而不是以填写字段为中心。
 
 </details>
 
-## 两个 Skill
+## 🔭 两个 Skill
 
-### 商机雷达｜批量找到值得跟的客户
+### 📡 商机雷达｜批量找到值得跟的客户
 
 商机雷达把企业视为“待验证客户”，不会把公开线索直接包装成已经存在的采购需求。它围绕业务匹配、近期事件、招聘、招采和生态线索发现候选，并为结论保留来源、置信度、风险、未知项和下一步确认问题。
 
 目录：[`获客Skill/enterprise-prospect-research/`](获客Skill/enterprise-prospect-research/)
 
-### 客户透镜｜把一家企业研究透
+### 🔍 客户透镜｜把一家企业研究透
 
 客户透镜首先锁定正确的法定主体，避免混淆品牌、母公司、子公司和同名企业；随后研究公司、业务、公开组织、关键事件、招聘、招采、资质、风险与潜在机会，并明确区分事实、推断和待确认问题。
 
 目录：[`调研Skill/enterprise-customer-deep-research/`](调研Skill/enterprise-customer-deep-research/)
 
-## 数据如何安全贯通
+## 🔗 数据如何安全贯通
 
 | 数据阶段 | 可以写入 | 不允许假装已经发生 |
 |---|---|---|
@@ -124,14 +155,14 @@ CRM 以“下一步行动”为中心，而不是以填写字段为中心。
 
 Schema 位于 [`docs/integration/`](docs/integration/)。导入模块会校验版本、字段、来源元数据、主体一致性，以及公开研究不得越权写入的销售私有字段。
 
-## 设计原则
+## 🛡️ 设计原则
 
 1. **AI 是副驾，销售拥有最终判断。** AI 负责发现、抽取、整理和建议；客户等级、关系状态、痛点、方案与行动由销售确认。
 2. **证据优先于看起来完整。** 没有可靠来源就保留未知；公开任职不等于已经建联；推断不会混入客户事实。
 3. **下一步行动是 CRM 的中心。** 产品优先回答“今天联系谁、要确认什么、有什么风险、下一步怎么推进”。
 4. **同一事实源贯穿全流程。** Skill、CRM、复盘与报告使用统一客户数据，减少重复整理和版本冲突。
 
-## 本地运行
+## ⚙️ 本地运行
 
 要求：Node.js 22 或更高版本。
 
@@ -163,7 +194,7 @@ AI_MODEL=your-model
 
 </details>
 
-## 验证
+## ✅ 验证
 
 ```bash
 npm run check
@@ -176,7 +207,7 @@ npm test
 167 tests · 167 passed · 0 failed
 ```
 
-## 推荐 Demo 路径
+## 🎬 推荐 Demo 路径
 
 1. 在 WorkBuddy 中说：“帮我找一批 XX 行业客户。”
 2. 查看商机雷达生成的潜客清单与 CRM JSON。
