@@ -270,6 +270,7 @@ async function handleAction(event) {
   if (action === "voice") return startVoiceCapture(trigger);
   if (action === "confirm-ai") return confirmAIDraft();
   if (action === "discard-ai") return discardAIDraft();
+  if (action === "set-ai-target") { closeChoiceMenus(); return selectAIDraftCustomer(trigger.dataset.customer || ""); }
   if (action === "open-customer") return openCustomer(trigger.dataset.id);
   if (action === "customer-tab") return switchCustomerTab(trigger.dataset.tab);
   if (action === "back-customers") { state.customerId = null; return renderApp(); }
@@ -292,6 +293,7 @@ async function handleAction(event) {
   if (action === "remove-contact") return removeContact(trigger.dataset.customer, trigger.dataset.contact);
   if (action === "open-asset") return openEvidenceAsset(trigger.dataset.customer, trigger.dataset.asset);
   if (action === "remove-asset") return deleteEvidenceAsset(trigger.dataset.customer, trigger.dataset.asset);
+  if (action === "set-select-picker") return setSelectPickerValue(trigger);
   if (action === "toggle-choice") return toggleChoiceMenu(trigger);
   if (action === "toggle-row-menu") return;
   if (action === "set-stage") { closeChoiceMenus(); return updateCustomerStage(trigger.dataset.customer, trigger.dataset.value); }
@@ -344,8 +346,7 @@ async function handleChange(event) {
     return;
   }
   if (target.id === "aiTargetSelect" && state.aiDraft) {
-    state.aiDraft.customerId = target.value;
-    renderAIDraft();
+    return selectAIDraftCustomer(target.value);
   }
 }
 
@@ -1154,7 +1155,7 @@ function submitPainChain(form) {
 function openWorkPlanItem(customerId, itemId = "") {
   const customer = getCustomer(customerId); if (!customer) return;
   const item = customer.jointWorkPlan.find(entry => entry.id === itemId) || {};
-  showModal(`<div class="modal-head"><div><p class="eyebrow">MUTUAL ACTION PLAN</p><h2 id="modalTitle">${itemId ? "编辑" : "添加"}联合计划里程碑</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="work-plan"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><input type="hidden" name="itemId" value="${safe(itemId)}" /><label>共同里程碑<input name="title" required value="${safe(item.title || "")}" placeholder="例如：完成东南亚三地延迟 PoC" /></label><label>交付物<textarea name="deliverable" rows="2" placeholder="双方完成后能够共同确认的结果">${safe(item.deliverable || "")}</textarea></label><div class="form-row"><label>我方负责人<input name="ourOwner" value="${safe(item.ourOwner || "")}" /></label><label>客户负责人<input name="customerOwner" value="${safe(item.customerOwner || "")}" /></label></div><div class="form-row"><label>计划日期<input type="date" name="dueDate" value="${safe(item.dueDate || "")}" /></label><label>状态<div class="modern-select"><select name="status">${[["todo","待开始"],["doing","进行中"],["done","已完成"]].map(([key,label]) => `<option value="${key}" ${(item.status || "todo") === key ? "selected" : ""}>${label}</option>`).join("")}</select>${icon("chevron-down")}</div></label></div><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存里程碑</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">MUTUAL ACTION PLAN</p><h2 id="modalTitle">${itemId ? "编辑" : "添加"}联合计划里程碑</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="work-plan"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><input type="hidden" name="itemId" value="${safe(itemId)}" /><label>共同里程碑<input name="title" required value="${safe(item.title || "")}" placeholder="例如：完成东南亚三地延迟 PoC" /></label><label>交付物<textarea name="deliverable" rows="2" placeholder="双方完成后能够共同确认的结果">${safe(item.deliverable || "")}</textarea></label><div class="form-row"><label>我方负责人<input name="ourOwner" value="${safe(item.ourOwner || "")}" /></label><label>客户负责人<input name="customerOwner" value="${safe(item.customerOwner || "")}" /></label></div><div class="form-row"><label>计划日期<input type="date" name="dueDate" value="${safe(item.dueDate || "")}" /></label>${renderFormPicker("状态", { name: "status", value: item.status || "todo", options: [["todo","待开始","尚未进入执行"],["doing","进行中","双方正在推进"],["done","已完成","里程碑已经达成"]], iconName: "activity" })}</div><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存里程碑</button></div></form>`);
 }
 
 function submitWorkPlan(form) {
@@ -1383,7 +1384,26 @@ function intelFieldRecord(customer, key) {
   const field = customer.fields[key] || {};
   return { v: "", source: "", confidence: "unverified", verifiedAt: "", ...field };
 }
-function selectOptions(options, selected) { return options.map(([key, label]) => `<option value="${safe(key)}" ${key === selected ? "selected" : ""}>${safe(label)}</option>`).join(""); }
+function normalizePickerOptions(options) {
+  return (options || []).map(item => {
+    if (Array.isArray(item)) return { value: String(item[0] ?? ""), label: String(item[1] ?? item[0] ?? ""), description: String(item[2] ?? ""), mark: String(item[3] ?? "") };
+    return { value: String(item?.value ?? ""), label: String(item?.label ?? item?.value ?? ""), description: String(item?.description ?? ""), mark: String(item?.mark ?? "") };
+  });
+}
+function renderSelectPicker({ id = "", name, value = "", options, disabled = false, iconName = "list-filter", ariaLabel = "请选择" }) {
+  const items = normalizePickerOptions(options);
+  const selectedValue = String(value ?? "");
+  const selected = items.find(item => item.value === selectedValue) || items[0] || { value: "", label: "请选择", description: "", mark: "" };
+  const optionMarkup = items.map(item => {
+    const active = item.value === selectedValue;
+    const mark = item.mark || Array.from(item.label || "选")[0] || "选";
+    return `<button type="button" class="choice-option select-picker-option ${active ? "selected" : ""}" data-action="set-select-picker" data-value="${safe(item.value)}" data-label="${safe(item.label)}" role="option" aria-selected="${active}"><span class="select-picker-mark">${safe(mark)}</span><span class="select-picker-copy"><b>${safe(item.label)}</b>${item.description ? `<small>${safe(item.description)}</small>` : ""}</span>${active ? icon("check") : ""}</button>`;
+  }).join("");
+  return `<div class="choice-control select-picker ${disabled ? "is-disabled" : ""}" data-select-picker><input type="hidden" data-select-picker-input ${id ? `id="${safe(id)}"` : ""} name="${safe(name)}" value="${safe(selectedValue)}" /><button type="button" class="choice-trigger select-picker-trigger ${selectedValue ? "has-value" : ""}" data-action="toggle-choice" aria-haspopup="listbox" aria-expanded="false" aria-label="${safe(`${ariaLabel}：${selected.label}`)}" ${disabled ? "disabled" : ""}><span class="select-picker-trigger-icon">${icon(iconName)}</span><b>${safe(selected.label)}</b>${icon("chevron-down")}</button><div class="choice-menu select-picker-menu" role="listbox" aria-label="${safe(ariaLabel)}">${optionMarkup}</div></div>`;
+}
+function renderFormPicker(label, settings) {
+  return `<div class="form-field form-picker-field"><span class="form-field-label">${safe(label)}</span>${renderSelectPicker({ ...settings, ariaLabel: settings.ariaLabel || label })}</div>`;
+}
 function intelEvidenceMeta(item) {
   const verified = item?.verifiedAt ? `核验 ${item.verifiedAt}` : "待核";
   return [intelSourceLabel(item?.source), intelConfidenceLabel(item?.confidence), verified].join(" · ");
@@ -1896,8 +1916,9 @@ function renderAIDraft() {
   if (!host || !state.aiDraft) return;
   const draft = state.aiDraft;
   const fields = Object.entries(draft.found);
+  const selectedCustomer = getCustomer(draft.customerId);
   host.innerHTML = `<section class="ai-review">
-    <div class="review-head"><div><span class="review-kicker">${draft.source === "api" ? "AI API 已整理" : "本地规则已整理"} · 等待确认</span><h3>准备写入客户档案</h3></div><label>关联客户<div class="modern-select"><select id="aiTargetSelect"><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${draft.customerId === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${icon("chevron-down")}</div></label></div>
+    <div class="review-head"><div><span class="review-kicker">${draft.source === "api" ? "AI API 已整理" : "本地规则已整理"} · 等待确认</span><h3>准备写入客户档案</h3></div><div class="ai-target-field"><span class="ai-target-label">关联客户</span><div class="choice-control ai-target-control"><button type="button" class="choice-trigger ai-target-trigger ${selectedCustomer ? "has-value" : ""}" data-action="toggle-choice" aria-haspopup="listbox" aria-expanded="false"><span class="ai-target-trigger-icon">${icon("building-2")}</span><b>${safe(selectedCustomer?.name || "请选择客户")}</b>${icon("chevron-down")}</button><div class="choice-menu ai-target-menu" role="listbox" aria-label="关联客户"><button type="button" class="choice-option ai-target-option ${draft.customerId ? "" : "selected"}" data-action="set-ai-target" data-customer="" role="option" aria-selected="${!draft.customerId}"><span class="ai-target-avatar ai-target-avatar--empty">${icon("circle-dashed")}</span><span class="ai-target-option-copy"><b>请选择客户</b><small>暂不关联客户档案</small></span>${draft.customerId ? "" : icon("check")}</button>${customers.map(c => `<button type="button" class="choice-option ai-target-option ${draft.customerId === c.id ? "selected" : ""}" data-action="set-ai-target" data-customer="${safe(c.id)}" role="option" aria-selected="${draft.customerId === c.id}"><span class="ai-target-avatar">${safe(Array.from(c.name || "客")[0] || "客")}</span><span class="ai-target-option-copy"><b>${safe(c.name)}</b><small>${safe(c.fields?.industry?.v || stageLabel(c.stage))} · ${safe(c.grade)} 级</small></span>${draft.customerId === c.id ? icon("check") : ""}</button>`).join("")}</div></div></div></div>
     <div class="review-items">
       <label class="review-item main-review"><input class="draft-check" type="checkbox" data-kind="note" checked /><span class="review-check"></span><div><small>新增推进记录 · ${safe(methodMeta(draft.method).label)}</small><b>${safe(draft.raw)}</b>${draft.contact ? `<p>对接人：${safe(draft.contact)}</p>` : ""}</div></label>
       ${fields.map(([key,value]) => { const def=FIELD_DEFS.find(d=>d.key===key); return `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="field" data-key="${key}" checked /><span class="review-check"></span><div><small>更新情报 · ${safe(def?.label || key)} · AI 提取后待核</small><b>${safe(value)}</b></div></label>`; }).join("")}
@@ -1908,6 +1929,12 @@ function renderAIDraft() {
   </section>`;
   reconcileAssistantState();
   refreshIcons();
+}
+
+function selectAIDraftCustomer(customerId) {
+  if (!state.aiDraft) return;
+  state.aiDraft.customerId = customerId;
+  renderAIDraft();
 }
 
 function confirmAIDraft() {
@@ -2125,7 +2152,7 @@ function openCustomerImport() {
         <span id="customerImportDropAction" class="customer-import-drop-action">选择文件</span>
       </label>
       <div id="customerImportDropError" class="customer-import-drop-error" role="alert" hidden></div>
-      <label>遇到同名客户<div class="modern-select"><select id="customerImportStrategy" name="strategy"><option value="skip">跳过，不覆盖现有数据</option><option value="update">更新现有客户的非空字段</option></select>${icon("chevron-down")}</div></label>
+      ${renderFormPicker("遇到同名客户", { id: "customerImportStrategy", name: "strategy", value: "skip", options: [["skip","跳过，不覆盖现有数据","保留 CRM 中的原客户"],["update","更新现有客户的非空字段","合并导入文件中的最新信息"]], iconName: "copy-check" })}
       <div id="customerImportPreview" class="import-preview" aria-live="polite"></div>
       <div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button id="customerImportSubmit" class="primary-button" disabled>${icon("upload")} 确认导入</button></div>
     </form>`);
@@ -2579,7 +2606,8 @@ function openManualEntry(customerId, noteId = "") {
   const note = customer?.notes.find(item => item.id === noteId);
   const value = (input) => safe(input || "");
   const dateValue = note?.date ? String(note.date).replace(" ", "T").slice(0, 16) : toLocalInput(new Date());
-  showModal(`<div class="modal-head"><div><p class="eyebrow">PROGRESS ENTRY</p><h2 id="modalTitle">${note ? "编辑客户推进" : "手动记录客户推进"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="manual-entry"><input type="hidden" name="noteId" value="${value(noteId)}" /><label>关联客户<div class="modern-select"><select name="customerId" required ${note ? "disabled" : ""}><option value="">请选择客户</option>${customers.map(c => `<option value="${c.id}" ${selected === c.id ? "selected" : ""}>${safe(c.name)}</option>`).join("")}</select>${note ? `<input type="hidden" name="customerId" value="${selected}" />` : ""}${icon("chevron-down")}</div></label><fieldset class="choice-fieldset"><legend>沟通方式</legend><div class="option-cards method-options">${CONTACT_METHODS.map((m,i) => `<label><input type="radio" name="method" value="${m.key}" ${note ? note.method === m.key : i===0 ? "checked" : ""}/><span>${icon(methodIconName(m.key))}</span><b>${safe(m.label)}</b></label>`).join("")}</div></fieldset><label>沟通时间<input type="datetime-local" name="date" value="${dateValue}" /></label><label>对接人<input name="contact" value="${value(note?.contact)}" placeholder="姓名或职位" /></label><label>沟通内容<textarea name="content" rows="5" placeholder="记录对方态度、需求、异议和重要事实">${value(note?.content)}</textarea></label><div class="form-row"><label>下一步行动<input name="next" value="${value(note?.next)}" placeholder="例如：发送方案、预约拜访" /></label><label>提醒日期<input type="date" name="nextDate" value="${value(note?.nextDate)}" /></label></div>${note?.attachments?.length ? `<div class="preserved-attachments"><b>已有材料（保存编辑时保留）</b>${note.attachments.map(a => `<span>${icon("paperclip")} ${safe(a.name)}</span>`).join("")}</div>` : ""}<label class="file-field">${icon("paperclip")} 佐证材料<input type="file" name="files" multiple /><small>支持图片和常见文件；材料会关联到本次推进记录</small></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} ${note ? "保存修改" : "保存推进记录"}</button></div></form>`);
+  const customerOptions = [{ value: "", label: "请选择客户", description: "选择要写入的客户档案", mark: "—" }, ...customers.map(c => ({ value: c.id, label: c.name, description: `${c.fields?.industry?.v || stageLabel(c.stage)} · ${c.grade} 级`, mark: Array.from(c.name || "客")[0] || "客" }))];
+  showModal(`<div class="modal-head"><div><p class="eyebrow">PROGRESS ENTRY</p><h2 id="modalTitle">${note ? "编辑客户推进" : "手动记录客户推进"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="manual-entry"><input type="hidden" name="noteId" value="${value(noteId)}" />${renderFormPicker("关联客户", { name: "customerId", value: selected, options: customerOptions, disabled: Boolean(note), iconName: "building-2" })}<fieldset class="choice-fieldset"><legend>沟通方式</legend><div class="option-cards method-options">${CONTACT_METHODS.map((m,i) => `<label><input type="radio" name="method" value="${m.key}" ${note ? note.method === m.key : i===0 ? "checked" : ""}/><span>${icon(methodIconName(m.key))}</span><b>${safe(m.label)}</b></label>`).join("")}</div></fieldset><label>沟通时间<input type="datetime-local" name="date" value="${dateValue}" /></label><label>对接人<input name="contact" value="${value(note?.contact)}" placeholder="姓名或职位" /></label><label>沟通内容<textarea name="content" rows="5" placeholder="记录对方态度、需求、异议和重要事实">${value(note?.content)}</textarea></label><div class="form-row"><label>下一步行动<input name="next" value="${value(note?.next)}" placeholder="例如：发送方案、预约拜访" /></label><label>提醒日期<input type="date" name="nextDate" value="${value(note?.nextDate)}" /></label></div>${note?.attachments?.length ? `<div class="preserved-attachments"><b>已有材料（保存编辑时保留）</b>${note.attachments.map(a => `<span>${icon("paperclip")} ${safe(a.name)}</span>`).join("")}</div>` : ""}<label class="file-field">${icon("paperclip")} 佐证材料<input type="file" name="files" multiple /><small>支持图片和常见文件；材料会关联到本次推进记录</small></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} ${note ? "保存修改" : "保存推进记录"}</button></div></form>`);
 }
 
 async function submitManualEntry(form) {
@@ -2612,7 +2640,8 @@ function openContactForm(customerId, contactId = "") {
   if (!customer) return;
   const person = customer.orgChain.find(item => item.id === contactId);
   const value = input => safe(input || "");
-  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">${person ? "编辑关键联系人" : "添加关键联系人"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><input type="hidden" name="contactId" value="${value(contactId)}" /><div class="form-row"><label>姓名<input name="name" required value="${value(person?.name)}" /></label><label>职位<input name="role" value="${value(person?.role)}" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options">${[[1,"crown","决策层"],[2,"users","影响层"],[3,"wrench","执行层"]].map(([level,iconName,label]) => `<label><input type="radio" name="level" value="${level}" ${(person?.level || 2) === level ? "checked" : ""}/><span>${icon(iconName)}</span><b>${label}</b></label>`).join("")}</div></fieldset><div class="form-row"><label>上级<div class="modern-select"><select name="pid"><option value="">无上级</option>${customer.orgChain.filter(p => p.id !== contactId).map(p => `<option value="${p.id}" ${person?.pid === p.id ? "selected" : ""}>${safe(p.name)} · ${safe(p.role)}</option>`).join("")}</select>${icon("chevron-down")}</div></label><label>建联状态<div class="modern-select"><select name="relationStatus">${selectOptions(RELATION_STATUSES, person?.relationStatus || "pending")}</select>${icon("chevron-down")}</div></label></div><div class="form-row"><label>电话<input name="phone" value="${value(person?.phone)}" /></label><label>电话核验状态<div class="modern-select"><select name="phoneType">${selectOptions(PHONE_TYPES, person?.phoneType || "unverified")}</select>${icon("chevron-down")}</div></label></div><div class="form-row"><label>微信<input name="wechat" value="${value(person?.wechat)}" /></label><label>邮箱<input name="email" type="email" value="${value(person?.email)}" /></label></div><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点或公开证据；建联状态请使用上方选项">${value(person?.note)}</textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon(person ? "check" : "user-plus")} ${person ? "保存修改" : "保存联系人"}</button></div></form>`);
+  const managerOptions = [{ value: "", label: "无上级", description: "作为顶层联系人", mark: "—" }, ...customer.orgChain.filter(p => p.id !== contactId).map(p => ({ value: p.id, label: p.name, description: p.role || "角色待补充", mark: Array.from(p.name || "人")[0] || "人" }))];
+  showModal(`<div class="modal-head"><div><p class="eyebrow">STAKEHOLDER</p><h2 id="modalTitle">${person ? "编辑关键联系人" : "添加关键联系人"}</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="contact"><input type="hidden" name="customerId" value="${customer.id}" /><input type="hidden" name="contactId" value="${value(contactId)}" /><div class="form-row"><label>姓名<input name="name" required value="${value(person?.name)}" /></label><label>职位<input name="role" value="${value(person?.role)}" placeholder="例如：CTO、采购负责人" /></label></div><fieldset class="choice-fieldset"><legend>角色层级</legend><div class="option-cards role-options">${[[1,"crown","决策层"],[2,"users","影响层"],[3,"wrench","执行层"]].map(([level,iconName,label]) => `<label><input type="radio" name="level" value="${level}" ${(person?.level || 2) === level ? "checked" : ""}/><span>${icon(iconName)}</span><b>${label}</b></label>`).join("")}</div></fieldset><div class="form-row">${renderFormPicker("上级", { name: "pid", value: person?.pid || "", options: managerOptions, iconName: "network" })}${renderFormPicker("建联状态", { name: "relationStatus", value: person?.relationStatus || "pending", options: RELATION_STATUSES, iconName: "handshake" })}</div><div class="form-row"><label>电话<input name="phone" value="${value(person?.phone)}" /></label>${renderFormPicker("电话核验状态", { name: "phoneType", value: person?.phoneType || "unverified", options: PHONE_TYPES, iconName: "phone-call" })}</div><div class="form-row"><label>微信<input name="wechat" value="${value(person?.wechat)}" /></label><label>邮箱<input name="email" type="email" value="${value(person?.email)}" /></label></div><label>关系备注<textarea name="note" rows="3" placeholder="影响力、态度、关注点或公开证据；建联状态请使用上方选项">${value(person?.note)}</textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon(person ? "check" : "user-plus")} ${person ? "保存修改" : "保存联系人"}</button></div></form>`);
 }
 
 function submitContact(form) {
@@ -2624,7 +2653,7 @@ function submitContact(form) {
 
 function openBiddingForm(customerId) {
   const customer = getCustomer(customerId); if (!customer) return;
-  showModal(`<div class="modal-head"><div><p class="eyebrow">BIDDING SIGNAL</p><h2 id="modalTitle">添加招投标 / 中标信息</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="bidding"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><label>项目名称<input name="project" required placeholder="例如：XX 平台云资源采购" /></label><div class="form-row"><label>采购方<input name="purchaser" placeholder="项目采购主体" /></label><label>中标角色<div class="modern-select"><select name="role"><option value="">未标注</option><option value="总包">总包</option><option value="分包">分包</option></select>${icon("chevron-down")}</div></label></div><div class="form-row"><label>中标金额<input name="amount" placeholder="例如：320 万元" /></label><label>公告日期<input type="date" name="date" value="${todayStr()}" /></label></div><label>来源链接<input type="url" name="sourceUrl" placeholder="https://" /></label><div class="form-row"><label>来源<div class="modern-select"><select name="source">${selectOptions(INTEL_SOURCES, "")}</select>${icon("chevron-down")}</div></label><label>置信度<div class="modern-select"><select name="confidence">${selectOptions(INTEL_CONFIDENCES, "unverified")}</select>${icon("chevron-down")}</div></label></div><label>核验日期<input type="date" name="verifiedAt" /></label><label>业务信号<textarea name="signal" rows="3" placeholder="仅记录从项目中可确认的投入方向"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存信息</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">BIDDING SIGNAL</p><h2 id="modalTitle">添加招投标 / 中标信息</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="bidding"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><label>项目名称<input name="project" required placeholder="例如：XX 平台云资源采购" /></label><div class="form-row"><label>采购方<input name="purchaser" placeholder="项目采购主体" /></label>${renderFormPicker("中标角色", { name: "role", value: "", options: [["","未标注","尚未确认参与方式"],["总包","总包","承担项目整体交付"],["分包","分包","承担部分工作范围"]], iconName: "briefcase-business" })}</div><div class="form-row"><label>中标金额<input name="amount" placeholder="例如：320 万元" /></label><label>公告日期<input type="date" name="date" value="${todayStr()}" /></label></div><label>来源链接<input type="url" name="sourceUrl" placeholder="https://" /></label><div class="form-row">${renderFormPicker("来源", { name: "source", value: "", options: INTEL_SOURCES, iconName: "database" })}${renderFormPicker("置信度", { name: "confidence", value: "unverified", options: INTEL_CONFIDENCES, iconName: "shield-check" })}</div><label>核验日期<input type="date" name="verifiedAt" /></label><label>业务信号<textarea name="signal" rows="3" placeholder="仅记录从项目中可确认的投入方向"></textarea></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存信息</button></div></form>`);
 }
 function submitBidding(form) {
   const data = new FormData(form), customer = getCustomer(data.get("customerId")); if (!customer) return;
@@ -2638,7 +2667,7 @@ function removeBidding(customerId, itemId) {
 }
 function openQualificationForm(customerId) {
   const customer = getCustomer(customerId); if (!customer) return;
-  showModal(`<div class="modal-head"><div><p class="eyebrow">QUALIFICATION</p><h2 id="modalTitle">添加资质或许可</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="qualification"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><label>资质名称<input name="name" required placeholder="例如：增值电信业务经营许可证" /></label><div class="form-row"><label>资质类型<input name="type" placeholder="例如：ICP / 等保 / 版号" /></label><label>颁发机构<input name="authority" placeholder="例如：通信管理局" /></label></div><label>有效期至<input type="date" name="validTo" /></label><label>来源链接<input type="url" name="sourceUrl" placeholder="https://" /></label><div class="form-row"><label>来源<div class="modern-select"><select name="source">${selectOptions(INTEL_SOURCES, "")}</select>${icon("chevron-down")}</div></label><label>置信度<div class="modern-select"><select name="confidence">${selectOptions(INTEL_CONFIDENCES, "unverified")}</select>${icon("chevron-down")}</div></label></div><label>核验日期<input type="date" name="verifiedAt" /></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存资质</button></div></form>`);
+  showModal(`<div class="modal-head"><div><p class="eyebrow">QUALIFICATION</p><h2 id="modalTitle">添加资质或许可</h2></div><button class="icon-button" data-action="close-modal" aria-label="关闭弹窗">${icon("x")}</button></div><form class="modal-form" data-form="qualification"><input type="hidden" name="customerId" value="${safe(customer.id)}" /><label>资质名称<input name="name" required placeholder="例如：增值电信业务经营许可证" /></label><div class="form-row"><label>资质类型<input name="type" placeholder="例如：ICP / 等保 / 版号" /></label><label>颁发机构<input name="authority" placeholder="例如：通信管理局" /></label></div><label>有效期至<input type="date" name="validTo" /></label><label>来源链接<input type="url" name="sourceUrl" placeholder="https://" /></label><div class="form-row">${renderFormPicker("来源", { name: "source", value: "", options: INTEL_SOURCES, iconName: "database" })}${renderFormPicker("置信度", { name: "confidence", value: "unverified", options: INTEL_CONFIDENCES, iconName: "shield-check" })}</div><label>核验日期<input type="date" name="verifiedAt" /></label><div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">取消</button><button class="primary-button">${icon("check")} 保存资质</button></div></form>`);
 }
 function submitQualification(form) {
   const data = new FormData(form), customer = getCustomer(data.get("customerId")); if (!customer) return;
@@ -3235,6 +3264,28 @@ function methodIconName(method) {
 function refreshIcons() {
   if (!window.lucide?.createIcons) return;
   requestAnimationFrame(() => window.lucide.createIcons({ attrs: { "stroke-width": 1.8 } }));
+}
+function setSelectPickerValue(option) {
+  const control = option.closest("[data-select-picker]");
+  const input = control?.querySelector("[data-select-picker-input]");
+  const trigger = control?.querySelector(".select-picker-trigger");
+  if (!control || !input || !trigger || control.classList.contains("is-disabled")) return;
+  const value = String(option.dataset.value || "");
+  const label = String(option.dataset.label || option.textContent || "").trim();
+  input.value = value;
+  trigger.querySelector("b").textContent = label;
+  trigger.classList.toggle("has-value", Boolean(value));
+  trigger.setAttribute("aria-label", `${control.querySelector(".select-picker-menu")?.getAttribute("aria-label") || "请选择"}：${label}`);
+  control.querySelectorAll(".select-picker-option").forEach(item => {
+    const active = item === option;
+    item.classList.toggle("selected", active);
+    item.setAttribute("aria-selected", String(active));
+    item.querySelector(":scope > svg")?.remove();
+    if (active) item.insertAdjacentHTML("beforeend", icon("check"));
+  });
+  closeChoiceMenus();
+  if (input.id === "customerImportStrategy") renderCustomerImportPreview(value);
+  refreshIcons();
 }
 function toggleChoiceMenu(trigger) {
   const control = trigger.closest(".choice-control");
