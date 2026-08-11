@@ -451,7 +451,7 @@ test("customer admission is removed while bidding and qualifications move into i
   assert.match(intelligence, /商业与资质情报[\s\S]*renderBidding\(customer\)[\s\S]*renderQualifications\(customer\)/);
   assert.match(css, /\.intelligence-workspace\s*\{/);
   assert.match(css, /\.intelligence-research-grid\s*\{[^}]*grid-template-columns:repeat\(2/);
-  assert.match(css, /\.modern-select select\s*\{[^}]*appearance:none/);
+  assert.match(css, /\.select-picker\.choice-control\s+\.select-picker-menu\s*\{/);
 });
 
 test("crm v2 intelligence is adapted into the fixed CRM workspace", () => {
@@ -465,6 +465,28 @@ test("crm v2 intelligence is adapted into the fixed CRM workspace", () => {
   assert.match(importer, /customer\.solution\.push/);
   assert.match(importer, /customer\.meetingPreps\.push/);
   assert.match(importer, /delete customer\.opportunityIntelligence/);
+});
+
+test("AI draft customer association uses the app-styled customer picker", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.match(js, /class="choice-control ai-target-control"/);
+  assert.match(js, /data-action="set-ai-target"/);
+  assert.doesNotMatch(js, /<select id="aiTargetSelect"/);
+  assert.match(css, /\.choice-menu\.ai-target-menu\s*\{[^}]*max-height:260px[^}]*overflow-y:auto/i);
+  assert.match(css, /\.choice-option\.ai-target-option\.selected/);
+});
+
+test("all form dropdowns use one app-styled picker instead of native selects", () => {
+  const js = read("app.js");
+  const css = read("style.css");
+  assert.doesNotMatch(js, /<select\b/);
+  assert.equal((js.match(/\$\{renderFormPicker\(/g) || []).length, 11);
+  assert.match(js, /function renderSelectPicker\(/);
+  assert.match(js, /function setSelectPickerValue\(/);
+  assert.match(js, /data-select-picker-input/);
+  assert.match(css, /\.choice-trigger\.select-picker-trigger\s*\{/);
+  assert.match(css, /\.choice-option\.select-picker-option\.selected/);
 });
 
 test("phase two groups global news and hiring into an editable external signal workspace", () => {
@@ -2025,5 +2047,5 @@ test("关键关系使用独立建联状态而不是根据备注推断", () => {
   assert.match(js, /const RELATION_STATUSES =/);
   assert.match(js, /relationStatusMeta\(person\.relationStatus\)/);
   assert.doesNotMatch(js, /person\.note\s*\?\s*"已建联"/);
-  assert.match(js, /name="relationStatus"/);
+  assert.match(js, /name:\s*"relationStatus"/);
 });
