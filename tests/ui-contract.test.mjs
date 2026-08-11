@@ -76,6 +76,7 @@ function loadReportIntegrationTestApi(reportBuilder) {
   const downloads = [];
   const revokedUrls = [];
   const createdBlobs = [];
+  let printCount = 0;
   const returnFocus = { focus() { focused = true; } };
   const elements = {
     "#reportDocument": { innerHTML: "" },
@@ -90,7 +91,8 @@ function loadReportIntegrationTestApi(reportBuilder) {
     THEME_KEY: "theme", todayStr() { return "2026-08-10"; },
     document: {
       activeElement: returnFocus,
-      documentElement: { dataset: { theme: "light" } },
+      documentElement: { dataset: { theme: "light" }, classList: makeClasses([]).api },
+      fonts: { ready: Promise.resolve() },
       body: { classList: makeClasses([]).api, appendChild() {} },
       addEventListener() {},
       createElement(tag) {
@@ -103,12 +105,12 @@ function loadReportIntegrationTestApi(reportBuilder) {
     Blob,
     fetch: async () => ({ ok: false }),
     URL: { createObjectURL(blob) { createdBlobs.push(blob); return "blob:report"; }, revokeObjectURL(url) { revokedUrls.push(url); } },
-    window: { scrollTo() {} },
+    window: { scrollTo() {}, print() { printCount += 1; } },
     localStorage: { setItem() {} },
-    setTimeout(callback) { if (typeof callback === "function") callback(); return 1; }, clearTimeout() {}, requestAnimationFrame() {},
+    setTimeout(callback) { if (typeof callback === "function") callback(); return 1; }, clearTimeout() {}, requestAnimationFrame(callback) { if (typeof callback === "function") callback(); return 1; },
   };
-  vm.runInNewContext(`${read("app.js")}\n;globalThis.__reportIntegrationTestApi = { openReport, buildReport, exportHtmlReport, exportWordReport, setCustomers(value) { customers = value; }, setReportCustomer(value) { reportCustomer = value; }, setReportReturnFocus(value) { reportReturnFocus = value; } };`, sandbox);
-  return { api: sandbox.__reportIntegrationTestApi, elements, reportLayerClasses, toastClasses, returnFocus, downloads, revokedUrls, createdBlobs, wasFocused: () => focused };
+  vm.runInNewContext(`${read("app.js")}\n;globalThis.__reportIntegrationTestApi = { openReport, buildReport, exportHtmlReport, exportPdfReport, setCustomers(value) { customers = value; }, setReportCustomer(value) { reportCustomer = value; }, setReportReturnFocus(value) { reportReturnFocus = value; } };`, sandbox);
+  return { api: sandbox.__reportIntegrationTestApi, elements, reportLayerClasses, toastClasses, returnFocus, downloads, revokedUrls, createdBlobs, wasFocused: () => focused, printCount: () => printCount };
 }
 
 function loadFinalFixApi() {
@@ -934,7 +936,7 @@ test("report omits empty sections and all product-generation copy", () => {
   const html = ReportBuilder.build(customer, reportContext);
 
   assert.match(html, /星澜互娱/);
-  assert.match(html, /先看这四件事/);
+  assert.match(html, /关键信息/);
   assert.match(html, /全流程客户推进记录/);
   assert.match(html, /当前未完成行动/);
   assert.doesNotMatch(html, /云销副驾|AI\s*生成|实时汇总|营销话术|>(?:未填写|暂无|暂无内容|待补充)</);
@@ -974,7 +976,7 @@ test("report covers populated customer intelligence without mutating source data
   const html = ReportBuilder.build(customer, reportContext);
 
   for (const expected of [
-    "先看这四件事", "客户基本信息与情报", "组织与关键关系", "痛点、竞品与匹配方案",
+    "关键信息", "客户基本信息与情报", "组织与关键关系", "痛点、竞品与匹配方案",
     "全流程客户推进记录", "当前未完成行动", "阶段历史、目标与攻坚计划", "材料与证据索引",
     "远帆科技", "企业服务", "李总", "成本压力", "迁移方案", "确认预算范围", "提交报价",
     "采购向 CFO 汇报", "进入方案评估", "完成测试", "组织技术评审", "会议纪要.pdf",
@@ -1003,7 +1005,7 @@ test("report includes saved meeting preparation content without product copy", (
   assert.match(html, /确认海外业务的真实优先级/);
   assert.match(html, /今年海外收入目标是多少/);
   assert.match(html, /下次带海外节点延迟测试方案/);
-  assert.doesNotMatch(html, /Sales Buddy|AI|自动生成/);
+  assert.doesNotMatch(html, /\bAI\b|自动生成/);
 });
 
 test("report retains salesperson confirmation notes for pain and decision process", () => {
@@ -1155,8 +1157,12 @@ test("report builder is the single source for preview and standalone HTML export
   assert.ok(reportScript > 0 && appScript > reportScript);
   assert.match(js, /return builder\.build\(reportSource,\s*\{/);
   assert.match(js, /builder\.wrapHtml\(reportBody,\s*\{/);
+  assert.match(html, /data-action="export-pdf"[\s\S]*导出 PDF/);
   assert.match(html, /data-action="export-html"[\s\S]*一键导出 HTML/);
-  assert.doesNotMatch(html, /data-action="export-(?:word|pdf)"/);
+  assert.match(js, /if \(action === "export-pdf"\) return exportPdfReport\(\)/);
+  assert.match(js, /async function exportPdfReport\(\)[\s\S]*waitForReportPrintAssets\(\)[\s\S]*window\.print\(\)/);
+  assert.doesNotMatch(html, /data-action="export-word"|导出 Word/);
+  assert.doesNotMatch(js, /exportWordReport|WORD_REPORT_STYLES|wrapWord/);
   assert.doesNotMatch(js, /function reportList|function reportEmpty|const reportRow/);
   assert.doesNotMatch(read("report.js"), /云销副驾|AI\s*生成|实时汇总|class="report-footer"/);
   assert.match(read("report.js"), /report-stage-penguin[\s\S]*Sales Buddy 企鹅位于当前阶段/);
@@ -1192,10 +1198,12 @@ test("report opens with a visual management narrative instead of a flat list", (
   }, { ...reportContext, stages: [
     { key: "lead", label: "线索" }, { key: "contact", label: "建联中" }, { key: "meeting", label: "已约见" }, { key: "proposal", label: "方案中" }, { key: "won", label: "已成交" },
   ] });
-  assert.match(html, /class="report-opening-summary"[\s\S]*先看这四件事/);
+  assert.match(html, /class="report-opening-summary"[\s\S]*关键信息/);
   assert.match(html, /class="report-body-layout">[\s\S]*class="report-toc"[\s\S]*class="report-content"/);
-  assert.match(html, /class="report-toc-link report-toc-blue"[^>]*><strong>01<\/strong><span>客户画像<\/span>/);
+  assert.match(html, /class="report-toc-head"[\s\S]*📑 报告导航/);
+  assert.match(html, /class="report-toc-link report-toc-blue"[^>]*><strong>01<\/strong><span class="report-toc-main-emoji"[^>]*>👤<\/span><span>客户画像<\/span>/);
   assert.match(html, /class="report-toc-subs"[\s\S]*href="#report-sub-diagnosis"[\s\S]*六维机会诊断/);
+  assert.match(html, /class="report-toc-sub-emoji"[^>]*>🏢<\/span><span>客户基本信息与情报<\/span>/);
   assert.match(html, /href="#report-sub-journey"[\s\S]*客户推进阶段/);
   assert.match(html, /class="report-heading-facts"[\s\S]*行业[\s\S]*团队[\s\S]*融资[\s\S]*官网/);
   assert.ok(html.indexOf('class="report-toc"') > html.indexOf('class="report-heading"'));
@@ -1209,7 +1217,9 @@ test("report opens with a visual management narrative instead of a flat list", (
   assert.match(html, /class="report-radar"[\s\S]*class="report-radar-area"/);
   assert.match(html, /class="report-opportunity-path" style="--path-count:5"[\s\S]*外部信号[\s\S]*客户确认问题/);
   assert.match(html, /销售假设与待确认问题（非事实）/);
-  assert.match(html, /class="report-heading-brand"[\s\S]*SALES BUDDY[\s\S]*客户全景报告/);
+  assert.match(html, /<header><i[^>]*>🏢<\/i><h3>客户基本信息与情报<\/h3><\/header>/);
+  assert.match(html, /class="report-heading-brand"[\s\S]*class="report-heading-logo"[\s\S]*sales-buddy-logo-option-1\.png[\s\S]*alt="Sales Buddy"[\s\S]*客户全景报告[\s\S]*class="report-heading-layout"[\s\S]*class="report-heading-identity"/);
+  assert.doesNotMatch(html, /结论先行，详细事实按需展开|从客户事实出发，沿机会、关系和行动四条主线快速阅读|一起把客户看明白|推进导航|report-category-summary/);
   assert.doesNotMatch(html, /<(?:details|summary)\b|展开详情|收起/);
   assert.doesNotMatch(html, /<(?:ul|li)\b/);
 });
@@ -1240,6 +1250,7 @@ test("customer intelligence is grouped into a classified tree and keeps every po
   ] });
   const profile = reportSection(html, "客户基本信息与情报");
   for (const category of ["工商身份", "规模与资本", "产品与经营", "技术与云现状", "市场信号与风险", "销售关系与策略"]) assert.match(profile, new RegExp(category));
+  assert.match(profile, /🏢[\s\S]*📊[\s\S]*☁️[\s\S]*🛠️[\s\S]*📡[\s\S]*🤝/);
   for (const fact of ["91110000TEST", "500人", "出海应用", "Go + Kubernetes", "招聘海外运营", "CTO已建联"]) assert.ok(profile.includes(fact));
   assert.match(profile, /class="report-profile-tree"/);
   assert.doesNotMatch(profile, /class="report-field-grid"/);
@@ -1279,22 +1290,21 @@ test("report styles are content-first, A4 printable, dark-safe, and mobile reada
   assert.match(css, /\.report-layer\s*\{[^}]*display:\s*block\s*!important/i);
   assert.match(css, /\.no-print\s*\{[^}]*display:\s*none\s*!important/i);
   assert.match(css, /\.report-document\s*\{[^}]*border-radius:20px[^}]*background:#fff[^}]*color:#172033/i);
-  assert.match(css, /\.report-heading\s*\{[^}]*background:#f8faff[^}]*box-shadow:inset 0 5px 0 #155eef/i);
+  assert.match(css, /\.report-heading\s*\{[^}]*background:linear-gradient\(180deg,#fff 0%,#fbfcff 100%\)[^}]*box-shadow:inset 0 5px 0 #155eef/i);
+  assert.match(css, /--report-display-font:"Songti SC"[\s\S]*\.report-heading-title b\{[^}]*font-family:var\(--report-display-font\)[^}]*font-size:31px/i);
+  assert.match(css, /\.report-section h2\{[^}]*justify-content:center[^}]*font-family:var\(--report-display-font\)[^}]*font-size:21px[^}]*text-align:center/i);
+  assert.match(css, /\.report-subsection h3\{[^}]*font-family:var\(--report-display-font\)[^}]*font-size:17px[^}]*text-align:center/i);
+  assert.match(css, /\.report-tree-leaf\{[^}]*display:grid[^}]*grid-template-columns:92px minmax\(0,1fr\)[^}]*align-items:center/i);
+  assert.match(css, /\.report-tree-leaf span\{[^}]*border-radius:8px[^}]*font-size:10px[^}]*text-align:center/i);
+  assert.match(css, /\.report-field-grid>div\{[^}]*display:grid[^}]*grid-template-columns:96px minmax\(0,1fr\)[^}]*align-items:center/i);
+  assert.match(css, /\.report-summary-card\{[^}]*display:grid[^}]*justify-items:center[^}]*text-align:center/i);
+  assert.match(css, /\.report-mind-node,\.report-path-node,\.report-market-node,[^{]+\{[^}]*display:grid[^}]*justify-items:center[^}]*text-align:center/i);
+  assert.match(css, /\.report-record-cards article>div\{[^}]*display:grid[^}]*justify-items:center[^}]*text-align:center/i);
   assert.doesNotMatch(css, /\.report-heading\s*\{[^}]*linear-gradient\(135deg,#102a56/i);
   assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-actions\s*\{[^}]*flex-wrap:\s*wrap/i);
   assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-field-grid\s*\{[^}]*grid-template-columns:\s*1fr/i);
   assert.match(css, /@media\s*\(max-width:680px\)[\s\S]*?\.report-diagnosis-list\s*\{[^}]*grid-template-columns:\s*1fr 1fr/i);
   assert.doesNotMatch(css, /\.report-brand|\.report-cover|\.report-empty|\.report-footer/);
-});
-
-test("Word wrapper embeds the supplied professional styles around exactly the report body", () => {
-  const body = '<section class="report-section"><h2>客户事实</h2></section>';
-  const styles = "body{font-family:'Microsoft YaHei';margin:20mm}";
-  const word = ReportBuilder.wrapWord(body, styles);
-  assert.match(word, /^<!DOCTYPE html>/i);
-  assert.match(word, /<style>body\{font-family:'Microsoft YaHei';margin:20mm\}<\/style>/);
-  assert.equal((word.match(/客户事实/g) || []).length, 1);
-  assert.doesNotMatch(word, /云销副驾|企鹅|AI\s*生成|实时汇总|report-footer/);
 });
 
 test("standalone HTML wrapper is responsive, self-contained, and safe to share", () => {
@@ -1338,7 +1348,10 @@ test("HTML export uses a leadership-ready responsive theme", () => {
   const styles = read("app.js").match(/const HTML_REPORT_STYLES = `([\s\S]*?)`;/)?.[1] || "";
   assert.match(styles, /body\.report-export-page[\s\S]*background:\s*#f3f5f8/i);
   assert.match(styles, /\.report-document[\s\S]*width:\s*min\(1120px,[\s\S]*border-radius:\s*20px/i);
-  assert.match(styles, /\.report-heading[\s\S]*background:\s*#f8faff[\s\S]*box-shadow:\s*inset 0 5px 0 #155eef/i);
+  assert.match(styles, /\.report-heading[\s\S]*background:\s*linear-gradient\(180deg,#fff 0%,#fbfcff 100%\)[\s\S]*box-shadow:\s*inset 0 5px 0 #155eef/i);
+  assert.match(styles, /--report-display-font:\s*"Songti SC"[\s\S]*\.report-heading-title b\s*\{[^}]*font-family:\s*var\(--report-display-font\)[^}]*font-size:\s*31px/i);
+  assert.match(styles, /\.report-tree-leaf\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*92px minmax\(0,1fr\)[^}]*align-items:\s*center/i);
+  assert.match(styles, /\.report-summary-card\s*\{[^}]*display:\s*grid[^}]*justify-items:\s*center[^}]*text-align:\s*center/i);
   assert.match(styles, /\.report-body-layout\s*\{[^}]*grid-template-columns:\s*190px minmax\(0,1fr\)/i);
   assert.match(styles, /\.report-body-layout\s*\{[^}]*grid-template-columns:\s*220px minmax\(0,1fr\)/i);
   assert.match(styles, /\.report-toc-head b\s*\{[^}]*font-size:\s*16px/i);
@@ -1355,24 +1368,9 @@ test("HTML export uses a leadership-ready responsive theme", () => {
   assert.doesNotMatch(styles, /@import|url\s*\(/i);
 });
 
-test("Word export mirrors the preview hierarchy with professional Chinese pagination", () => {
-  const styles = read("app.js").match(/const WORD_REPORT_STYLES = `([\s\S]*?)`;/)?.[1] || "";
-
-  assert.match(styles, /@page\s*\{\s*size:\s*A4;\s*margin:\s*18mm 17mm/i);
-  assert.match(styles, /font-family:\s*"Microsoft YaHei",\s*"PingFang SC"/i);
-  assert.match(styles, /font-size:\s*10\.5pt/);
-  assert.match(styles, /line-height:\s*1\.65/);
-  assert.match(styles, /widows:\s*2;\s*orphans:\s*2/);
-  assert.match(styles, /\*\s*\{[^}]*box-sizing:\s*border-box/i);
-  assert.match(styles, /\.report-heading[\s\S]*\.report-field-grid[\s\S]*\.report-progress/);
-  assert.match(styles, /page-break-inside:\s*avoid/);
-});
-
 test("report styles do not carry table rules when the builder emits no tables", () => {
   assert.doesNotMatch(read("report.js"), /<table\b/i);
   assert.doesNotMatch(read("style.css"), /\.report-document\s+table|\.report-document\s+th|\.report-document\s+td/i);
-  const wordStyles = read("app.js").match(/const WORD_REPORT_STYLES = `([\s\S]*?)`;/)?.[1] || "";
-  assert.doesNotMatch(wordStyles, /(?:^|\n)\s*table\s*\{|(?:^|\n)\s*th\s*,\s*td\s*\{/i);
 });
 
 test("report filters only standalone placeholder sentinels and preserves real statements", () => {
@@ -1516,8 +1514,8 @@ test("report integration fails safely with a recoverable message when builder AP
     undefined,
     {},
     { build() { return ""; } },
-    { build() { throw new Error("broken build"); }, wrapWord() { return ""; } },
-    { build() { return null; }, wrapWord() { return ""; } },
+    { build() { throw new Error("broken build"); }, wrapHtml() { return ""; } },
+    { build() { return null; }, wrapHtml() { return ""; } },
   ]) {
     const harness = loadReportIntegrationTestApi(brokenBuilder);
     harness.api.setCustomers([{ id: "customer-1", name: "客户己" }]);
@@ -1542,7 +1540,7 @@ test("attitude enums are localized and missing customer names do not create empt
 test("mobile, motion, and mascot boundaries are explicit", () => {
   const css = read("style.css");
   const js = read("app.js");
-  const reportAdapter = js.slice(js.indexOf("function buildReport"), js.indexOf("function exportWordReport"));
+  const reportAdapter = js.slice(js.indexOf("function buildReport"), js.indexOf("// ---------- 数据计算 ----------"));
 
   assert.match(css, /@media\s*\(max-width:\s*900px\)/);
   assert.match(css, /@media\s*\(max-width:\s*680px\)/);
@@ -1551,7 +1549,7 @@ test("mobile, motion, and mascot boundaries are explicit", () => {
   assert.doesNotMatch(reportAdapter, /qq-penguin/);
   assert.match(reportAdapter, /mascotSrc:\s*"assets\/penguin\/stand\.png"/);
   assert.match(reportAdapter, /function blobToDataUrl/);
-  assert.match(reportAdapter, /function inlineReportMascot/);
+  assert.match(reportAdapter, /function inlineReportMascot[\s\S]*sales-buddy-logo-option-1\.png/);
 });
 
 test("390px customer cards retain every business-priority field", () => {
@@ -1618,7 +1616,7 @@ test("dark surfaces and compact report preview remain explicit", () => {
   assert.match(css, /@media\s*\(max-width:\s*680px\)[\s\S]*?\.report-diagnosis-list\s*\{[^}]*grid-template-columns:\s*1fr 1fr/i);
 });
 
-test("390px report toolbar keeps one HTML export action and an accessible close button", () => {
+test("390px report toolbar keeps all report export actions and an accessible close button", () => {
   const css = read("style.css");
   const html = read("index.html");
   const compact = css.slice(css.indexOf("@media (max-width:390px)"), css.indexOf("@media print"));
@@ -1626,8 +1624,12 @@ test("390px report toolbar keeps one HTML export action and an accessible close 
   assert.match(compact, /\.report-toolbar\s*\{[^}]*position:\s*relative/i);
   assert.match(compact, /\.report-actions\s*\{[^}]*display:\s*flex/i);
   assert.match(compact, /\.report-actions \.primary-button\s*\{[^}]*width:\s*100%[^}]*height:\s*44px/i);
+  assert.match(compact, /\.report-actions \.report-html-export\s*\{[^}]*flex-basis:\s*100%/i);
+  assert.match(compact, /\.report-actions \.report-export-button\s*\{[^}]*height:\s*44px[^}]*flex:\s*1/i);
   assert.match(compact, /\.report-actions \.icon-button\s*\{[^}]*position:\s*absolute[^}]*top:\s*10px[^}]*right:\s*12px[^}]*width:\s*44px[^}]*height:\s*44px/i);
   assert.equal((html.match(/data-action="export-html"/g) || []).length, 1);
+  assert.equal((html.match(/data-action="export-pdf"/g) || []).length, 1);
+  assert.equal((html.match(/data-action="export-word"/g) || []).length, 0);
 });
 
 test("natural Chinese dates and date-prefixed actions resolve against a fixed base date", () => {
@@ -1859,8 +1861,8 @@ test("final UI contract restores linear CRUD actions, complete evidence, and pin
 });
 
 test("report failures close the dialog, restore focus, and then toast", () => {
-  const harness = loadReportIntegrationTestApi({ build() { throw new Error("broken"); }, wrapWord() { throw new Error("broken"); } });
-  harness.api.setCustomers([{ id: "c1", name: "客户" }]);
+  const harness = loadReportIntegrationTestApi({ build() { throw new Error("broken"); }, wrapHtml() { throw new Error("broken"); } });
+  harness.api.setCustomers([{ id: "c1", name: "客户", fields: {}, opportunityDiagnosis: {}, notes: [], assets: [], orgChain: [], painPoints: [], solution: [], stageHistory: [], raidFile: {} }]);
   harness.reportLayerClasses.values.delete("hidden");
   harness.api.setReportReturnFocus(harness.returnFocus);
   harness.api.openReport("c1");
@@ -1869,14 +1871,14 @@ test("report failures close the dialog, restore focus, and then toast", () => {
   assert.match(harness.elements["#toast"].textContent, /报告组件/);
 });
 
-test("Word export failures use the same close, focus restoration, and toast recovery", () => {
-  const harness = loadReportIntegrationTestApi({ build() { return "<p>报告</p>"; }, wrapWord() { throw new Error("broken export"); } });
-  harness.api.setCustomers([{ id: "c1", name: "客户" }]);
+test("PDF export waits for report assets and opens the native print dialog once", async () => {
+  const harness = loadReportIntegrationTestApi({ build() { return "<p>中文报告 🧭</p>"; }, wrapHtml() { return "<html></html>"; } });
+  harness.api.setCustomers([{ id: "c1", name: "客户", stage: "lead", fields: {}, opportunityDiagnosis: {}, guidedConfirmations: {}, notes: [], assets: [], orgChain: [], painPoints: [], solution: [], stageHistory: [], meetingReviews: [], meetingPreps: [], marketNews: [], hiringSignals: [], businessBrief: {}, raidFile: {} }]);
   harness.api.openReport("c1");
-  harness.api.exportWordReport();
-  assert.equal(harness.reportLayerClasses.values.has("hidden"), true);
-  assert.equal(harness.wasFocused(), true);
-  assert.match(harness.elements["#toast"].textContent, /报告组件/);
+  assert.equal(harness.reportLayerClasses.values.has("hidden"), false);
+  await harness.api.exportPdfReport();
+  assert.equal(harness.printCount(), 1);
+  assert.match(harness.elements["#toast"].textContent, /字体和图片已就绪/);
 });
 
 test("four-zone UI adjudication preserves RAID and funnel source data without adding duplicate pages", () => {

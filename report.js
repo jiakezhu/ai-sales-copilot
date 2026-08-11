@@ -24,13 +24,19 @@
     "阶段历史、目标与攻坚计划": ["execution", "violet"], "联合工作计划": ["joint-plan", "green"], "谈判与成交策略": ["negotiation", "red"],
     "材料与证据索引": ["evidence", "slate"], "六维机会诊断": ["diagnosis", "violet"], "客户推进阶段": ["journey", "green"],
   };
+  const SECTION_ICONS = {
+    "客户基本信息与情报": "🏢", "产品与商业模式简报": "☁️", "外部市场与招聘信号": "📡", "招投标 / 中标": "🏆", "资质与许可": "✅",
+    "六维机会诊断": "🧭", "机会痛苦链": "🔗", "销售假设与待确认问题（非事实）": "💭", "痛点、竞品与匹配方案": "🧩", "谈判与成交策略": "🤝",
+    "组织与关键关系": "🧑‍🤝‍🧑", "会前沟通准备": "🗓️", "会后确认": "📝", "客户推进阶段": "🚀", "全流程客户推进记录": "🛤️",
+    "当前未完成行动": "📌", "阶段历史、目标与攻坚计划": "📈", "联合工作计划": "🤝", "材料与证据索引": "📎",
+  };
   const PROFILE_GROUPS = [
-    { key: "identity", label: "工商身份", icon: "企", fields: ["creditCode", "legalPerson", "regCapital", "regAddress", "founded", "website"] },
-    { key: "scale", label: "规模与资本", icon: "资", fields: ["staff", "funding", "shareholders", "parentSubs"] },
-    { key: "business", label: "产品与经营", icon: "营", fields: ["industry", "product", "businessModel", "dau", "revenue", "supplyChain"] },
-    { key: "technology", label: "技术与云现状", icon: "云", fields: ["techStack", "cloudStatus", "billNote"] },
-    { key: "signals", label: "市场信号与风险", icon: "势", fields: ["recentNews", "hiring", "triggerEvents", "riskNote"] },
-    { key: "sales", label: "销售关系与策略", icon: "销", fields: ["relation"] },
+    { key: "identity", label: "工商身份", icon: "🏢", fields: ["creditCode", "legalPerson", "regCapital", "regAddress", "founded", "website"] },
+    { key: "scale", label: "规模与资本", icon: "📊", fields: ["staff", "funding", "shareholders", "parentSubs"] },
+    { key: "business", label: "产品与经营", icon: "☁️", fields: ["industry", "product", "businessModel", "dau", "revenue", "supplyChain"] },
+    { key: "technology", label: "技术与云现状", icon: "🛠️", fields: ["techStack", "cloudStatus", "billNote"] },
+    { key: "signals", label: "市场信号与风险", icon: "📡", fields: ["recentNews", "hiring", "triggerEvents", "riskNote"] },
+    { key: "sales", label: "销售关系与策略", icon: "🤝", fields: ["relation"] },
   ];
 
   const escape = value => String(value == null ? "" : value).replace(/[&<>\"]/g, character => ({
@@ -132,42 +138,42 @@
 
   function subsection(title, body, kind, collapsed, id) {
     if (!body) return "";
-    const heading = `<i aria-hidden="true"></i><h3>${escape(title)}</h3>`;
+    const heading = `<i aria-hidden="true">${escape(SECTION_ICONS[title] || "✦")}</i><h3>${escape(title)}</h3>`;
     const anchor = id ? ` id="report-sub-${escape(id)}"` : "";
     return `<article class="report-subsection report-subsection--${escape(kind || "default")}"${anchor}><header>${heading}</header><div class="report-subsection-body">${body}</div></article>`;
   }
 
-  function categoryBody(summary, items) {
+  function categoryBody(items) {
     const blocks = items.filter(item => item.body).map(item => subsection(item.title, item.body, item.kind, item.collapsed, sectionMeta(item.title)[0])).join("");
     if (!blocks) return "";
-    return `<p class="report-category-summary">${escape(summary)}</p><div class="report-category-content">${blocks}</div>`;
+    return `<div class="report-category-content">${blocks}</div>`;
   }
 
   function panorama(name, groups) {
     const branches = groups.map((group, index) => {
       const nodes = group.items.filter(item => item.body).map(item => `<span>${escape(item.title)}</span>`).join("");
       if (!nodes) return "";
-      return `<article class="report-panorama-branch report-panorama-${escape(group.tone)}"><div class="report-panorama-group"><small>0${index + 1}</small><b>${escape(group.title)}</b></div><div class="report-panorama-leaves">${nodes}</div></article>`;
+      return `<article class="report-panorama-branch report-panorama-${escape(group.tone)}"><div class="report-panorama-group"><small>0${index + 1}</small><span class="report-panorama-group-icon" aria-hidden="true">${escape(group.icon || "✦")}</span><b>${escape(group.title)}</b></div><div class="report-panorama-leaves">${nodes}</div></article>`;
     }).filter(Boolean).join("");
     if (!branches) return "";
-    return `<section class="report-panorama"><div class="report-panorama-heading"><span>CUSTOMER 360 MAP</span><h2>客户全景树</h2><p>从客户事实出发，沿机会、关系和行动四条主线快速阅读。</p></div><div class="report-panorama-tree"><div class="report-panorama-core"><small>客户中心</small><b>${escape(name || "客户")}</b></div><div class="report-panorama-branches">${branches}</div></div></section>`;
+    return `<section class="report-panorama"><div class="report-panorama-heading"><span>CUSTOMER 360 MAP</span><h2>客户全景树</h2></div><div class="report-panorama-tree"><div class="report-panorama-core"><small>🧭 客户中心</small><b>${escape(name || "客户")}</b></div><div class="report-panorama-branches">${branches}</div></div></section>`;
   }
 
   function reportToc(specs) {
     const links = specs.filter(spec => spec.body).map((spec, index) => {
       const [id, tone] = sectionMeta(spec.title);
-      const children = array(spec.children).map(child => `<a class="report-toc-sub" href="#report-sub-${escape(child.id)}"><i></i><span>${escape(child.title)}</span></a>`).join("");
-      return `<div class="report-toc-group"><a class="report-toc-link report-toc-${tone}" href="#report-${id}"><strong>0${index + 1}</strong><span>${escape(spec.title)}</span></a>${children ? `<div class="report-toc-subs">${children}</div>` : ""}</div>`;
+      const children = array(spec.children).map(child => `<a class="report-toc-sub" href="#report-sub-${escape(child.id)}"><span class="report-toc-sub-emoji" aria-hidden="true">${escape(child.icon || SECTION_ICONS[child.title] || "✦")}</span><span>${escape(child.title)}</span></a>`).join("");
+      return `<div class="report-toc-group"><a class="report-toc-link report-toc-${tone}" href="#report-${id}"><strong>0${index + 1}</strong><span class="report-toc-main-emoji" aria-hidden="true">${escape(spec.icon || "✦")}</span><span>${escape(spec.title)}</span></a>${children ? `<div class="report-toc-subs">${children}</div>` : ""}</div>`;
     }).join("");
-    return links ? `<nav class="report-toc" aria-label="报告目录"><div class="report-toc-head"><b>报告导航</b><small>REPORT CONTENTS</small></div>${links}</nav>` : "";
+    return links ? `<nav class="report-toc" aria-label="报告目录"><div class="report-toc-head"><b>📑 报告导航</b><small>REPORT CONTENTS</small></div>${links}</nav>` : "";
   }
 
   function openingSummary(entries, mascotSrc) {
-    const facts = entries.map(([label, value, tone]) => ({ label: clean(label), value: clean(value), tone })).filter(item => item.value).slice(0, 4);
+    const facts = entries.map(([label, value, tone, icon]) => ({ label: clean(label), value: clean(value), tone, icon })).filter(item => item.value).slice(0, 4);
     if (!facts.length) return "";
-    const cards = facts.map(item => `<article class="report-summary-card report-summary-${item.tone || "blue"}"><small>${escape(item.label)}</small><p>${escape(item.value)}</p></article>`).join("");
+    const cards = facts.map(item => `<article class="report-summary-card report-summary-${item.tone || "blue"}"><small><span aria-hidden="true">${escape(item.icon || "✦")}</span>${escape(item.label)}</small><p>${escape(item.value)}</p></article>`).join("");
     const mascot = clean(mascotSrc) ? `<img class="report-summary-mascot" src="${escape(mascotSrc)}" alt="Sales Buddy 企鹅助手">` : "";
-    return `<section class="report-opening-summary"><div class="report-summary-copy"><span>KEY TAKEAWAYS</span><h2>先看这四件事</h2><p>结论先行，详细事实按需展开。</p></div>${mascot}<div class="report-summary-grid">${cards}</div></section>`;
+    return `<section class="report-opening-summary"><div class="report-summary-copy"><span>KEY TAKEAWAYS</span><h2>关键信息</h2></div>${mascot}<div class="report-summary-grid">${cards}</div></section>`;
   }
 
   function fieldGrid(entries, className) {
@@ -237,7 +243,7 @@
     }).filter(Boolean);
     if (other.length) {
       const leaves = other.map(([label, value]) => `<article class="report-tree-leaf"><span>${escape(label)}</span><p>${linked(value)}</p></article>`).join("");
-      branches.push(`<div class="report-tree-branch report-tree-other"><div class="report-tree-root"><i>补</i><b>补充信息</b><small>${other.length} 项</small></div><div class="report-tree-leaves">${leaves}</div></div>`);
+      branches.push(`<div class="report-tree-branch report-tree-other"><div class="report-tree-root"><i>🧩</i><b>补充信息</b><small>${other.length} 项</small></div><div class="report-tree-leaves">${leaves}</div></div>`);
     }
     return branches.length ? `<div class="report-profile-tree">${branches.join("")}</div>` : "";
   }
@@ -290,7 +296,7 @@
     const currentIndex = items.findIndex(item => item.key === currentStage);
     const mascot = clean(mascotSrc);
     const nodes = items.map((item, index) => `<div class="report-stage-node ${index < currentIndex ? "is-done" : ""} ${index === currentIndex ? "is-current" : ""}"><i></i>${index === currentIndex && mascot ? `<img class="report-stage-penguin" src="${escape(mascot)}" alt="Sales Buddy 企鹅位于当前阶段">` : ""}<span>${escape(item.label || item.key)}</span></div>`).join("");
-    return `<div class="report-journey"><div class="report-journey-heading"><small>推进导航</small><b>${escape(resolveLabel(items, currentStage) || "阶段待确认")}</b></div><div class="report-stage-track">${nodes}</div></div>`;
+    return `<div class="report-journey"><div class="report-journey-heading"><b>${escape(resolveLabel(items, currentStage) || "阶段待确认")}</b></div><div class="report-stage-track">${nodes}</div></div>`;
   }
 
   function reportGuide() {
@@ -421,7 +427,8 @@
       ["融资", valueOf(fields.funding)],
       ["官网", websiteHref ? `<a href="${escape(websiteHref)}" target="_blank" rel="noopener noreferrer">${escape(website.replace(/^https?:\/\//i, ""))}</a>` : escape(website)],
     ].filter(([, value]) => value).map(([label, value]) => `<article><small>${escape(label)}</small><b>${value}</b></article>`).join("");
-    const heading = `<header class="report-heading"><div class="report-heading-brand"><span>SALES BUDDY</span><b>客户全景报告</b></div><div class="report-heading-layout"><div class="report-heading-identity"><h1>${escape(name || "客户报告")}</h1>${headingMeta ? `<div class="report-heading-meta">${headingMeta}</div>` : ""}</div>${headingFacts ? `<div class="report-heading-facts">${headingFacts}</div>` : ""}</div></header>`;
+    const logoSrc = clean(context.logoSrc) || "assets/sales-buddy-logo-option-1.png";
+    const heading = `<header class="report-heading"><div class="report-heading-brand"><span class="report-heading-logo"><img src="${escape(logoSrc)}" alt="Sales Buddy"></span><div class="report-heading-title"><small>CUSTOMER 360</small><b>客户全景报告</b></div></div><div class="report-heading-layout"><div class="report-heading-identity"><h1>${escape(name || "客户报告")}</h1>${headingMeta ? `<div class="report-heading-meta">${headingMeta}</div>` : ""}</div>${headingFacts ? `<div class="report-heading-facts">${headingFacts}</div>` : ""}</div></header>`;
 
     const nextAction = pendingNotes[0] && valueOf(pendingNotes[0].next)
       || valueOf(raid.plan && raid.plan.action);
@@ -653,14 +660,14 @@
     ])), "report-evidence-list", "证据材料");
 
     const summaryEntries = [
-      ["当前判断", valueOf(fields.relation) || valueOf(raid.dm && raid.dm.reachLevel), "blue"],
-      ["核心机会", painPoints[0], "green"],
-      ["主要风险", valueOf(raid.dm && raid.dm.concern) || valueOf(raid.plan && raid.plan.support), "red"],
-      ["下一步行动", nextAction, "amber"],
+      ["当前判断", valueOf(fields.relation) || valueOf(raid.dm && raid.dm.reachLevel), "blue", "🧭"],
+      ["核心机会", painPoints[0], "green", "✨"],
+      ["主要风险", valueOf(raid.dm && raid.dm.concern) || valueOf(raid.plan && raid.plan.support), "red", "⚠️"],
+      ["下一步行动", nextAction, "amber", "🚀"],
     ];
     const groups = [
       {
-        title: "客户画像", tone: "blue", summary: "确认这是谁、如何经营，以及哪些外部事实值得关注。",
+        title: "客户画像", icon: "👤", tone: "blue",
         items: [
           { title: "客户基本信息与情报", body: profile, kind: "tree", collapsed: true },
           { title: "产品与商业模式简报", body: businessBrief, kind: "cards" },
@@ -670,7 +677,7 @@
         ],
       },
       {
-        title: "机会判断", tone: "amber", summary: "把客户问题、机会质量、竞争态势和成交边界放在同一条判断链上。",
+        title: "机会判断", icon: "✨", tone: "amber",
         items: [
           { title: "六维机会诊断", body: diagnosis, kind: "diagnosis" },
           { title: "机会痛苦链", body: confirmedPainChain, kind: "path" },
@@ -680,7 +687,7 @@
         ],
       },
       {
-        title: "关系与决策", tone: "violet", summary: "看清关键人、汇报关系、决策流程和每次面客形成的共识。",
+        title: "关系与决策", icon: "🧑‍🤝‍🧑", tone: "violet",
         items: [
           { title: "组织与关键关系", body: organization, kind: "relationships" },
           { title: "会前沟通准备", body: meetingPreps, kind: "meeting", collapsed: true },
@@ -688,7 +695,7 @@
         ],
       },
       {
-        title: "推进与行动", tone: "green", summary: "沿阶段、时间线和双方计划检查推进节奏，并落实下一步。",
+        title: "推进与行动", icon: "🚀", tone: "green",
         items: [
           { title: "客户推进阶段", body: journey, kind: "journey" },
           { title: "全流程客户推进记录", body: progress, kind: "timeline", collapsed: true },
@@ -701,18 +708,15 @@
     ];
     const specs = groups.map(group => ({
       title: group.title,
-      body: categoryBody(group.summary, group.items),
+      icon: group.icon,
+      body: categoryBody(group.items),
       className: `report-category report-category--${group.tone}`,
-      children: group.items.filter(item => item.body).map(item => ({ title: item.title, id: sectionMeta(item.title)[0] })),
+      children: group.items.filter(item => item.body).map(item => ({ title: item.title, icon: SECTION_ICONS[item.title] || "✦", id: sectionMeta(item.title)[0] })),
     }));
     const sections = specs.map(spec => section(spec.title, spec.body, spec.className)).join("");
     const toc = reportToc(specs);
     const opening = openingSummary(summaryEntries);
     return heading + `<div class="report-body-layout">${toc}<div class="report-content">${opening}${panorama(name, groups)}<div class="report-main">${sections}</div></div></div>`;
-  }
-
-  function wrapWord(html, styles) {
-    return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><style>${String(styles == null ? "" : styles)}</style></head><body>${String(html == null ? "" : html)}</body></html>`;
   }
 
   function wrapHtml(html, options) {
@@ -728,5 +732,5 @@
     return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'"><meta name="description" content="${escape(description)}"><title>${escape(title)}</title><style>${styles}</style></head><body class="report-export-page"><main class="report-document">${body}</main>${footer}</body></html>`;
   }
 
-  return { build, wrapWord, wrapHtml };
+  return { build, wrapHtml };
 });
