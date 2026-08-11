@@ -454,6 +454,103 @@
     return { v: "", source: "", confidence: "unverified", verifiedAt: "", ...(isRecord(value) ? clone(value) : {}) };
   }
 
+  function firstText(...values) {
+    for (const value of values) {
+      if (Array.isArray(value)) {
+        const joined = value.map(item => isRecord(item) ? clean(item.name || item.title || item.summary || item.product || item.role) : clean(item)).filter(Boolean).join("、");
+        if (joined) return joined;
+      } else if (isRecord(value)) {
+        const text = clean(value.name || value.title || value.summary || value.value);
+        if (text) return text;
+      } else if (clean(value)) return clean(value);
+    }
+    return "";
+  }
+
+  function adaptOpportunityIntelligence(customer) {
+    const intel = customer && customer.opportunityIntelligence;
+    if (!isRecord(intel)) return customer;
+    const research = isRecord(intel.research) ? intel.research : {};
+    const identity = isRecord(research.identity) ? research.identity : {};
+    const business = isRecord(research.business) ? research.business : {};
+    const technology = isRecord(research.technology) ? research.technology : {};
+    const ownership = isRecord(research.ownership) ? research.ownership : {};
+    const organization = isRecord(research.organization) ? research.organization : {};
+    const verifiedAt = clean(intel.generated_at).slice(0, 10);
+    const field = value => ({ v: clean(value), source: "web", confidence: "medium", verifiedAt: /^\d{4}-\d{2}-\d{2}$/.test(verifiedAt) ? verifiedAt : "" });
+    const putField = (key, ...values) => {
+      const value = firstText(...values);
+      if (!value) return;
+      customer.fields ||= {};
+      if (!clean(customer.fields[key] && customer.fields[key].v)) customer.fields[key] = field(value);
+    };
+
+    putField("industry", identity.industry, business.industry);
+    putField("founded", identity.founded, identity.foundedAt, identity.establishedAt);
+    putField("staff", identity.staff, identity.employeeCount, organization.employeeCount);
+    putField("funding", business.funding, identity.funding);
+    putField("website", identity.website, identity.officialWebsite);
+    putField("creditCode", identity.creditCode, identity.unifiedSocialCreditCode);
+    putField("legalPerson", identity.legalPerson, identity.legalRepresentative);
+    putField("regCapital", identity.regCapital, identity.registeredCapital);
+    putField("regAddress", identity.regAddress, identity.registeredAddress);
+    putField("product", business.products, business.coreProducts);
+    putField("businessModel", business.businessModel, business.revenueModel);
+    putField("techStack", technology.stack, technology.techStack, technology.summary);
+    putField("shareholders", ownership.shareholders, ownership.summary);
+    putField("parentSubs", organization.parentSubs, organization.summary);
+    putField("riskNote", research.risks);
+    putField("recentNews", research.events);
+    putField("hiring", research.hiring);
+
+    customer.businessBrief ||= {};
+    if (!clean(customer.businessBrief.products)) customer.businessBrief.products = firstText(business.products, business.coreProducts, customer.fields?.product?.v);
+    if (!clean(customer.businessBrief.revenueLogic)) customer.businessBrief.revenueLogic = firstText(business.revenueModel, business.businessModel, customer.fields?.businessModel?.v);
+    if (!clean(customer.businessBrief.operatingStatus)) customer.businessBrief.operatingStatus = firstText(business.summary, identity.businessSummary);
+    if (!clean(customer.businessBrief.competitors)) customer.businessBrief.competitors = firstText(intel.competitiveLandscape?.competitors, intel.competitiveLandscape?.summary);
+
+    const opportunities = Array.isArray(intel.tencentOpportunities) ? intel.tencentOpportunities : [];
+    customer.solution ||= [];
+    opportunities.forEach((item, index) => {
+      const product = firstText(item.products, item.category);
+      if (!product) return;
+      const reason = firstText(item.value, item.customerScenario, item.hypothesis);
+      const id = `imported-opportunity-${clean(intel.source_run_id) || "unknown"}-${index + 1}`;
+      if (!customer.solution.some(solution => clean(solution.id) === id || (clean(solution.product) === product && clean(solution.reason) === reason))) {
+        customer.solution.push({ id, product, reason, inferred: true, source: "import" });
+      }
+    });
+    customer.painChain ||= {};
+    const firstOpportunity = opportunities[0] || {};
+    if (!clean(customer.painChain.pain)) customer.painChain.pain = firstText(firstOpportunity.hypothesis, firstOpportunity.customerScenario);
+    if (!clean(customer.painChain.solution)) customer.painChain.solution = firstText(firstOpportunity.products, firstOpportunity.category);
+    if (!clean(customer.painChain.question)) customer.painChain.question = firstText(firstOpportunity.verificationQuestion);
+    if (Object.values(customer.painChain).some(Boolean)) customer.painChain.inferred = true;
+
+    const brief = isRecord(intel.meetingBrief) ? intel.meetingBrief : {};
+    const action = isRecord(intel.nextBestAction) ? intel.nextBestAction : {};
+    if (clean(brief.objective) || clean(action.action)) {
+      customer.meetingPreps ||= [];
+      const id = `imported-meeting-${clean(intel.source_run_id) || "unknown"}`;
+      const focus = [...(brief.verificationQuestions || []), ...(brief.guidingQuestions || [])].map(clean).filter(Boolean);
+      const notes = [
+        firstText(brief.inviteRoles) ? `建议邀请：${firstText(brief.inviteRoles)}` : "",
+        firstText(brief.openingTopics) ? `破冰话题：${firstText(brief.openingTopics)}` : "",
+        clean(action.reason) ? `行动依据：${clean(action.reason)}` : "",
+      ].filter(Boolean).join("\n");
+      const record = {
+        id, createdAt: clean(intel.generated_at), updatedAt: clean(intel.generated_at),
+        objective: firstText(brief.objective, action.action), focus,
+        hook: firstText(brief.desiredNextStep, action.completionStandard), notes, status: "ready", source: "import",
+      };
+      const existing = customer.meetingPreps.find(item => clean(item.id) === id);
+      existing ? Object.assign(existing, record) : customer.meetingPreps.push(record);
+    }
+
+    delete customer.opportunityIntelligence;
+    return customer;
+  }
+
   function prepareNativeCustomer(raw, options, sequence) {
     const customer = clone(raw);
     const name = clean(customer.name);
@@ -488,6 +585,7 @@
       email: clean(person.email),
       note: clean(person.note),
     }));
+    adaptOpportunityIntelligence(customer);
     return customer;
   }
 
@@ -513,7 +611,8 @@
     target.grade = incoming.grade;
     target.fields ||= {};
     Object.entries(incoming.fields || {}).forEach(([key, value]) => {
-      if (clean(value && value.v)) target.fields[key] = clone(value);
+      const existingIsCustomerConfirmed = clean(target.fields[key]?.source) === "customer" && clean(target.fields[key]?.v);
+      if (clean(value && value.v) && !existingIsCustomerConfirmed) target.fields[key] = clone(value);
     });
     target.orgChain ||= [];
     (incoming.orgChain || []).forEach(person => {
@@ -521,14 +620,13 @@
       if (!matched) target.orgChain.push(clone(person));
       else Object.entries(person).forEach(([key, value]) => { if (key === "relationStatus") { const rank = status => RELATION_STATUS_KEYS.indexOf(status); if (rank(value) > rank(matched.relationStatus)) matched.relationStatus = value; } else if (nonEmpty(value) && key !== "id") matched[key] = clone(value); });
     });
-    ["marketNews", "hiringSignals", "bidding", "qualifications"].forEach(key => mergeRecordArray(target, incoming, key));
+    ["marketNews", "hiringSignals", "bidding", "qualifications", "solution", "meetingPreps"].forEach(key => mergeRecordArray(target, incoming, key));
     ["businessBrief", "painChain"].forEach(key => {
       target[key] ||= {};
       Object.entries(incoming[key] || {}).forEach(([field, value]) => { if (nonEmpty(value)) target[key][field] = clone(value); });
     });
     if (isRecord(incoming.prospectResearch)) target.prospectResearch = clone(incoming.prospectResearch);
     if (isRecord(incoming.deepResearch)) target.deepResearch = clone(incoming.deepResearch);
-    if (isRecord(incoming.opportunityIntelligence)) target.opportunityIntelligence = clone(incoming.opportunityIntelligence);
     target.stageHistory ||= [];
     if (!target.stageHistory.length || target.stageHistory.at(-1)?.stage !== incoming.stage) {
       target.stageHistory.push(clone(incoming.stageHistory[0]));
@@ -539,7 +637,7 @@
   function importJSON(source, existingCustomers, options) {
     const settings = options || {};
     const strategy = clean(settings.strategy || "skip").toLocaleLowerCase();
-    const original = clone(Array.isArray(existingCustomers) ? existingCustomers : []);
+    const original = clone(Array.isArray(existingCustomers) ? existingCustomers : []).map(adaptOpportunityIntelligence);
     const selectedRows = selectedRowSet(settings);
     if (strategy !== "skip" && strategy !== "update") throw new TypeError("去重策略仅支持 skip 或 update");
     try {
@@ -725,5 +823,6 @@
     normalizeStage,
     normalizeGrade,
     normalizeImportDate,
+    adaptOpportunityIntelligence,
   };
 });

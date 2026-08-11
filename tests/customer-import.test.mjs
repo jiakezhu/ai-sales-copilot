@@ -371,7 +371,7 @@ test("CRM 保留获客评分元数据并拒绝非法评分", () => {
   assert.ok(invalid.errors.some(item => item.field === "prospectResearch.score"));
 });
 
-test("crm-customer-list.v2 导入并完整保留账户全景情报", () => {
+test("crm-customer-list.v2 将账户情报适配到 CRM 既有字段", () => {
   const name = "全景客户";
   const bundle = {
     schema_version: "crm-customer-list.v2",
@@ -383,15 +383,19 @@ test("crm-customer-list.v2 导入并完整保留账户全景情报", () => {
   assert.equal(result.errors.length, 0);
   assert.equal(result.imported, 1);
   assert.equal(result.schemaVersion, "crm-customer-list.v2");
-  const oi = result.customers[0].opportunityIntelligence;
-  assert.equal(oi.accountReadiness.score, 78);
-  assert.equal(oi.sourceCoverage.technology.status, "verified");
-  assert.deepEqual(oi.tencentOpportunities[0].products, ["GPU云服务器", "COS"]);
-  assert.equal(oi.meetingBrief.objective, "确认负载");
-  assert.equal(oi.nextBestAction.action, "安排技术发现会");
+  const customer = result.customers[0];
+  assert.equal(customer.opportunityIntelligence, undefined);
+  assert.equal(customer.fields.industry.v, "AI视频");
+  assert.equal(customer.fields.creditCode.v, "91440300DEMO000001");
+  assert.equal(customer.fields.techStack.v, "Kubernetes");
+  assert.equal(customer.businessBrief.operatingStatus, "AI视频平台");
+  assert.equal(customer.solution[0].product, "GPU云服务器、COS");
+  assert.equal(customer.painChain.question, "自有GPU与API比例是多少？");
+  assert.equal(customer.meetingPreps[0].objective, "确认负载");
+  assert.match(customer.meetingPreps[0].notes, /行动依据：存在近期窗口/);
 });
 
-test("v2 同名更新替换全景研究快照且保留销售私有数据", () => {
+test("v2 同名更新重新适配公开情报且保留销售私有数据", () => {
   const existing = [{
     id: "existing", name: "全景客户", stage: "contact", grade: "B",
     fields: { relation: { v: "已建立真实关系" } }, notes: [{ id: "n1", content: "真实跟进" }], orgChain: [],
@@ -407,8 +411,10 @@ test("v2 同名更新替换全景研究快照且保留销售私有数据", () =>
   assert.equal(result.customers[0].id, "existing");
   assert.equal(result.customers[0].fields.relation.v, "已建立真实关系");
   assert.equal(result.customers[0].notes[0].content, "真实跟进");
-  assert.equal(result.customers[0].opportunityIntelligence.source_run_id, "new-run");
-  assert.equal(result.customers[0].opportunityIntelligence.accountReadiness.score, 85);
+  assert.equal(result.customers[0].opportunityIntelligence, undefined);
+  assert.equal(result.customers[0].fields.techStack.v, "Kubernetes");
+  assert.ok(result.customers[0].meetingPreps.some(item => item.id === "imported-meeting-new-run"));
+  assert.ok(result.customers[0].solution.some(item => item.id === "imported-opportunity-new-run-1"));
 });
 
 test("v2 拒绝缺少12维覆盖或主体错配的账户全景情报", () => {
