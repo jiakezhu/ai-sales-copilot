@@ -2026,6 +2026,9 @@ function voiceErrorMessage(error) {
   if (error?.name === "NotFoundError") return "没有找到可用麦克风";
   if (error?.code === "AI_NOT_CONFIGURED") return "手机语音识别服务尚未配置，请联系管理员";
   if (error?.code === "UNAUTHORIZED") return "登录已过期，请重新登录后使用语音输入";
+  if (error?.code === "INVALID_RESPONSE" && error?.status === 404) return "服务器尚未部署手机语音接口，请更新线上服务后重试";
+  if (error?.status === 413) return "本次录音太长，请缩短后重试";
+  if (error?.code === "INVALID_RESPONSE" && error?.status >= 500) return "语音服务网关暂时异常，请稍后重试";
   return error?.message || "语音识别失败，请再试一次或改用文字输入";
 }
 
@@ -2062,7 +2065,13 @@ async function startRecordedVoiceCapture(button) {
     stream = await mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     const candidates = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
     const mimeType = candidates.find(type => window.MediaRecorder.isTypeSupported?.(type)) || "";
-    const recorder = new window.MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const recorderOptions = { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 48_000 };
+    let recorder;
+    try {
+      recorder = new window.MediaRecorder(stream, recorderOptions);
+    } catch (_) {
+      recorder = new window.MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    }
     const chunks = [];
     const capture = { recorder, stream, timer: null };
     activeVoiceCapture = capture;
@@ -2093,8 +2102,9 @@ async function startRecordedVoiceCapture(button) {
     button.classList.add("recording");
     button.innerHTML = `${icon("square")} 结束录音`;
     refreshIcons();
-    recorder.start(250);
-    capture.timer = setTimeout(() => recorder.state === "recording" && recorder.stop(), 60_000);
+    // Safari 的 MP4 分片单独并不总是有效文件；一次性产出完整录音也能显著减小 JSON 请求体。
+    recorder.start();
+    capture.timer = setTimeout(() => recorder.state === "recording" && recorder.stop(), 30_000);
   } catch (error) {
     stream?.getTracks?.().forEach(track => track.stop());
     activeVoiceCapture = null;

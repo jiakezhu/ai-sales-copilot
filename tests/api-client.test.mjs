@@ -13,6 +13,15 @@ function jsonResponse(status, body) {
   };
 }
 
+function textResponse(status, body, contentType = "text/html") {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get(name) { return String(name).toLowerCase() === "content-type" ? contentType : null; } },
+    async text() { return body; },
+  };
+}
+
 function loadAPI(responses, options = {}) {
   const values = new Map(Object.entries(options.storage || {}));
   const calls = [];
@@ -159,6 +168,20 @@ test("transcribeAudio sends mobile recording data and returns recognized text", 
   assert.equal(harness.calls[0].url, "/api/ai/transcribe");
   assert.equal(harness.calls[0].init.headers.Authorization, "Bearer valid-token");
   assert.deepEqual(JSON.parse(harness.calls[0].init.body), { audio: "YWJj", mimeType: "audio/mp4" });
+});
+
+test("transcribeAudio explains non-JSON deployment and payload errors", async () => {
+  const missing = loadAPI([textResponse(404, "<html>Not Found</html>")]);
+  await assert.rejects(
+    missing.api.transcribeAudio("YWJj", "audio/mp4"),
+    error => error.code === "INVALID_RESPONSE" && error.status === 404 && error.message === "服务器尚未部署此功能"
+  );
+
+  const oversized = loadAPI([textResponse(413, "<html>Payload Too Large</html>")]);
+  await assert.rejects(
+    oversized.api.transcribeAudio("YWJj", "audio/mp4"),
+    error => error.code === "INVALID_RESPONSE" && error.status === 413 && error.message === "提交的数据超过服务器限制"
+  );
 });
 
 test("isConfigured only enables API calls on HTTP(S) pages", () => {

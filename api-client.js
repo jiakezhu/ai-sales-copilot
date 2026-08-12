@@ -83,9 +83,18 @@
     try {
       return JSON.parse(text);
     } catch (_) {
-      throw new SalesAPIError("服务器返回了无法识别的数据", {
+      const status = Number(response.status) || 0;
+      const message = status === 404
+        ? "服务器尚未部署此功能"
+        : status === 413
+          ? "提交的数据超过服务器限制"
+          : status >= 500
+            ? "服务器暂时不可用"
+            : `服务器返回了异常响应${status ? `（HTTP ${status}）` : ""}`;
+      throw new SalesAPIError(message, {
         code: "INVALID_RESPONSE",
-        status: response.status,
+        status,
+        details: { contentType: response.headers?.get?.("content-type") || "" },
       });
     }
   }

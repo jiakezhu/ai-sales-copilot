@@ -207,6 +207,30 @@ test("手机录音接口拒绝不支持的音频格式", async t => {
   assert.equal(result.json.error.code, "INVALID_AUDIO_TYPE");
 });
 
+test("手机录音接口接受 Safari 常见的 AAC 格式", async t => {
+  let uploadedFile;
+  const baseUrl = await startTestServer(t, {
+    aiApiUrl: "https://api.example.com/v1",
+    aiApiKey: "test-key",
+    async fetchFn(_url, init) {
+      uploadedFile = init.body.get("file");
+      return new Response(JSON.stringify({ text: "客户同意安排技术交流" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+  const user = await register(baseUrl, "voice-aac@example.com");
+  const result = await request(baseUrl, "/api/ai/transcribe", {
+    method: "POST",
+    token: user.token,
+    body: { audio: "YWJj", mimeType: "audio/aac" },
+  });
+  assert.equal(result.response.status, 200);
+  assert.equal(result.json.text, "客户同意安排技术交流");
+  assert.equal(uploadedFile.name, "sales-voice.aac");
+});
+
 test("周期总结润色拒绝空内容", async t => {
   const baseUrl = await startTestServer(t);
   const user = await register(baseUrl, "empty-review@example.com");
