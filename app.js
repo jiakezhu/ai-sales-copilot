@@ -1897,10 +1897,22 @@ async function enhanceAIDraftWithAPI(raw, baseDate, localMatch) {
       source: "api",
     };
     renderAIDraft();
+    toast("AI 已整理完成");
   } catch (error) {
     console.warn("AI API unavailable, local extraction retained", error);
-    if (error?.status === 503 || error?.code === "AI_NOT_CONFIGURED") toast("AI API 尚未配置，已使用本地规则整理");
+    if (!state.aiDraft || state.aiDraft.source !== "local") return;
+    state.aiDraft = { ...state.aiDraft, source: "local-done" };
+    renderAIDraft();
+    toast(aiFailureMessage(error));
   }
+}
+
+function aiFailureMessage(error) {
+  if (error?.status === 503 || error?.code === "AI_NOT_CONFIGURED") return "AI API 尚未配置，已使用本地规则整理";
+  if (error?.status === 502 && error?.code === "AI_INVALID_RESPONSE") return "AI 抽取暂未识别到结果，已保留本地整理";
+  if (error?.status === 504 || error?.code === "TIMEOUT") return "AI 服务响应超时，已保留本地整理";
+  if (error?.status === 502) return "AI 服务暂时不可用，已保留本地整理";
+  return "AI 服务暂时不可用，已保留本地整理结果";
 }
 
 function extractContact(raw, matchedCustomer) {
@@ -1926,7 +1938,7 @@ function renderAIDraft() {
   const fields = Object.entries(draft.found);
   const selectedCustomer = getCustomer(draft.customerId);
   host.innerHTML = `<section class="ai-review">
-    <div class="review-head"><div><span class="review-kicker">${draft.source === "api" ? "AI API 已整理" : "本地规则已整理"} · 等待确认</span><h3>准备写入客户档案</h3></div><div class="ai-target-field"><span class="ai-target-label">关联客户</span><div class="choice-control ai-target-control"><button type="button" class="choice-trigger ai-target-trigger ${selectedCustomer ? "has-value" : ""}" data-action="toggle-choice" aria-haspopup="listbox" aria-expanded="false"><span class="ai-target-trigger-icon">${icon("building-2")}</span><b>${safe(selectedCustomer?.name || "请选择客户")}</b>${icon("chevron-down")}</button><div class="choice-menu ai-target-menu" role="listbox" aria-label="关联客户"><button type="button" class="choice-option ai-target-option ${draft.customerId ? "" : "selected"}" data-action="set-ai-target" data-customer="" role="option" aria-selected="${!draft.customerId}"><span class="ai-target-avatar ai-target-avatar--empty">${icon("circle-dashed")}</span><span class="ai-target-option-copy"><b>请选择客户</b><small>暂不关联客户档案</small></span>${draft.customerId ? "" : icon("check")}</button>${customers.map(c => `<button type="button" class="choice-option ai-target-option ${draft.customerId === c.id ? "selected" : ""}" data-action="set-ai-target" data-customer="${safe(c.id)}" role="option" aria-selected="${draft.customerId === c.id}"><span class="ai-target-avatar">${safe(Array.from(c.name || "客")[0] || "客")}</span><span class="ai-target-option-copy"><b>${safe(c.name)}</b><small>${safe(c.fields?.industry?.v || stageLabel(c.stage))} · ${safe(c.grade)} 级</small></span>${draft.customerId === c.id ? icon("check") : ""}</button>`).join("")}</div></div></div></div>
+    <div class="review-head"><div><span class="review-kicker">${draft.source === "api" ? "AI 已整理" : draft.source === "local-done" ? "AI 已整理（本地规则）" : "AI 正在整理…"} · ${draft.source === "local" ? "稍候" : "等待确认"}</span><h3>准备写入客户档案</h3></div><div class="ai-target-field"><span class="ai-target-label">关联客户</span><div class="choice-control ai-target-control"><button type="button" class="choice-trigger ai-target-trigger ${selectedCustomer ? "has-value" : ""}" data-action="toggle-choice" aria-haspopup="listbox" aria-expanded="false"><span class="ai-target-trigger-icon">${icon("building-2")}</span><b>${safe(selectedCustomer?.name || "请选择客户")}</b>${icon("chevron-down")}</button><div class="choice-menu ai-target-menu" role="listbox" aria-label="关联客户"><button type="button" class="choice-option ai-target-option ${draft.customerId ? "" : "selected"}" data-action="set-ai-target" data-customer="" role="option" aria-selected="${!draft.customerId}"><span class="ai-target-avatar ai-target-avatar--empty">${icon("circle-dashed")}</span><span class="ai-target-option-copy"><b>请选择客户</b><small>暂不关联客户档案</small></span>${draft.customerId ? "" : icon("check")}</button>${customers.map(c => `<button type="button" class="choice-option ai-target-option ${draft.customerId === c.id ? "selected" : ""}" data-action="set-ai-target" data-customer="${safe(c.id)}" role="option" aria-selected="${draft.customerId === c.id}"><span class="ai-target-avatar">${safe(Array.from(c.name || "客")[0] || "客")}</span><span class="ai-target-option-copy"><b>${safe(c.name)}</b><small>${safe(c.fields?.industry?.v || stageLabel(c.stage))} · ${safe(c.grade)} 级</small></span>${draft.customerId === c.id ? icon("check") : ""}</button>`).join("")}</div></div></div></div>
     <div class="review-items">
       <label class="review-item main-review"><input class="draft-check" type="checkbox" data-kind="note" checked /><span class="review-check"></span><div><small>新增推进记录 · ${safe(methodMeta(draft.method).label)}</small><b>${safe(draft.raw)}</b>${draft.contact ? `<p>对接人：${safe(draft.contact)}</p>` : ""}</div></label>
       ${fields.map(([key,value]) => { const def=FIELD_DEFS.find(d=>d.key===key); return `<label class="review-item"><input class="draft-check" type="checkbox" data-kind="field" data-key="${key}" checked /><span class="review-check"></span><div><small>更新情报 · ${safe(def?.label || key)} · AI 提取后待核</small><b>${safe(value)}</b></div></label>`; }).join("")}
