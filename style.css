@@ -174,6 +174,7 @@ h3 { font-size:14px; }
 .copilot-compose { position:relative;border:1px solid var(--line);border-radius:15px;background:var(--surface);box-shadow:var(--shadow-sm);transition:.2s; }
 .copilot-compose:focus-within { border-color:color-mix(in srgb,var(--blue) 50%,var(--line));box-shadow:0 0 0 4px var(--blue-soft); }
 .copilot-compose textarea { width:100%;min-height:84px;padding:14px 16px 7px;resize:none;border:0;background:transparent;color:var(--ink);line-height:1.65; }
+.copilot-compose textarea:focus-visible { outline:none; } /* 焦点态由容器 :focus-within 光晕表达 */
 .compose-actions { min-height:47px;padding:7px 8px 8px 12px;display:flex;align-items:center;gap:8px; }
 .attach-button,.voice-button { height:31px;padding:0 10px;display:inline-flex;align-items:center;gap:5px;border-radius:8px;color:var(--ink-2);background:var(--surface-2);font-size:11.5px;font-weight:600; }
 .attach-button:hover,.voice-button:hover { color:var(--ink);background:var(--surface-3); }
