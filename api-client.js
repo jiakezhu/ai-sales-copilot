@@ -296,6 +296,8 @@
       const payload = payloadOf(await request("/api/ai/polish-review", {
         method: "POST",
         body: { summary: requiredText(summary, "周期总结") },
+        // AI 接口上游响应可能慢到 60s+，不能用全局默认 12s
+        timeoutMs: 90_000,
       }));
       const polished = stringValue(payload?.summary || payload?.polishedSummary);
       if (!polished) throw new SalesAPIError("AI 未返回润色后的总结", { code: "INVALID_RESPONSE" });
