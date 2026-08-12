@@ -357,7 +357,7 @@ async function transcribeAudioWithAi(body, config) {
     error(503, "AI_NOT_CONFIGURED", "语音转文字服务尚未配置，请设置 AI_API_URL、AI_API_KEY 和 AI_TRANSCRIBE_MODEL");
   }
   const mimeType = typeof body.mimeType === "string" ? body.mimeType.trim().toLowerCase().split(";")[0] : "";
-  const supportedTypes = new Set(["audio/webm", "audio/mp4", "audio/mpeg", "audio/wav", "audio/ogg", "audio/x-m4a"]);
+  const supportedTypes = new Set(["audio/webm", "audio/mp4", "audio/mpeg", "audio/wav", "audio/ogg", "audio/x-m4a", "audio/m4a", "audio/aac"]);
   if (!supportedTypes.has(mimeType)) error(400, "INVALID_AUDIO_TYPE", "不支持当前录音格式，请换用系统浏览器后重试");
   const encoded = typeof body.audio === "string" ? body.audio.trim() : "";
   if (!encoded || !/^[a-z0-9+/]+={0,2}$/i.test(encoded)) error(400, "INVALID_AUDIO", "录音数据无效");
@@ -368,6 +368,7 @@ async function transcribeAudioWithAi(body, config) {
   const extension = ({
     "audio/webm": "webm", "audio/mp4": "m4a", "audio/mpeg": "mp3",
     "audio/wav": "wav", "audio/ogg": "ogg", "audio/x-m4a": "m4a",
+    "audio/m4a": "m4a", "audio/aac": "aac",
   })[mimeType];
   const form = new FormData();
   form.append("model", config.transcribeModel);

@@ -727,6 +727,10 @@ test("mobile voice capture has a recording fallback instead of only rejecting un
   assert.match(js, /new window\.MediaRecorder/);
   assert.match(js, /SalesAPI\.transcribeAudio/);
   assert.match(js, /手机语音需要 HTTPS 安全连接/);
+  assert.match(js, /audioBitsPerSecond:\s*48_000/);
+  assert.match(js, /recorder\.start\(\)/);
+  assert.match(js, /30_000/);
+  assert.doesNotMatch(js, /recorder\.start\(250\)/);
 });
 
 test("reconcile restores listening on a rebuilt Today card without extending success", () => {
