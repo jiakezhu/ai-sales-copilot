@@ -21,3 +21,4 @@ node_modules/
 # 本地 CRM 开发服务日志
 .crm-server.stdout.log
 .crm-server.stderr.log
+*.log
