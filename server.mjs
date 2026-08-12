@@ -407,7 +407,18 @@ async function extractWithAi(text, customerNames, config) {
   const messages = [
     {
       role: "system",
-      content: "你是销售资料抽取助手。只能提取用户原文明确陈述的信息，禁止猜测或补全；没有的信息返回空字符串或空数组。必须只返回 JSON，字段为 name、method、contact、next、nextDate、found、points；found 必须包含 industry、founded、staff、funding、product、dau、revenue、cloudStatus、billNote、relation；points 必须包含 nextSteps、decisions、concerns、relation。",
+      content: [
+        "你是销售资料抽取助手。只能提取用户原文明确陈述的信息，禁止猜测或补全；没有的信息返回空字符串或空数组。",
+        '必须只返回 JSON 对象，字段必须严格按以下命名（多余字段会被忽略）：',
+        '- name: 字符串，公司名称；未出现时为空字符串',
+        '- method: 字符串，只能取 "" / phone / wechat / email / visit / meeting / other 之一',
+        '- contact: 字符串，联系人姓名；未出现时为空字符串',
+        '- next: 字符串，下一步行动；未出现时为空字符串',
+        '- nextDate: 字符串，YYYY-MM-DD；不能从原文确定时为空字符串',
+        '- found: 对象，必须包含 industry / founded / staff / funding / product / dau / revenue / cloudStatus / billNote / relation 这 10 个字符串字段；未出现的填空字符串',
+        '- points: 对象，必须包含 nextSteps / decisions / concerns / relation 这 4 个字符串数组字段；未出现的填空数组',
+        '严禁返回其他任何字段名（如"客户候选"、"联系人"等都是非法的）。',
+      ].join("\n"),
     },
     {
       role: "user",
@@ -416,7 +427,9 @@ async function extractWithAi(text, customerNames, config) {
         : text,
     },
   ];
-  const callUpstream = responseFormat => fetch(aiEndpoint(config.apiUrl), {
+  // 直接用 json_object 模式：DeepSeek 当前不支持 json_schema 严格模式（返回 400），
+  // 且回退后模型不遵守 prompt。改用 prompt 强约束 + 服务端 validateExtraction 双保险。
+  const callUpstream = () => fetch(aiEndpoint(config.apiUrl), {
     method: "POST",
     headers: {
       authorization: `Bearer ${config.apiKey}`,
@@ -425,20 +438,16 @@ async function extractWithAi(text, customerNames, config) {
     body: JSON.stringify({
       model: config.model,
       temperature: 0,
+      // 信息提取是确定性任务，禁用思考模式（deepseek-v4-flash 默认开启思考会显著拖慢响应）
+      thinking: { type: "disabled" },
       messages,
-      response_format: responseFormat,
+      response_format: { type: "json_object" },
     }),
     signal: controller.signal,
   });
   let response;
   try {
-    response = await callUpstream({
-      type: "json_schema",
-      json_schema: { name: "sales_extraction", strict: true, schema: extractionSchema() },
-    });
-    if (!response.ok && [400, 404, 422].includes(response.status)) {
-      response = await callUpstream({ type: "json_object" });
-    }
+    response = await callUpstream();
   } catch (err) {
     if (err?.name === "AbortError") error(504, "AI_TIMEOUT", "AI 服务响应超时");
     error(502, "AI_UNAVAILABLE", "暂时无法连接 AI 服务");
@@ -473,15 +482,94 @@ async function extractWithAi(text, customerNames, config) {
   return extraction;
 }
 
+// 提取润色结果必须保留的关键事实 token。
+// 设计要点：
+//   - 段标题（一、二、三、四 + 段名）必须逐字保留；
+//   - 日期整体（如"2026-08-10""6月22日"）先摘除再匹配数字，避免把"2026-08-10"拆成
+//     "2026""08""10"碎片——否则 AI 仅把格式改成"2026年8月10日"就会被误杀；
+//   - 剩余的数字按"数字 + 单位"整体匹配（如"48 天"），不拆碎；
+//   - 行动项只抓"客户名"（专有名词），不再抓整行描述，让 AI 可以自由润色措辞；
+//   - 风险段每条描述、连接词、同义改写都不再校验。
 function reviewIntegrityTokens(summary) {
-  const numericFacts = summary.match(/\d{1,4}(?:-\d{1,2}){0,2}|\d+(?:\.\d+)?%?/g) || [];
-  const namedFacts = summary.split("\n")
-    .filter(line => line.trim().startsWith("- ") && line.includes("："))
-    .map(line => line.trim().slice(2).split("：")[0].trim())
+  // 统一换行符，避免浏览器/PowerShell 的 \r\n 导致 split 和 match 行为不一致
+  const text = String(summary).replace(/\r\n/g, "\n");
+
+  // 1. 四段小标题（必保）
+  const titles = text.match(/[一二三四]、[^\n]+/g) || [];
+
+  // 2. 完整日期（必保）：日期不能模糊化，且必须是整体
+  const dates = text.match(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}月\d{1,2}日/g) || [];
+
+  // 3. 数字 + 单位（必保）：先把日期整体摘掉，避免"2026-08-10"被 \d+ 拆碎
+  const withoutDates = text.replace(/\d{4}-\d{1,2}-\d{1,2}/g, " ").replace(/\d{1,2}月\d{1,2}日/g, " ");
+  const numbersWithUnit = withoutDates.match(/\d+(?:\.\d+)?\s*[个次条项天日周月年%分客户]?/g) || [];
+
+  // 4. 行动项的"客户名"（必保）：仅抓 "- 客户名："格式的"客户名"，
+  //    描述部分允许润色，不再校验整行
+  const actionSection = text.split(/\n四、下周期重点行动\n/)[1] || "";
+  const customerMatches = actionSection.match(/^-\s*([^：\n]+)：/gm) || [];
+  const customerNames = customerMatches
+    .map(line => line.replace(/^-\s*/, "").replace(/：.*$/, "").trim())
     .filter(Boolean);
-  const actionSection = summary.split(/\n四、下周期重点行动\n/)[1] || "";
-  const actionFacts = actionSection.split("\n").map(line => line.trim()).filter(line => line.startsWith("- "));
-  return [...new Set([...numericFacts, ...namedFacts, ...actionFacts])];
+
+  return [...new Set([
+    ...titles.map(t => t.trim()),
+    ...dates,
+    ...numbersWithUnit,
+    ...customerNames,
+  ])].filter(Boolean);
+}
+
+// 解析 AI 返回的编辑指令 JSON。兼容 ```json 包裹、前后多余文字。
+function parseEditInstructions(content) {
+  if (typeof content !== "string") return [];
+  const cleaned = content
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+  // 从第一处 [ 或 { 截取到最后一处 ] 或 }，容忍 AI 输出的前后解释性文字
+  const startBracket = cleaned.indexOf("[");
+  const startBrace = cleaned.indexOf("{");
+  const start = startBracket === -1 ? startBrace : (startBrace === -1 ? startBracket : Math.min(startBracket, startBrace));
+  if (start === -1) return [];
+  const endBracket = cleaned.lastIndexOf("]");
+  const endBrace = cleaned.lastIndexOf("}");
+  const end = Math.max(endBracket, endBrace);
+  if (end <= start) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned.slice(start, end + 1));
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) parsed = [parsed];
+  return parsed
+    .filter(item => item && typeof item === "object")
+    .map(item => ({
+      from: typeof item.from === "string" ? item.from : "",
+      to: typeof item.to === "string" ? item.to : "",
+    }))
+    .filter(item => item.from && item.to);
+}
+
+// 校验替换目标不含受保护内容（数字、日期、客户名/专有名词、段落标题等）。
+// 一旦 to 触碰这些，说明 AI 试图改写事实，该条指令作废。
+function editTargetHasProtectedContent(to, summary) {
+  if (!to) return true;
+  // 数字 / 日期 / 百分比
+  if (/\d/.test(to)) return true;
+  // 中文日期形态（月/日/年）
+  if (/[年月日]/.test(to) && /[0-9一二三四五六七八九十]/.test(to)) return true;
+  // 段落标题标记
+  if (/^[一二三四五]、/.test(to)) return true;
+  // 客户名/专有名词：原文出现在"："前的"客户名"集合
+  const actionSection = String(summary).replace(/\r\n/g, "\n").split(/\n四、下周期重点行动\n/)[1] || "";
+  const customerMatches = actionSection.match(/^-\s*([^：\n]+)：/gm) || [];
+  const customerNames = customerMatches
+    .map(line => line.replace(/^-\s*/, "").replace(/：.*$/, "").trim())
+    .filter(Boolean);
+  if (customerNames.some(name => name && to.includes(name))) return true;
+  return false;
 }
 
 async function polishReviewWithAi(summary, config) {
@@ -501,10 +589,23 @@ async function polishReviewWithAi(summary, config) {
       body: JSON.stringify({
         model: config.model,
         temperature: 0.2,
+        // 润色是轻量任务，禁用思考模式（deepseek-v4-flash 默认开启思考会显著拖慢响应）
+        thinking: { type: "disabled" },
         messages: [
           {
             role: "system",
-            content: "你是销售周期复盘编辑。只优化语言表达和结构，不得改变、删减或新增任何数字、客户名、日期、事实、风险和行动项。保持原有四段结构，直接返回润色后的中文正文，不要解释。",
+            content: [
+              "你是中文润色助手。用户会给你一段销售周报，请找出其中「生硬、重复、口语化」的表述，生成可替换的同义词。",
+              "只输出一个 JSON 数组，数组每个元素是一个替换指令，格式为：",
+              '[{"from": "原文中精确存在的片段", "to": "更通顺的书面说法"}]',
+              "硬性要求：",
+              "1. from 必须一字不差地存在于原文中；",
+              "2. to 只做同义改写，禁止包含任何数字、日期、百分比、客户名、产品名；",
+              "3. 只改写连接词、状态词、冗余字或口语表达（例如「截至周期未」→「本周结束时」）；",
+              "4. 不要改动段落标题（一、二、三、四），不要改动以“- ”开头的整行内容；",
+              "5. 若原文已经很通顺，返回空数组 []；",
+              "6. 最多输出 15 条，只输出 JSON 数组本身，不要任何解释文字。",
+            ].join("\n"),
           },
           { role: "user", content: summary },
         ],
@@ -514,25 +615,43 @@ async function polishReviewWithAi(summary, config) {
   } catch (err) {
     if (err?.name === "AbortError") error(504, "AI_TIMEOUT", "AI 服务响应超时");
     error(502, "AI_UNAVAILABLE", "暂时无法连接 AI 服务");
-  } finally {
-    clearTimeout(timer);
   }
-  if (!response.ok) error(502, "AI_UPSTREAM_ERROR", `AI 服务返回错误（HTTP ${response.status}）`);
+  if (!response.ok) {
+    clearTimeout(timer);
+    error(502, "AI_UPSTREAM_ERROR", `AI 服务返回错误（HTTP ${response.status}）`);
+  }
+  // body 读取阶段：timer 仍然在跑，超时会触发 controller.abort()，
+  // abort 会中断 fetch 内部对 response body 的读取，从而真正终止 json() 等待。
   let upstream;
   try {
     upstream = await response.json();
-  } catch {
+  } catch (err) {
+    clearTimeout(timer);
+    if (err?.name === "AbortError" || controller.signal.aborted) {
+      error(504, "AI_TIMEOUT", "AI 服务响应超时");
+    }
     error(502, "AI_INVALID_RESPONSE", "AI 服务返回了无效响应");
   }
+  clearTimeout(timer);
   const content = upstream?.choices?.[0]?.message?.content;
-  const polished = Array.isArray(content)
+  const rawContent = Array.isArray(content)
     ? content.map(part => typeof part === "string" ? part : part?.text || "").join("").trim()
     : typeof content === "string" ? content.trim() : "";
-  if (!polished) error(502, "AI_INVALID_RESPONSE", "AI 服务未返回润色后的总结");
-  const normalized = polished.replace(/^```(?:markdown|text)?\s*/i, "").replace(/\s*```$/, "").trim();
-  const missingFacts = reviewIntegrityTokens(summary).filter(token => !normalized.includes(token));
+  if (!rawContent) error(502, "AI_INVALID_RESPONSE", "AI 服务未返回润色后的总结");
+
+  // 解析编辑指令并确定性执行：AI 只能"改词"，事实由服务端拼接保证
+  const edits = parseEditInstructions(rawContent);
+  const base = String(summary).replace(/\r\n/g, "\n");
+  let result = base;
+  for (const { from, to } of edits) {
+    if (!from || !result.includes(from)) continue; // from 必须真实存在于原文，否则丢弃
+    if (editTargetHasProtectedContent(to, base)) continue; // to 触碰事实 → 丢弃该条
+    result = result.split(from).join(to); // 确定性全量替换
+  }
+  // 最终兜底：关键事实完整性校验（段标题/日期/数字/客户名）
+  const missingFacts = reviewIntegrityTokens(base).filter(token => !result.includes(token));
   if (missingFacts.length) error(502, "AI_FACT_MISMATCH", "AI 润色结果改变了关键事实，已保留规则总结");
-  return normalized;
+  return result;
 }
 
 async function serveStatic(request, response, rootDir, pathname) {
